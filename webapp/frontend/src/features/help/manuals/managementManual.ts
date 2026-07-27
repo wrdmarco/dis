@@ -226,6 +226,21 @@ export const managementManualGuides = {
       warning: 'Meldkamerkladblokregels blijven intern. Maak geen gevoelige beheer- of auditregels zichtbaar voor mobiele gebruikers.',
     },
     {
+      id: 'admin-deployment-reference',
+      title: 'De inzetreferentie instellen',
+      intro: 'Geef nieuwe inzetten een herkenbare en consistente centrale referentie.',
+      permissions: ['settings.manage'],
+      steps: [
+        { label: 'Open Admin en kies Instellingen', description: 'Zoek het blok Inzetreferentie.' },
+        { label: 'Vul het referentiesjabloon in', description: 'Gebruik vaste tekst, zoals NDT, en scheid onderdelen met een koppelteken.' },
+        { label: 'Voeg tokens toe', description: 'Gebruik volgnummer, of combineer datum, tijd en willekeurige code om botsingen tussen nieuwe referenties te voorkomen. Het volgnummer loopt systeemwijd door.' },
+        { label: 'Controleer het voorbeeld', description: 'Let op hoofdletters en volgorde, bijvoorbeeld NDT-20260727-123700-0042.' },
+        { label: 'Kies Inzetreferentie opslaan', description: 'De nieuwe naamgeving geldt voor inzetten die daarna worden aangemaakt.' },
+      ],
+      result: 'De nieuwe referentie verschijnt automatisch in web, pushberichten, mobiele apps, het wallboard en rapporten.',
+      warning: 'Bestaande inzetten behouden hun bestaande referentie. Gebruik geen mappen of schuine strepen.',
+    },
+    {
       id: 'admin-store-review',
       title: 'Revieweraccounts voor appstorecontrole beheren',
       intro: 'Geef Apple of Google beperkte, platformgebonden toegang zonder een echte operationele gebruiker te gebruiken.',

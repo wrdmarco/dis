@@ -32,6 +32,7 @@ final class TestAlertService
         private readonly AuditService $auditService,
         private readonly DispatchService $dispatchService,
         private readonly DispatchPushOutboxService $outbox,
+        private readonly DeploymentReferenceService $deploymentReferences,
         private readonly TestAlertMessageService $messageContent,
     ) {}
 
@@ -202,8 +203,9 @@ final class TestAlertService
             $notificationMessage = TestAlertMessageService::DEFAULT_MESSAGE;
         }
 
+        $reference = $this->deploymentReferences->nextReference(true);
         $deployment = Deployment::query()->create([
-            'reference' => $this->nextReference(),
+            'reference' => $reference['reference'],
             'title' => 'Proefalarmering',
             'description' => $notificationMessage,
             'priority' => 'normal',
@@ -1016,11 +1018,6 @@ final class TestAlertService
         }
 
         return $superseded;
-    }
-
-    private function nextReference(): string
-    {
-        return 'TEST-'.now()->format('Ymd-His').'-'.strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
     }
 
     /** @return array<string, string> */

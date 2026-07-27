@@ -20,6 +20,12 @@ import {
   type AdminApiSettingsForm,
 } from './adminApiSettings';
 import { adminTabChangeAllowed } from './adminTabNavigation';
+import {
+  buildDeploymentReferenceSettingsPayload,
+  deploymentReferencePreview,
+  deploymentReferenceTemplate,
+  deploymentReferenceTokens,
+} from './deploymentReferenceSettings';
 
 const DeploymentRequestWorkflowStudio = dynamic(
   () => import('./DeploymentRequestWorkflowStudio').then((module) => module.DeploymentRequestWorkflowStudio),
@@ -192,12 +198,14 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
   const appLinks = useMemo(() => toAppLinksForm(settings.data ?? []), [settings.data]);
   const operationalMapCommandCenters = useMemo(() => toOperationalMapCommandCenters(settings.data ?? []), [settings.data]);
+  const referenceTemplate = useMemo(() => deploymentReferenceTemplate(settings.data ?? []), [settings.data]);
   const [form, setForm] = useState<MobileSettingsForm>(mobileSettings);
   const [managedForm, setManagedForm] = useState<ManagedSettingsForm>(managedSettings);
   const [adminApiForm, setAdminApiForm] = useState<AdminApiSettingsForm>(adminApiSettings.form);
   const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
   const [appLinksForm, setAppLinksForm] = useState<AppLinksForm>(appLinks);
   const [commandCenters, setCommandCenters] = useState<OperationalMapCommandCenterForm[]>(operationalMapCommandCenters);
+  const [referenceTemplateForm, setReferenceTemplateForm] = useState(referenceTemplate);
   const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
   const [deploymentFormFields, setDeploymentFormFields] = useState<ConfigurableFormField[]>([]);
   const [deploymentFormLayout, setDeploymentFormLayout] = useState<DeploymentFormLayoutItem[]>(defaultDeploymentFormLayout());
@@ -233,6 +241,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [commandCentersSaving, setCommandCentersSaving] = useState(false);
   const [commandCentersMessage, setCommandCentersMessage] = useState<string | null>(null);
   const [commandCentersError, setCommandCentersError] = useState<string | null>(null);
+  const [referenceTemplateSaving, setReferenceTemplateSaving] = useState(false);
+  const [referenceTemplateMessage, setReferenceTemplateMessage] = useState<string | null>(null);
+  const [referenceTemplateError, setReferenceTemplateError] = useState<string | null>(null);
   const [storeReviewPasswords, setStoreReviewPasswords] = useState<Record<'apple' | 'google', string>>({ apple: '', google: '' });
   const [storeReviewSaving, setStoreReviewSaving] = useState<'apple' | 'google' | null>(null);
   const [storeReviewError, setStoreReviewError] = useState<string | null>(null);
@@ -267,6 +278,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   useEffect(() => {
     setCommandCenters(operationalMapCommandCenters);
   }, [operationalMapCommandCenters]);
+
+  useEffect(() => {
+    setReferenceTemplateForm(referenceTemplate);
+  }, [referenceTemplate]);
 
   useEffect(() => {
     setPilotReportFields(pilotReportFormConfig.data?.fields ?? []);
@@ -609,6 +624,23 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       setTimelineVisibilityError(error instanceof ApiClientError ? error.message : 'Zichtbaarheid opslaan mislukt.');
     } finally {
       setTimelineVisibilitySaving(false);
+    }
+  }
+
+  async function saveReferenceTemplate() {
+    setReferenceTemplateSaving(true);
+    setReferenceTemplateError(null);
+    setReferenceTemplateMessage(null);
+    try {
+      await api.patch('/admin/settings', {
+        settings: buildDeploymentReferenceSettingsPayload(referenceTemplateForm),
+      });
+      await settings.reload();
+      setReferenceTemplateMessage('De inzetreferentie voor nieuwe inzetten is opgeslagen.');
+    } catch (error) {
+      setReferenceTemplateError(error instanceof ApiClientError ? error.message : 'Inzetreferentie opslaan mislukt.');
+    } finally {
+      setReferenceTemplateSaving(false);
     }
   }
 
@@ -1773,6 +1805,14 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       {activeTab === 'settings' ? (
         <Panel title="Systeeminstellingen">
           <ResourceState loading={settings.loading} error={settings.error} empty={(settings.data?.length ?? 0) === 0}>
+            <DeploymentReferenceSettings
+              template={referenceTemplateForm}
+              saving={referenceTemplateSaving}
+              message={referenceTemplateMessage}
+              error={referenceTemplateError}
+              onChange={setReferenceTemplateForm}
+              onSave={saveReferenceTemplate}
+            />
             <DeploymentTimelineVisibilitySettings
               visibleTypes={deploymentTimelineVisibleTypes(settings.data ?? [])}
               saving={timelineVisibilitySaving}
@@ -1805,6 +1845,82 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
           </ResourceState>
         </Panel>
       ) : null}
+    </div>
+  );
+}
+
+function DeploymentReferenceSettings(props: {
+  template: string;
+  saving: boolean;
+  message: string | null;
+  error: string | null;
+  onChange: (template: string) => void;
+  onSave: () => Promise<void>;
+}) {
+  const insertToken = (key: (typeof deploymentReferenceTokens)[number]['key']) => {
+    const token = `{{${key}}}`;
+    const separator = props.template === '' || props.template.endsWith('-') ? '' : '-';
+    props.onChange(`${props.template}${separator}${token}`);
+  };
+
+  return (
+    <div className="stacked-section">
+      <div>
+        <h3>Inzetreferentie</h3>
+        <p className="muted-text">
+          Stel het patroon in voor nieuwe inzetten. De referentie is daarna automatisch zichtbaar in web, pushberichten,
+          mobiele apps, het wallboard en rapporten. Bestaande inzetten behouden hun huidige referentie.
+        </p>
+      </div>
+      <label>
+        Referentiesjabloon
+        <input
+          type="text"
+          maxLength={160}
+          value={props.template}
+          placeholder="DIS-{{date}}-{{time}}-{{random}}"
+          spellCheck={false}
+          onChange={(event) => props.onChange(event.target.value)}
+        />
+        <small>
+          Gebruik volgnummer, of combineer datum, tijd en willekeurige code om botsingen te voorkomen.
+          Het volgnummer loopt systeemwijd door.
+        </small>
+      </label>
+      <div className="template-variable-bank">
+        <strong>Beschikbare tokens</strong>
+        <div className="template-variable-bank__grid">
+          {deploymentReferenceTokens.map((token) => (
+            <div className="template-variable" key={token.key}>
+              <span><code>{`{{${token.key}}}`}</code><small>{token.label}</small></span>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={props.saving}
+                onClick={() => insertToken(token.key)}
+              >
+                Toevoegen
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="metadata-example">
+        <strong>Voorbeeld inzetreferentie</strong>
+        <pre>{deploymentReferencePreview(props.template)}</pre>
+      </div>
+      {props.error ? <p className="form-error">{props.error}</p> : null}
+      {props.message ? <p className="success-text">{props.message}</p> : null}
+      <div className="actions-row">
+        <button
+          className="primary-button"
+          type="button"
+          disabled={props.saving || props.template.trim() === ''}
+          onClick={() => void props.onSave()}
+        >
+          {props.saving ? 'Opslaan...' : 'Inzetreferentie opslaan'}
+        </button>
+      </div>
     </div>
   );
 }

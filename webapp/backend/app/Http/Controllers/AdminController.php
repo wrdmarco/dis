@@ -11,6 +11,7 @@ use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\DeploymentReferenceService;
 use App\Services\PasswordPolicy;
 use App\Services\RoleService;
 use App\Services\TwoFactorService;
@@ -107,6 +108,7 @@ final class AdminController extends Controller
 
     public function __construct(
         private readonly AuditService $auditService,
+        private readonly DeploymentReferenceService $deploymentReferenceService,
         private readonly RoleService $roleService,
     ) {}
 
@@ -499,6 +501,7 @@ final class AdminController extends Controller
             'software.download.operator_android.app_store_url',
             'software.download.admin_android.app_store_url',
             'software.download.operator_ios.app_store_url' => $this->validateNullableUrlSetting($key, $value, 2048),
+            DeploymentReferenceService::SETTING_KEY => $this->deploymentReferenceService->validateTemplate($value),
             'deployment.timeline.app_visible_types' => $this->validateStringArraySetting($key, $value, ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit']),
             'operational_map.command_centers' => $this->validateOperationalMapCommandCenters($key, $value),
             default => throw ValidationException::withMessages(["settings.$key" => ['Deze instelling mag niet via deze pagina worden aangepast.']]),

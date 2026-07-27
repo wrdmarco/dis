@@ -26,6 +26,12 @@ final class DeploymentReportService
 
     private const LEGACY_REPORT_DIRECTORY = 'incident-reports';
 
+    private const MAX_REPORT_FILENAME_BYTES = 240;
+
+    private const MAX_STORED_REPORT_PATH_BYTES = 255;
+
+    private const TRUNCATED_REPORT_HASH_LENGTH = 16;
+
     private const PILOT_STANDARD_FIELD_KEYS = [
         'summary',
         'observations',
@@ -435,12 +441,41 @@ final class DeploymentReportService
 
     public function filename(Deployment $deployment): string
     {
-        return Str::slug($deployment->reference.'-'.$deployment->title).'.pdf';
+        $basename = Str::ascii($deployment->reference.'-'.$deployment->title);
+        $basename = preg_replace('/[^A-Za-z0-9]+/', '-', $basename);
+        $basename = is_string($basename)
+            ? trim($basename, '-')
+            : '';
+        $maxBasenameBytes = self::MAX_REPORT_FILENAME_BYTES - strlen('.pdf');
+        $basename = rtrim(substr($basename, 0, $maxBasenameBytes), '-');
+
+        return ($basename !== '' ? $basename : 'Inzetrapport').'.pdf';
     }
 
     private function reportPath(Deployment $deployment): string
     {
-        return self::CANONICAL_REPORT_DIRECTORY.'/'.$deployment->id.'/'.$this->filename($deployment);
+        $directory = self::CANONICAL_REPORT_DIRECTORY.'/'.$deployment->id.'/';
+
+        return $directory.$this->storedReportFilename($deployment, strlen($directory));
+    }
+
+    private function storedReportFilename(Deployment $deployment, int $directoryBytes): string
+    {
+        $basename = Str::slug($deployment->reference.'-'.$deployment->title);
+        $maxFilenameBytes = min(
+            self::MAX_REPORT_FILENAME_BYTES,
+            self::MAX_STORED_REPORT_PATH_BYTES - $directoryBytes,
+        );
+        $maxBasenameBytes = $maxFilenameBytes - strlen('.pdf');
+        if (strlen($basename) <= $maxBasenameBytes) {
+            return $basename.'.pdf';
+        }
+
+        $hash = substr(hash('sha256', $basename), 0, self::TRUNCATED_REPORT_HASH_LENGTH);
+        $prefixLength = $maxBasenameBytes - self::TRUNCATED_REPORT_HASH_LENGTH - 1;
+        $prefix = rtrim(substr($basename, 0, $prefixLength), '-');
+
+        return $prefix.'-'.$hash.'.pdf';
     }
 
     private function absoluteReportPath(string $path): string

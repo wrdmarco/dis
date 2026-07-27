@@ -41,6 +41,7 @@ final class DeploymentService
         private readonly LocationService $locationService,
         private readonly StatusService $statusService,
         private readonly AvailabilityScheduleResolver $availabilityScheduleResolver,
+        private readonly DeploymentReferenceService $deploymentReferenceService,
         private readonly DeploymentReportService $deploymentReportService,
     ) {}
 
@@ -50,6 +51,7 @@ final class DeploymentService
     public function create(array $data, User $actor): Deployment
     {
         return DB::transaction(function () use ($data, $actor): Deployment {
+            $data = $this->withoutClientControlledReferenceFields($data);
             $data = $this->resolveLocationCoordinates($data);
             $phoneCountry = $this->phoneCountryFromDeploymentData($data);
             $data = $this->normalizeDeploymentPhoneFields($data, $phoneCountry);
@@ -59,9 +61,12 @@ final class DeploymentService
             $data['team_id'] = $teamIds[0] ?? null;
             $data['status'] = 'draft';
             $data['closed_at'] = null;
+            $reference = $this->deploymentReferenceService->nextReference(
+                (bool) ($data['is_test'] ?? false),
+            );
 
-            $deployment = Deployment::query()->create($data + [
-                'reference' => $this->nextReference(),
+            $deployment = new Deployment($data + [
+                'reference' => $reference['reference'],
                 'created_by' => $actor->id,
                 'created_by_name' => $actor->name,
                 'created_by_email' => $actor->email,
@@ -69,6 +74,9 @@ final class DeploymentService
                 'coordinator_email' => $this->snapshotUserEmail($data['coordinator_id'] ?? null),
                 'opened_at' => now(),
             ]);
+            $deployment->forceFill([
+                'reference_sequence' => $reference['sequence'],
+            ])->save();
             $deployment->teams()->sync($teamIds);
             $this->refreshDroneFlightContextWhenLocated($deployment);
 
@@ -94,6 +102,7 @@ final class DeploymentService
      */
     public function update(Deployment $deployment, array $data, User $actor): Deployment
     {
+        $data = $this->withoutClientControlledReferenceFields($data);
         $this->lastDispatchWarnings = [];
         $requestedStatus = isset($data['status']) ? (string) $data['status'] : null;
         $manualStatusOverride = filter_var(
@@ -404,11 +413,6 @@ final class DeploymentService
         });
     }
 
-    private function nextReference(): string
-    {
-        return 'DIS-'.now()->format('Ymd-His').'-'.strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
-    }
-
     private function snapshotUserName(mixed $userId): ?string
     {
         return is_string($userId) && $userId !== ''
@@ -572,6 +576,17 @@ final class DeploymentService
 
             $data[$field] = PhoneNumber::normalize($data[$field] ?? null, $phoneCountry, $field, allowLocalWithoutCountry: $phoneCountry === null);
         }
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function withoutClientControlledReferenceFields(array $data): array
+    {
+        unset($data['reference'], $data['reference_sequence']);
 
         return $data;
     }

@@ -48,7 +48,11 @@ final class DeploymentReportStorageCleanupTest extends TestCase
         $canonicalPath = $service->refreshStored($deployment->refresh());
 
         $this->assertSame(
-            'deployment-reports/'.$deployment->id.'/'.$service->filename($deployment),
+            'REPORT-LEGACY-REFRESH-Veilige-rapportopslag.pdf',
+            $service->filename($deployment),
+        );
+        $this->assertSame(
+            'deployment-reports/'.$deployment->id.'/report-legacy-refresh-veilige-rapportopslag.pdf',
             $canonicalPath,
         );
         Storage::disk('local')->assertExists((string) $canonicalPath);
@@ -62,6 +66,42 @@ final class DeploymentReportStorageCleanupTest extends TestCase
         $this->assertTrue($generatedAt->equalTo($deployment->report_generated_at));
         $this->assertTrue($finalizedAt->equalTo($deployment->report_finalized_at));
         $this->assertNull($deployment->report_generation_error);
+    }
+
+    public function test_refresh_bounds_a_long_canonical_report_filename_without_changing_the_download_name_rules(): void
+    {
+        $actor = $this->user('long-report-path@example.test');
+        $deployment = $this->deployment($actor, 'REF-'.str_repeat('A', 251));
+        $deployment->forceFill([
+            'title' => str_repeat('B', 255),
+            'report_pdf_path' => 'incident-reports/'.$deployment->id.'/bestaand-rapport.pdf',
+            'report_generated_at' => now()->subHour(),
+            'report_finalized_at' => now()->subMinutes(30),
+        ])->save();
+        Storage::disk('local')->put((string) $deployment->report_pdf_path, 'long-name-pdf');
+
+        $service = app(DeploymentReportService::class);
+        $canonicalPath = $service->refreshStored($deployment->refresh());
+        $fullStorageBasename = strtolower($deployment->reference.'-'.$deployment->title);
+        $storageDirectory = 'deployment-reports/'.$deployment->id.'/';
+        $maxStorageBasenameBytes = 255 - strlen($storageDirectory) - strlen('.pdf');
+        $expectedStorageFilename = substr(
+            $fullStorageBasename,
+            0,
+            $maxStorageBasenameBytes - 17,
+        )
+            .'-'.substr(hash('sha256', $fullStorageBasename), 0, 16).'.pdf';
+
+        $this->assertNotNull($canonicalPath);
+        $this->assertSame('long-name-pdf', Storage::disk('local')->get((string) $canonicalPath));
+        $this->assertSame(
+            $storageDirectory.$expectedStorageFilename,
+            $canonicalPath,
+        );
+        $this->assertLessThanOrEqual(255, strlen((string) $canonicalPath));
+        $this->assertLessThanOrEqual(240, strlen(basename((string) $canonicalPath)));
+        $this->assertStringStartsWith('REF-AAAA', $service->filename($deployment));
+        $this->assertLessThanOrEqual(240, strlen($service->filename($deployment)));
     }
 
     public function test_a_later_canonical_access_retries_a_failed_legacy_cleanup(): void

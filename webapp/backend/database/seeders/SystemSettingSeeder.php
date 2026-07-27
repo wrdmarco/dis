@@ -14,6 +14,7 @@ final class SystemSettingSeeder extends Seeder
     private array $settings = [
         'dispatch.response_timeout_seconds' => ['value' => 300, 'is_sensitive' => false],
         'dispatch.escalation_enabled' => ['value' => true, 'is_sensitive' => false],
+        'deployment.reference_template' => ['value' => 'DIS-{{date}}-{{time}}-{{random}}', 'is_sensitive' => false],
         'deployment.timeline.app_visible_types' => ['value' => ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status'], 'is_sensitive' => false],
         'operational_map.command_centers' => ['value' => [], 'is_sensitive' => false],
         'devices.heartbeat_interval_minutes' => ['value' => 15, 'is_sensitive' => false],

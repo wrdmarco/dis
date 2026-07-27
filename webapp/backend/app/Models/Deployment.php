@@ -66,6 +66,7 @@ final class Deployment extends Model
             'location_enrichment_attempted_at' => 'immutable_datetime',
             'report_generated_at' => 'immutable_datetime',
             'report_finalized_at' => 'immutable_datetime',
+            'reference_sequence' => 'integer',
             'opened_at' => 'immutable_datetime',
             'closed_at' => 'immutable_datetime',
         ];
