@@ -266,6 +266,112 @@ final class DeploymentRequestTest extends TestCase
         }
     }
 
+    public function test_empty_deployment_profile_uses_operational_base_team_in_recommended_and_selected_proposals(): void
+    {
+        config()->set('dis.teams.base_team_code', 'BASE-CUSTOM');
+        $baseTeam = Team::query()->create([
+            'code' => 'BASE-CUSTOM',
+            'name' => 'Operationeel basisteam',
+            'type' => 'base',
+            'is_operational' => true,
+        ]);
+        $workflow = app(DeploymentRequestWorkflowService::class);
+        $configuration = $workflow->validateConfiguration($workflow->defaultConfiguration());
+
+        $evaluation = $workflow->evaluate($configuration, 'person', $this->personAnswers());
+
+        $this->assertSame([$baseTeam->id], $evaluation['deployment_proposal']['team_ids']);
+        $this->assertSame('BASE-CUSTOM', $evaluation['deployment_proposal']['teams'][0]['code']);
+        $this->assertSame('Operationeel basisteam', $evaluation['deployment_proposal']['teams'][0]['name']);
+
+        $actor = $this->user('base-team-proposal@example.test');
+        $deploymentRequests = app(DeploymentRequestService::class);
+        $created = $deploymentRequests->create([
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'base-team-proposal-create',
+        ], $actor);
+        $deploymentRequest = DeploymentRequest::query()->findOrFail($created['id']);
+        $decided = $deploymentRequests->decidePriority($deploymentRequest, [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'base-team-proposal-decision',
+            'priority' => 'low',
+        ], $actor);
+
+        $this->assertSame([$baseTeam->id], $created['deployment_proposal']['team_ids']);
+        $this->assertSame([$baseTeam->id], $decided['selected_deployment_proposal']['team_ids']);
+        $this->assertSame('BASE-CUSTOM', $decided['selected_deployment_proposal']['teams'][0]['code']);
+
+        Http::fake(['*' => Http::response([], 200)]);
+        $prepared = $deploymentRequests->prepareDeployment($deploymentRequest, [
+            'lock_version' => $decided['lock_version'],
+            'client_mutation_id' => 'base-team-proposal-prepare',
+        ], $actor);
+        $this->assertSame(
+            [$baseTeam->id],
+            $prepared['deployment']->teams()->pluck('teams.id')->all(),
+        );
+    }
+
+    public function test_empty_deployment_profile_remains_teamless_when_base_team_is_missing_or_not_operational(): void
+    {
+        config()->set('dis.teams.base_team_code', 'UNAVAILABLE-BASE');
+        $workflow = app(DeploymentRequestWorkflowService::class);
+        $configuration = $workflow->validateConfiguration($workflow->defaultConfiguration());
+        $actor = $this->user('unavailable-base-team@example.test');
+        $deploymentRequests = app(DeploymentRequestService::class);
+
+        $missingEvaluation = $workflow->evaluate($configuration, 'person', $this->personAnswers());
+        $missing = $deploymentRequests->create([
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'missing-base-team-create',
+        ], $actor);
+        $missingDecision = $deploymentRequests->decidePriority(
+            DeploymentRequest::query()->findOrFail($missing['id']),
+            [
+                'lock_version' => $missing['lock_version'],
+                'client_mutation_id' => 'missing-base-team-decision',
+                'priority' => 'low',
+            ],
+            $actor,
+        );
+
+        $this->assertSame([], $missingEvaluation['deployment_proposal']['team_ids']);
+        $this->assertSame([], $missingEvaluation['deployment_proposal']['teams']);
+        $this->assertSame([], $missing['deployment_proposal']['team_ids']);
+        $this->assertSame([], $missingDecision['selected_deployment_proposal']['team_ids']);
+        $this->assertSame([], $missingDecision['selected_deployment_proposal']['teams']);
+
+        Team::query()->create([
+            'code' => 'UNAVAILABLE-BASE',
+            'name' => 'Niet-operationeel basisteam',
+            'type' => 'base',
+            'is_operational' => false,
+        ]);
+        $inactiveEvaluation = $workflow->evaluate($configuration, 'person', $this->personAnswers());
+        $inactive = $deploymentRequests->create([
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'inactive-base-team-create',
+        ], $actor);
+        $inactiveDecision = $deploymentRequests->decidePriority(
+            DeploymentRequest::query()->findOrFail($inactive['id']),
+            [
+                'lock_version' => $inactive['lock_version'],
+                'client_mutation_id' => 'inactive-base-team-decision',
+                'priority' => 'low',
+            ],
+            $actor,
+        );
+
+        $this->assertSame([], $inactiveEvaluation['deployment_proposal']['team_ids']);
+        $this->assertSame([], $inactiveEvaluation['deployment_proposal']['teams']);
+        $this->assertSame([], $inactive['deployment_proposal']['team_ids']);
+        $this->assertSame([], $inactiveDecision['selected_deployment_proposal']['team_ids']);
+        $this->assertSame([], $inactiveDecision['selected_deployment_proposal']['teams']);
+    }
+
     public function test_bound_answers_enforce_target_lengths_and_select_options_before_preparation(): void
     {
         $service = app(DeploymentRequestWorkflowService::class);
@@ -1931,6 +2037,16 @@ final class DeploymentRequestTest extends TestCase
         $this->assertNotContains('medical_details', $keys);
         $this->assertNull($filtered['reporter_name']);
 
+        $managerRows = collect(
+            $this->asWebClient($manager)
+                ->getJson("/api/deployments/{$deployment->id}/deployment-request")
+                ->assertOk()
+                ->json('data.answer_rows'),
+        )->keyBy('key');
+        $this->assertFalse($managerRows->get('person_age')['operator_visible']);
+        $this->assertFalse($managerRows->get('medical_details')['operator_visible']);
+        $this->assertTrue($managerRows->get('last_seen_location')['operator_visible']);
+
         $this->asWebClient($operator)
             ->getJson('/api/deployment-requests')
             ->assertForbidden();
@@ -2068,7 +2184,9 @@ final class DeploymentRequestTest extends TestCase
             ->assertJsonPath('data.deployment_id', $prepared['deployment']['id']);
 
         $client->getJson('/api/intake-dossiers')->assertNotFound();
-        $client->getJson('/api/incidents')->assertNotFound();
+        $client->getJson('/api/incidents')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $prepared['deployment']['id']);
     }
 
     public function test_manage_only_web_actor_can_open_the_deployment_immediately_after_preparation(): void

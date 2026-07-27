@@ -17,10 +17,12 @@ This repository contains only the files required to install, run, update and uni
 The canonical API resources are `/deployment-requests` and `/deployments`; relationship keys are
 `deployment_request_id` and `deployment_id`. The web routes are `/aanvragen` and `/inzetten`.
 Old incident/intake identifiers exist only in immutable historical migrations, bounded upgrade readers,
-queue-drain compatibility and web redirects. New API responses, persisted configuration, realtime events
-and internal queued/outbox push contracts use only the canonical deployment terminology. During the
-coordinated mobile transition, provider payloads temporarily include the canonical
-`deployment_event_type` plus bounded, old-client-safe wire aliases.
+queue-drain compatibility, web redirects and bounded native-client compatibility aliases. Older supported
+native builds may temporarily use read/report/location routes under `/incidents` and receive additive
+`incident_id` or `intake` response aliases; current clients use only the canonical fields and routes.
+Persisted configuration, realtime events and internal queued/outbox push contracts use only the canonical
+deployment terminology. During the coordinated mobile transition, provider payloads temporarily include
+the canonical `deployment_event_type` plus bounded, old-client-safe wire aliases.
 
 ## Requirements
 

@@ -342,6 +342,10 @@ final class MobileApiPayload
                 : (object) ($deployment->custom_fields ?? []),
             'deployment_request' => $deploymentRequestProjection,
             'deployment_request_id' => $deploymentRequest?->id,
+            ...($operatorClient ? [
+                'intake' => $deploymentRequestProjection,
+                'intake_dossier_id' => $deploymentRequest?->id,
+            ] : []),
             'priority' => $deployment->priority,
             'status' => $deployment->status,
             'is_test' => (bool) $deployment->is_test,
@@ -375,6 +379,7 @@ final class MobileApiPayload
         return [
             'id' => $report->id,
             'deployment_id' => $report->deployment_id,
+            'incident_id' => $report->deployment_id,
             'user_id' => $report->user_id,
             'user_name' => $report->user_name,
             'status' => $report->status,

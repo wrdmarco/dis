@@ -34,7 +34,10 @@ final class LocationController extends Controller
     {
         $this->access->assertCanViewDeployment($request->user(), $deployment);
 
-        return ApiResponse::success($this->service->consent($deployment, $request->user()), 201);
+        return ApiResponse::success(
+            $this->mobileConsentPayload($this->service->consent($deployment, $request->user())),
+            201,
+        );
     }
 
     public function revoke(Request $request, Deployment $deployment): Response
@@ -52,7 +55,9 @@ final class LocationController extends Controller
             'reason' => ['nullable', 'string', 'max:120'],
         ]);
 
-        return ApiResponse::success($this->service->decline($deployment, $request->user(), $data['reason'] ?? null));
+        return ApiResponse::success($this->mobileConsentPayload(
+            $this->service->decline($deployment, $request->user(), $data['reason'] ?? null),
+        ));
     }
 
     public function requestSharing(Request $request, Deployment $deployment): JsonResponse
@@ -422,5 +427,13 @@ final class LocationController extends Controller
         }
 
         return $coordinate;
+    }
+
+    /** @return array<string, mixed> */
+    private function mobileConsentPayload(LocationSharingConsent $consent): array
+    {
+        return $consent->toArray() + [
+            'incident_id' => (string) $consent->deployment_id,
+        ];
     }
 }

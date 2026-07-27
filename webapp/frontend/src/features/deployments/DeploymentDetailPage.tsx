@@ -244,6 +244,19 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
     }
   };
 
+  const postAdditionalInfo = async (message: string) => {
+    if (!latestDispatch) {
+      throw new Error('Er is geen alarmering waaraan nadere info kan worden toegevoegd.');
+    }
+
+    const response = await api.post<{ queued_tokens: number; recipient_users: number }>(
+      `/dispatches/${latestDispatch.id}/message`,
+      { message },
+    );
+    await Promise.all([timeline.reload(), dispatches.reload()]);
+    return response.data;
+  };
+
   const sendAdditionalInfo = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!latestDispatch || additionalInfo.trim() === '') {
@@ -253,13 +266,9 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
     setAdditionalInfoSending(true);
     setAdditionalInfoMessage(null);
     try {
-      const response = await api.post<{ queued_tokens: number; recipient_users: number }>(`/dispatches/${latestDispatch.id}/message`, {
-        message: additionalInfo.trim(),
-      });
+      const result = await postAdditionalInfo(additionalInfo.trim());
       setAdditionalInfo('');
-      setAdditionalInfoMessage(`Verzonden naar ${response.data.recipient_users} opkomende gebruiker(s), ${response.data.queued_tokens} pushbericht(en) in wachtrij.`);
-      await timeline.reload();
-      await dispatches.reload();
+      setAdditionalInfoMessage(`Verzonden naar ${result.recipient_users} opkomende gebruiker(s), ${result.queued_tokens} pushbericht(en) in wachtrij.`);
     } catch (err) {
       setAdditionalInfoMessage(err instanceof ApiClientError ? err.message : 'Nadere info kon niet worden verzonden.');
     } finally {
@@ -622,6 +631,16 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
           deploymentId={deploymentId}
           canManage={canManageDeployments}
           refreshVersion={deploymentRequestRefreshVersion}
+          additionalInfoRecipientCount={
+            canManageDispatches && latestDispatch !== null && !latestDispatchIsPreannouncement
+              ? additionalInfoRecipientCount(latestDispatch)
+              : null
+          }
+          onSendAdditionalInfo={
+            canManageDispatches && latestDispatch !== null && !latestDispatchIsPreannouncement
+              ? postAdditionalInfo
+              : undefined
+          }
         />
       ) : null}
 

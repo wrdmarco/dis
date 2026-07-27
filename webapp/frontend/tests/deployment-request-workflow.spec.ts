@@ -7,9 +7,13 @@ import {
   deploymentRequestBooleanChoice,
   deploymentRequestCompleteness,
   deploymentRequestDecisionProfileId,
+  deploymentRequestPilotVisibleAnswers,
+  deploymentRequestPilotVisibleChanges,
+  deploymentRequestPilotVisibleChangesMessage,
   deploymentRequestTitle,
   deploymentRequestPriorityLabel,
   deploymentRequestRequiredAnswersAreComplete,
+  deploymentRequestSuggestedDecisionPriority,
   mergeDeploymentRequestChanges,
   mergeQueuedDeploymentRequestChanges,
   type DeploymentRequest,
@@ -90,7 +94,11 @@ test('allows deployment preparation to flush locally complete answers before che
     .toBeLessThan(prepareFlow.indexOf("currentDeploymentRequest.triage.state === 'incomplete'"));
   expect(workspace).toContain('disabled={preparingDeployment || decisionSaving || !requiredAnswersComplete}');
   expect(workspace).not.toContain('disabled={preparingDeployment || decisionSaving || assessmentBlocked || draft.decided_priority === null}');
-  expect(workspace).toContain('Leg eerst de beoordeling en het inzetvoorstel vast.');
+  expect(prepareFlow).toContain('currentDeploymentRequest = await requestDecision');
+  expect(prepareFlow).toContain('selected_deployment_profile_id: currentDeploymentRequest.deployment_proposal?.profile_id ?? null');
+  expect(workspace).toContain('Het geadviseerde inzetvoorstel en de teams worden bij voorbereiden automatisch vastgelegd.');
+  expect(prepareFlow.indexOf("window.confirm('Conceptinzet voorbereiden"))
+    .toBeLessThan(prepareFlow.indexOf('currentDeploymentRequest = await requestDecision'));
 });
 
 test('merges dirty patches without dropping newer keystrokes and null removes an answer', () => {
@@ -161,16 +169,20 @@ test('implements conflict-safe autosave, decision and idempotent deployment prep
   expect(workspace).toContain('Serverversie laden');
   expect(workspace).toContain('Mijn wijzigingen opnieuw toepassen');
   expect(workspace).toContain("window.addEventListener('online'");
-  expect(workspace).toContain("`/deployment-requests/${draft.id}/priority`");
+  expect(workspace).toContain("`/deployment-requests/${current.id}/priority`");
   expect(workspace).toContain('...(planChanged ? {');
-  expect(workspace).toContain("`/deployment-requests/${draft.id}/prepare-deployment`");
+  expect(workspace).toContain("`/deployment-requests/${currentDeploymentRequest.id}/prepare-deployment`");
   expect(workspace).toContain('prepareDeploymentMutationIdRef.current');
   expect(workspace).toContain('client_mutation_id: preparationMutationId');
   expect(workspace).toContain('Er wordt geen alarm verstuurd.');
   expect(workspace).toContain('recommended_recipient_count: deploymentDraft.recipientCount');
   expect(workspace).toContain('recommended_dispatch_mode: deploymentDraft.dispatchMode');
-  expect(workspace).toContain('required_certification_type_ids: deploymentDraft.certificationTypeIds');
-  expect(workspace).toContain('Dit voorstel selecteert of alarmeert niemand automatisch.');
+  expect(workspace).not.toContain('required_certification_type_ids:');
+  expect(workspace).not.toContain('certificationTypeIds');
+  expect(workspace).not.toContain('/certifications/options');
+  expect(workspace).not.toContain('Vereiste certificaattypen');
+  expect(workspace).toContain('Het geadviseerde voorstel en de bijbehorende teams zijn vooraf geselecteerd.');
+  expect(workspace).toContain('teamIds: proposal?.team_ids ?? []');
   expect(workspace).toContain("draft.triage.state === 'incomplete'");
   expect(workspace).toContain('Inzet voorbereiden wordt beschikbaar zodra de kerngegevens compleet zijn.');
   expect(workspace).not.toContain('/dispatch');
@@ -189,6 +201,10 @@ test('paginates open and closed work queues and reuses the linked request in dep
   expect(list).toContain('pagination.current_page >= pagination.last_page');
   expect(deploymentPanel).toContain('`/deployments/${deploymentId}/deployment-request`');
   expect(deploymentPanel).toContain('allowPreparedEditing');
+  expect(deploymentPanel).toContain('title="Belangrijke inzetinformatie"');
+  expect(deploymentPanel).toContain('modal--deployment-request');
+  expect(deploymentPanel).toContain('Gewijzigde pilootinformatie ook versturen');
+  expect(deploymentPanel).toContain('deploymentRequestPilotVisibleAnswers');
   expect(deploymentEdit).not.toContain('DeploymentRequestPanel');
   expect(deploymentEdit).toContain('hiddenFieldKeys={deploymentRequestOwnedFieldKeys}');
   expect(deploymentEdit).toContain('changedDeploymentPayload(');
@@ -197,6 +213,72 @@ test('paginates open and closed work queues and reuses the linked request in dep
   expect(realtime).toContain("echo.private('deployment-requests')");
   expect(realtime).toContain(".listen('.deployment-request.changed', options.onDeploymentRequestEvent)");
   expect(list).toContain('onDeploymentRequestEvent={() => void reloadDeploymentRequestsSilently()}');
+});
+
+test('shows and forwards only changed answers explicitly visible to pilots', () => {
+  const before = {
+    answer_rows: [
+      answerRow('last_seen_location', 'Stationsplein'),
+      { ...answerRow('contact_phone', '0612345678'), operator_visible: false },
+      answerRow('clothing', 'Blauwe jas'),
+    ],
+  };
+  const after = {
+    answer_rows: [
+      answerRow('last_seen_location', 'Marktplein'),
+      { ...answerRow('contact_phone', '0687654321'), operator_visible: false },
+    ],
+  };
+
+  expect(deploymentRequestPilotVisibleAnswers(after).map((answer) => answer.key))
+    .toEqual(['last_seen_location']);
+  const changes = deploymentRequestPilotVisibleChanges(before, after);
+  expect(changes).toEqual([
+    {
+      key: 'last_seen_location',
+      label: 'last_seen_location',
+      display_value: 'Marktplein',
+    },
+    {
+      key: 'clothing',
+      label: 'clothing',
+      display_value: '',
+    },
+  ]);
+  expect(deploymentRequestPilotVisibleChangesMessage(changes)).toBe(
+    'Aanvulling inzetinformatie:\n'
+      + '- last_seen_location: Marktplein\n'
+      + '- clothing: Niet langer ingevuld',
+  );
+});
+
+test('persists modal edits before optionally sending the pilot-visible subset', () => {
+  const panel = source('../src/features/deployment-requests/DeploymentRequestPanel.tsx');
+  const finishStart = panel.indexOf('const finishEditing = async');
+  const finishEnd = panel.indexOf('\n  return (', finishStart);
+  const finishFlow = panel.slice(finishStart, finishEnd);
+
+  expect(finishStart).toBeGreaterThan(-1);
+  expect(finishFlow.indexOf('workspaceRef.current.savePendingChanges()'))
+    .toBeLessThan(finishFlow.indexOf('deploymentRequestPilotVisibleChanges(editBaseline, persisted)'));
+  expect(finishFlow.indexOf('deploymentRequestPilotVisibleChanges(editBaseline, persisted)'))
+    .toBeLessThan(finishFlow.indexOf('await onSendAdditionalInfo(message)'));
+  expect(finishFlow).toContain('touchedAnswerKeysRef.current.has(change.key)');
+  expect(finishFlow).toContain('if (message.length > 2000)');
+  expect(panel.indexOf('modal--deployment-request'))
+    .toBeLessThan(panel.indexOf('              <DeploymentRequestWorkspace'));
+});
+
+test('prefills the current recommendation while preserving an explicit decision', () => {
+  const deploymentRequest = dossierFixture();
+  deploymentRequest.triage.recommended_priority = 'medium';
+
+  expect(deploymentRequestSuggestedDecisionPriority(deploymentRequest)).toBe('medium');
+  deploymentRequest.decided_priority = 'high';
+  expect(deploymentRequestSuggestedDecisionPriority(deploymentRequest)).toBe('high');
+  deploymentRequest.decided_priority = null;
+  deploymentRequest.triage.recommended_priority = null;
+  expect(deploymentRequestSuggestedDecisionPriority(deploymentRequest)).toBeNull();
 });
 
 test('presents the required Dutch priority vocabulary', () => {

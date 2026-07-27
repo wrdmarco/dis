@@ -224,6 +224,44 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-dispatch']);
 
+        // Native clients released before the deployment-domain cut-over use
+        // these incident paths. Keep their read, report and location surface
+        // mapped to the canonical controllers until those builds have aged out.
+        Route::get('/incidents', [DeploymentController::class, 'index'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::get('/incidents/{deployment}', [DeploymentController::class, 'show'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::get('/incidents/{deployment}/timeline', [DeploymentController::class, 'timeline'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::get('/incidents/{deployment}/pilot-report', [PilotDeploymentReportController::class, 'show'])
+            ->middleware('permission:deployments.view,deployments.assigned.view');
+        Route::patch('/incidents/{deployment}/pilot-report', [PilotDeploymentReportController::class, 'update'])
+            ->middleware('permission:deployments.view,deployments.assigned.view');
+        Route::post('/incidents/{deployment}/pilot-report/finalize', [PilotDeploymentReportController::class, 'finalize'])
+            ->middleware('permission:deployments.view,deployments.assigned.view');
+        Route::get('/incidents/{deploymentId}/report', [ReportingController::class, 'deploymentPdf'])
+            ->middleware('permission:deployments.view,deployments.manage');
+        Route::get('/incidents/{deploymentId}/report.pdf', [ReportingController::class, 'deploymentPdf'])
+            ->middleware('permission:deployments.view,deployments.manage');
+        Route::get('/incidents/{deployment}/live-locations', [LocationController::class, 'liveLocations'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::post('/incidents/{deployment}/location/consent', [LocationController::class, 'consent'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.view,deployments.assigned.view', 'throttle:alarm-response']);
+        Route::post('/incidents/{deployment}/location/decline', [LocationController::class, 'decline'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.view,deployments.assigned.view', 'throttle:alarm-response']);
+        Route::delete('/incidents/{deployment}/location/consent', [LocationController::class, 'revoke'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.view,deployments.assigned.view', 'throttle:alarm-response']);
+        Route::post('/incidents/{deployment}/location', [LocationController::class, 'update'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.view,deployments.assigned.view', 'throttle:operational-telemetry']);
+
         Route::get('/dispatches', [DispatchController::class, 'index'])
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);

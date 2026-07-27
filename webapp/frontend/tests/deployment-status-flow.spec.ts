@@ -49,7 +49,7 @@ test('routes creation through deployment request preparation and keeps deploymen
   );
 
   expect(createRoute).toContain("redirect('/aanvragen/new')");
-  expect(deploymentRequestWorkspace).toContain("`/deployment-requests/${draft.id}/prepare-deployment`");
+  expect(deploymentRequestWorkspace).toContain("`/deployment-requests/${currentDeploymentRequest.id}/prepare-deployment`");
   expect(deploymentRequestWorkspace).toContain('Er wordt geen alarm verstuurd.');
   expect(editPage).toContain('showStatus={canManuallyChangeStatus}');
   expect(editPage).toContain('changedDeploymentPayload(');

@@ -467,8 +467,8 @@ final class DeploymentRequestService
         $deploymentRequest->loadMissing(['workflowRevision', 'deployment']);
         $configuration = $deploymentRequest->workflowRevision->configuration ?? [];
         $subjectType = (string) $deploymentRequest->subject_type;
-        $currentPublished = $operatorOnly ? $this->workflowService->published() : null;
-        $currentFieldMap = collect($currentPublished?->configuration['fields'] ?? [])->keyBy('key');
+        $currentPublished = $this->workflowService->published();
+        $currentFieldMap = collect($currentPublished->configuration['fields'] ?? [])->keyBy('key');
         $answers = is_array($deploymentRequest->answers) ? $deploymentRequest->answers : [];
         $answerRows = [];
         $section = null;
@@ -486,14 +486,13 @@ final class DeploymentRequestService
             if (! array_key_exists($key, $answers) || $this->isEmpty($answers[$key])) {
                 continue;
             }
-            if ($operatorOnly) {
-                $current = $currentFieldMap->get($key);
-                if (($field['operator_visible'] ?? false) !== true
-                    || ! is_array($current)
-                    || ($current['operator_visible'] ?? false) !== true
-                    || ! $this->fieldApplies($current, $subjectType)) {
-                    continue;
-                }
+            $current = $currentFieldMap->get($key);
+            $operatorVisible = ($field['operator_visible'] ?? false) === true
+                && is_array($current)
+                && ($current['operator_visible'] ?? false) === true
+                && $this->fieldApplies($current, $subjectType);
+            if ($operatorOnly && ! $operatorVisible) {
+                continue;
             }
             $answerRows[] = [
                 'key' => $key,
@@ -502,7 +501,7 @@ final class DeploymentRequestService
                 'value' => $answers[$key],
                 'display_value' => $this->displayValue($field, $answers[$key]),
                 'section' => $section,
-                'operator_visible' => (bool) ($field['operator_visible'] ?? false),
+                'operator_visible' => $operatorVisible,
             ];
         }
 
@@ -791,9 +790,12 @@ final class DeploymentRequestService
         if ($profileId !== null && ! is_array($profile)) {
             throw ValidationException::withMessages(['selected_deployment_profile_id' => ['Dit inzetprofiel past niet bij type en prioriteit.']]);
         }
+        $profileTeamSelection = is_array($profile)
+            ? $this->workflowService->deploymentProposalTeamSelection($profile)
+            : ['team_ids' => [], 'teams' => []];
 
         $hasTeamAdjustment = array_key_exists('team_ids', $adjustments);
-        $teamIds = $hasTeamAdjustment ? $adjustments['team_ids'] : ($profile['team_ids'] ?? []);
+        $teamIds = $hasTeamAdjustment ? $adjustments['team_ids'] : $profileTeamSelection['team_ids'];
         if (! is_array($teamIds) || ! array_is_list($teamIds)) {
             throw ValidationException::withMessages(['deployment_adjustments.team_ids' => ['Teams moeten als lijst worden aangeleverd.']]);
         }
@@ -850,7 +852,7 @@ final class DeploymentRequestService
             'team_ids' => $teamIds,
             'teams' => $hasTeamAdjustment
                 ? Team::query()->whereIn('id', $teamIds)->where('is_operational', true)->get(['id', 'code', 'name'])->map->only(['id', 'code', 'name'])->values()->all()
-                : ($profile['team_snapshots'] ?? []),
+                : $profileTeamSelection['teams'],
             'resources' => $resources,
             'notes' => $this->nullableText($adjustments['notes'] ?? null, 2000),
             'recommended_recipient_count' => $recipientCount,

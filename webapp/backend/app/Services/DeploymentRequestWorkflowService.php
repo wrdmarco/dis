@@ -552,6 +552,47 @@ final class DeploymentRequestWorkflowService
         ];
     }
 
+    /**
+     * @param  array<string, mixed>  $profile
+     * @return array{
+     *     team_ids: list<string>,
+     *     teams: list<array{id: string, code: string, name: string}>
+     * }
+     */
+    public function deploymentProposalTeamSelection(array $profile): array
+    {
+        $teamIds = is_array($profile['team_ids'] ?? null)
+            ? array_values(array_filter(
+                $profile['team_ids'],
+                fn (mixed $teamId): bool => is_string($teamId),
+            ))
+            : [];
+        if ($teamIds !== []) {
+            return [
+                'team_ids' => $teamIds,
+                'teams' => is_array($profile['team_snapshots'] ?? null)
+                    ? array_values($profile['team_snapshots'])
+                    : [],
+            ];
+        }
+
+        $baseTeam = Team::query()
+            ->where('code', (string) config('dis.teams.base_team_code', 'OCP'))
+            ->where('is_operational', true)
+            ->first(['id', 'code', 'name']);
+
+        return $baseTeam === null
+            ? ['team_ids' => [], 'teams' => []]
+            : [
+                'team_ids' => [(string) $baseTeam->id],
+                'teams' => [[
+                    'id' => (string) $baseTeam->id,
+                    'code' => (string) $baseTeam->code,
+                    'name' => (string) $baseTeam->name,
+                ]],
+            ];
+    }
+
     /** @return array<string, mixed> */
     public function defaultConfiguration(): array
     {
@@ -1209,13 +1250,14 @@ final class DeploymentRequestWorkflowService
         if (! is_array($profile)) {
             return null;
         }
+        $teamSelection = $this->deploymentProposalTeamSelection($profile);
 
         return [
             'profile_id' => $profile['id'],
             'label' => $profile['label'],
             'summary' => $profile['summary'],
-            'team_ids' => $profile['team_ids'],
-            'teams' => $profile['team_snapshots'] ?? [],
+            'team_ids' => $teamSelection['team_ids'],
+            'teams' => $teamSelection['teams'],
             'resources' => $profile['resources'],
             'recommended_recipient_count' => $profile['recommended_recipient_count'],
             'recommended_dispatch_mode' => $profile['recommended_dispatch_mode'],

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\PushProvider;
 use App\Jobs\SendFcmNotification;
 use App\Models\Deployment;
@@ -376,6 +377,76 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             fn (SendFcmNotification $job): bool => $job->messageType === 'dispatch_response_sync'
                 && ($job->data['action_mode'] ?? null) === 'attendance',
         );
+    }
+
+    public function test_preannouncement_push_is_not_submitted_before_the_outer_deployment_transaction_commits(): void
+    {
+        $actor = $this->user('outer-transaction-actor@example.test', 'Outer Transaction Actor');
+        $pilot = $this->user('outer-transaction-pilot@example.test', 'Outer Transaction Pilot', pushEnabled: true);
+        $team = Team::query()->create([
+            'code' => 'PREALARM-OUTER-TRANSACTION',
+            'name' => 'Prealarm Outer Transaction',
+            'type' => 'base',
+            'is_operational' => true,
+        ]);
+        $team->users()->attach($pilot->id, ['created_at' => now()]);
+        $pilot->forceFill([
+            'home_city' => 'Teststad',
+            'home_latitude' => 52.100000,
+            'home_longitude' => 5.100000,
+        ])->save();
+        FcmToken::query()->create([
+            'user_id' => $pilot->id,
+            'personal_access_token_id' => $this->operatorAccessTokenId($pilot, 'Outer transaction device'),
+            'device_id' => 'outer-transaction-device',
+            'token' => 'outer-transaction-token',
+            'token_hash' => hash('sha256', 'outer-transaction-token'),
+            'platform' => 'android',
+            'client_type' => 'operator',
+            'is_active' => true,
+            'last_seen_at' => now(),
+        ]);
+        $deployment = Deployment::query()->create([
+            'reference' => 'PREALARM-OUTER-TRANSACTION-001',
+            'title' => 'Prealarm buitenste transactietest',
+            'priority' => 'normal',
+            'status' => 'draft',
+            'is_test' => false,
+            'latitude' => 52.200000,
+            'longitude' => 5.200000,
+            'team_id' => $team->id,
+            'created_by' => $actor->id,
+            'created_by_name' => $actor->name,
+            'created_by_email' => $actor->email,
+            'opened_at' => now(),
+        ]);
+        $deployment->teams()->attach($team->id, ['created_at' => now()]);
+
+        $recordingQueue = new class implements DispatchNotificationQueue
+        {
+            /** @var list<string> */
+            public array $outboxIds = [];
+
+            public function enqueue(DispatchPushOutbox $notification): void
+            {
+                $this->outboxIds[] = (string) $notification->id;
+            }
+        };
+        $this->app->instance(DispatchNotificationQueue::class, $recordingQueue);
+
+        DB::transaction(function () use ($deployment, $actor, $recordingQueue): void {
+            app(DeploymentService::class)->update($deployment, [
+                'status' => 'active',
+                'status_reason' => 'Vooraankondiging verstuurd.',
+            ], $actor);
+
+            $this->assertSame([], $recordingQueue->outboxIds);
+            $this->assertNull(DispatchPushOutbox::query()->sole()->queued_at);
+        });
+
+        $outbox = DispatchPushOutbox::query()->sole();
+        $this->assertSame([(string) $outbox->id], $recordingQueue->outboxIds);
+        $this->assertNotNull($outbox->queued_at);
     }
 
     public function test_alarm_provider_submission_waits_for_an_in_flight_dispatch_phase(): void

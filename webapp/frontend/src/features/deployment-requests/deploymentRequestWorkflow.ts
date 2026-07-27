@@ -61,6 +61,12 @@ export interface DeploymentRequestAnswerRow {
   operator_visible: boolean;
 }
 
+export interface DeploymentRequestPilotVisibleChange {
+  key: string;
+  label: string;
+  display_value: string;
+}
+
 export interface DeploymentRequestMissingField {
   key: string;
   label: string;
@@ -171,6 +177,13 @@ export function deploymentRequestDecisionProfileId(
   return null;
 }
 
+export function deploymentRequestSuggestedDecisionPriority(
+  deploymentRequest: Pick<DeploymentRequest, 'decided_priority' | 'triage'>,
+): DeploymentRequestPriority | null {
+  return deploymentRequest.decided_priority
+    ?? deploymentRequest.triage.recommended_priority;
+}
+
 export function deploymentRequestStatusLabel(status: DeploymentRequestStatus): string {
   switch (status) {
     case 'open':
@@ -207,6 +220,56 @@ export function deploymentRequestTitle(
 
   const fallback = deploymentRequest.answer_rows.find((answer) => answer.display_value.trim() !== '');
   return fallback?.display_value ?? `Uitvraag ${deploymentRequest.subject_type_label.toLowerCase()}`;
+}
+
+export function deploymentRequestPilotVisibleAnswers(
+  deploymentRequest: Pick<DeploymentRequest, 'answer_rows'>,
+): DeploymentRequestAnswerRow[] {
+  return deploymentRequest.answer_rows.filter((answer) => (
+    answer.operator_visible && answer.display_value.trim() !== ''
+  ));
+}
+
+export function deploymentRequestPilotVisibleChanges(
+  before: Pick<DeploymentRequest, 'answer_rows'>,
+  after: Pick<DeploymentRequest, 'answer_rows'>,
+): DeploymentRequestPilotVisibleChange[] {
+  const beforeByKey = new Map(
+    before.answer_rows
+      .filter((answer) => answer.operator_visible)
+      .map((answer) => [answer.key, answer]),
+  );
+  const afterByKey = new Map(
+    after.answer_rows
+      .filter((answer) => answer.operator_visible)
+      .map((answer) => [answer.key, answer]),
+  );
+  const keys = [...new Set([...beforeByKey.keys(), ...afterByKey.keys()])];
+
+  return keys.flatMap((key) => {
+    const previous = beforeByKey.get(key);
+    const current = afterByKey.get(key);
+    const previousValue = previous?.display_value.trim() ?? '';
+    const currentValue = current?.display_value.trim() ?? '';
+    if (previousValue === currentValue) return [];
+
+    return [{
+      key,
+      label: current?.label ?? previous?.label ?? key,
+      display_value: currentValue,
+    }];
+  });
+}
+
+export function deploymentRequestPilotVisibleChangesMessage(
+  changes: DeploymentRequestPilotVisibleChange[],
+): string {
+  return [
+    'Aanvulling inzetinformatie:',
+    ...changes.map((change) => (
+      `- ${change.label}: ${change.display_value || 'Niet langer ingevuld'}`
+    )),
+  ].join('\n');
 }
 
 export function deploymentRequestApplicableFields(

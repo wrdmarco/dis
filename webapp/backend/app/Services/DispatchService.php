@@ -752,6 +752,20 @@ final class DispatchService
 
     public function flushPushOutboxForDeployment(Deployment $deployment): void
     {
+        $flush = function () use ($deployment): void {
+            $this->flushPushOutboxForCommittedDeployment($deployment);
+        };
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($flush);
+
+            return;
+        }
+
+        $flush();
+    }
+
+    private function flushPushOutboxForCommittedDeployment(Deployment $deployment): void
+    {
         try {
             $dispatchRequestIds = $deployment->dispatchRequests()->pluck('id');
         } catch (Throwable $exception) {
