@@ -315,6 +315,24 @@ final class ProductRequestApiTest extends TestCase
             ->getJson('/api/product-requests?search='.str_repeat('x', 121))
             ->assertUnprocessable()
             ->assertJsonStructure(['error' => ['details' => ['search']]]);
+
+        $requests = ProductRequest::query()->orderBy('id')->get();
+        $requests[0]->forceFill(['status' => 'resolved'])->save();
+        $requests[1]->forceFill(['status' => 'rejected'])->save();
+
+        $closed = $this->asWebClient($first)
+            ->getJson('/api/product-requests?status=resolved,rejected')
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('meta.total', 2);
+        $this->assertEqualsCanonicalizing(
+            ['resolved', 'rejected'],
+            collect($closed->json('data'))->pluck('status')->all(),
+        );
+        $this->asWebClient($first)
+            ->getJson('/api/product-requests?status=resolved,closed')
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['status']]]);
     }
 
     public function test_only_the_owner_can_update_non_terminal_content_and_stale_versions_conflict(): void

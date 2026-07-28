@@ -1317,6 +1317,7 @@ export interface AvailabilityOverride {
   day_part?: 'all_day' | 'morning' | 'afternoon' | 'evening';
   is_available: boolean;
   note?: string | null;
+  updated_at?: string | null;
 }
 
 export interface AvailabilitySchedule {

@@ -6,18 +6,19 @@ use App\Http\Requests\Calendar\DeleteCalendarEventRequest;
 use App\Http\Requests\Calendar\ListCalendarEventsRequest;
 use App\Http\Requests\Calendar\ListCalendarTeamOptionsRequest;
 use App\Http\Requests\Calendar\StoreCalendarEventRequest;
+use App\Http\Requests\Calendar\UpdateCalendarEventRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\CalendarEvent;
 use App\Models\Team;
 use App\Models\User;
-use App\Services\AuditService;
+use App\Services\CalendarEventService;
 use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 
 final class CalendarEventController extends Controller
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(private readonly CalendarEventService $service) {}
 
     public function index(ListCalendarEventsRequest $request): JsonResponse
     {
@@ -28,20 +29,25 @@ final class CalendarEventController extends Controller
         $limit = (int) ($data['limit'] ?? 100);
         $teamIds = $this->userTeamIds($user);
 
-        $events = CalendarEvent::query()
+        $query = CalendarEvent::query()
             ->with(['team', 'creator'])
             ->where(function ($query) use ($from): void {
                 $query->whereNull('ends_at')
                     ->where('starts_at', '>=', $from)
                     ->orWhere('ends_at', '>=', $from);
             })
-            ->where('starts_at', '<=', $until)
-            ->where(function ($query) use ($teamIds): void {
+            ->where('starts_at', '<=', $until);
+
+        if ($user?->hasPermission('calendar.manage') !== true) {
+            $query->where(function ($query) use ($teamIds): void {
                 $query->whereNull('team_id');
                 if ($teamIds !== []) {
                     $query->orWhereIn('team_id', $teamIds);
                 }
-            })
+            });
+        }
+
+        $events = $query
             ->orderBy('starts_at')
             ->limit($limit)
             ->get()
@@ -70,26 +76,32 @@ final class CalendarEventController extends Controller
 
     public function store(StoreCalendarEventRequest $request): JsonResponse
     {
-        $data = $request->validated();
+        $event = $this->service->create(
+            $request->validated(),
+            $request->user(),
+            $request,
+        );
 
-        if (! $this->mayUseTeam($request->user(), $data['team_id'] ?? null)) {
-            abort(403);
-        }
+        return ApiResponse::success($this->payload($event), 201);
+    }
 
-        $event = CalendarEvent::query()->create($data + [
-            'created_by' => $request->user()?->id,
-            'updated_by' => $request->user()?->id,
-        ]);
+    public function update(
+        UpdateCalendarEventRequest $request,
+        CalendarEvent $calendarEvent,
+    ): JsonResponse {
+        $event = $this->service->update(
+            $calendarEvent,
+            $request->validated(),
+            $request->user(),
+            $request,
+        );
 
-        $this->auditService->record('calendar_events.created', $event, $request->user(), [], null, $request);
-
-        return ApiResponse::success($this->payload($event->load(['team', 'creator'])), 201);
+        return ApiResponse::success($this->payload($event));
     }
 
     public function destroy(DeleteCalendarEventRequest $request, CalendarEvent $calendarEvent): JsonResponse
     {
-        $calendarEvent->delete();
-        $this->auditService->record('calendar_events.deleted', $calendarEvent, $request->user(), [], null, $request);
+        $this->service->delete($calendarEvent, $request->user(), $request);
 
         return ApiResponse::success(null);
     }
@@ -129,14 +141,5 @@ final class CalendarEventController extends Controller
         }
 
         return $user->teams()->pluck('teams.id')->values()->all();
-    }
-
-    private function mayUseTeam(?User $user, ?string $teamId): bool
-    {
-        if ($teamId === null || $user === null) {
-            return true;
-        }
-
-        return $user->hasPermission('calendar.manage') || $user->hasPermission('teams.manage');
     }
 }

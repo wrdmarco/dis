@@ -7,6 +7,7 @@ use App\Models\AvailabilityOverride;
 use App\Models\AvailabilityWeekPattern;
 use App\Models\User;
 use App\Services\AvailabilityScheduleService;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -151,6 +152,7 @@ final class AvailabilityScheduleController extends Controller
                 'day_part' => $override->day_part ?? 'all_day',
                 'is_available' => (bool) $override->is_available,
                 'note' => $override->note,
+                'updated_at' => ApiDateTime::dateTime($override->updated_at),
             ])
             ->values();
 

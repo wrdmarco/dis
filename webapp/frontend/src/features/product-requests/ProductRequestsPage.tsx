@@ -228,22 +228,6 @@ export function ProductRequestsPage() {
 
           <div className={styles.toolbar}>
             <div className={styles.tabs} role="group" aria-label="Verzoeken selecteren">
-              <button
-                type="button"
-                aria-pressed={effectiveTab === 'all'}
-                className={effectiveTab === 'all' ? styles.activeTab : undefined}
-                onClick={() => selectTab('all')}
-              >
-                Alle verzoeken
-              </button>
-              <button
-                type="button"
-                aria-pressed={effectiveTab === 'mine'}
-                className={effectiveTab === 'mine' ? styles.activeTab : undefined}
-                onClick={() => selectTab('mine')}
-              >
-                Mijn verzoeken
-              </button>
               {canResolve ? (
                 <button
                   type="button"
@@ -254,6 +238,30 @@ export function ProductRequestsPage() {
                   Te behandelen
                 </button>
               ) : null}
+              <button
+                type="button"
+                aria-pressed={effectiveTab === 'mine'}
+                className={effectiveTab === 'mine' ? styles.activeTab : undefined}
+                onClick={() => selectTab('mine')}
+              >
+                Mijn verzoeken
+              </button>
+              <button
+                type="button"
+                aria-pressed={effectiveTab === 'closed'}
+                className={effectiveTab === 'closed' ? styles.activeTab : undefined}
+                onClick={() => selectTab('closed')}
+              >
+                Afgesloten verzoeken
+              </button>
+              <button
+                type="button"
+                aria-pressed={effectiveTab === 'all'}
+                className={effectiveTab === 'all' ? styles.activeTab : undefined}
+                onClick={() => selectTab('all')}
+              >
+                Alle verzoeken
+              </button>
             </div>
 
             <label className={styles.search}>
@@ -301,7 +309,16 @@ export function ProductRequestsPage() {
               >
                 <option value="all">Alle statussen</option>
                 {productRequestStatusOptions
-                  .filter((option) => effectiveTab !== 'handling' || ['open', 'in_progress'].includes(option.value))
+                  .filter((option) => {
+                    if (effectiveTab === 'handling') {
+                      return ['open', 'in_progress'].includes(option.value);
+                    }
+                    if (effectiveTab === 'closed') {
+                      return ['resolved', 'rejected'].includes(option.value);
+                    }
+
+                    return true;
+                  })
                   .map((option) => (
                   <option value={option.value} key={option.value}>{option.label}</option>
                   ))}

@@ -33,6 +33,7 @@ export function UserDetailPage({ userId }: { userId: string }) {
   const canRevokeSessions = hasPermission('users.sessions.revoke');
   const canManageAssets = hasPermission('assets.manage');
   const canManageCertifications = hasPermission('certifications.manage');
+  const canViewAvailabilitySchedule = hasPermission('status.view');
   const canManageVacations = hasPermission('vacations.manage');
   const canViewVacations = hasPermission('vacations.view') || canManageVacations;
   const targetUser = useApiResource<User>(`/users/${userId}`, Boolean(userId));
@@ -364,6 +365,7 @@ export function UserDetailPage({ userId }: { userId: string }) {
           certificationsError={canManageCertifications ? certifications.error : null}
           canManageAssets={canManageAssets}
           canManageCertifications={canManageCertifications}
+          canViewAvailabilitySchedule={canViewAvailabilitySchedule}
           canViewVacations={canViewVacations}
           canManageVacations={canManageVacations}
           onChanged={reloadOperationalDetails}

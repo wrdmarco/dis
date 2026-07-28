@@ -188,6 +188,19 @@ export const accountManualGuides = {
       result: 'Het item verschijnt bij Geplande items en wordt zichtbaar in webapp en mobiele agenda.',
     },
     {
+      id: 'calendar-edit-event',
+      title: 'Een agenda-item aanpassen',
+      intro: 'Werk de planning of inhoud van een bestaand moment bij.',
+      permissions: ['calendar.view', 'calendar.manage'],
+      steps: [
+        { label: 'Zoek het item', description: 'Ga in Agenda naar de tabel Geplande items.' },
+        { label: 'Kies Aanpassen', description: 'Gebruik de knop in de kolom Actie bij het juiste item.' },
+        { label: 'Werk de gegevens bij', description: 'Controleer titel, type, start, einde, locatie, team en omschrijving en wijzig wat nodig is.' },
+        { label: 'Sla de wijzigingen op', description: 'Kies Wijzigingen opslaan en wacht op de bevestiging.' },
+      ],
+      result: 'Het bijgewerkte agenda-item is direct zichtbaar in de webapp en mobiele agenda.',
+    },
+    {
       id: 'calendar-delete-event',
       title: 'Een agenda-item verwijderen',
       intro: 'Haal een moment weg dat niet meer doorgaat.',
@@ -198,7 +211,7 @@ export const accountManualGuides = {
         { label: 'Kies Verwijderen', description: 'Gebruik de knop in de kolom Actie.' },
       ],
       result: 'Het agenda-item verdwijnt direct uit de webapp en mobiele agenda.',
-      warning: 'Er is geen aparte wijzigknop en geen herstelknop. Bij een fout moet je het item opnieuw toevoegen.',
+      warning: 'Verwijderen kan niet worden hersteld. Controleer daarom eerst of je het juiste item hebt gekozen.',
     },
   ],
   'product-requests': [

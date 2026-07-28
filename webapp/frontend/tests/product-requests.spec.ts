@@ -31,7 +31,7 @@ const request = (
   ...overrides,
 });
 
-test('builds bounded server-side request filters for all three tabs', () => {
+test('builds bounded server-side request filters for all four tabs', () => {
   expect(buildProductRequestsPath({
     tab: 'all',
     type: 'all',
@@ -55,10 +55,24 @@ test('builds bounded server-side request filters for all three tabs', () => {
     query: '',
     page: 1,
   })).toBe('/product-requests?status=open%2Cin_progress&page=1&per_page=25');
+
+  expect(buildProductRequestsPath({
+    tab: 'closed',
+    type: 'all',
+    status: 'all',
+    query: '',
+    page: 1,
+  })).toBe('/product-requests?status=resolved%2Crejected&page=1&per_page=25');
 });
 
-test('keeps presentation filtering deterministic for ownership, handling and search', () => {
+test('keeps presentation filtering deterministic for ownership, handling, closed and search', () => {
   const requests = [
+    request('rejected-other', {
+      status: 'rejected',
+      title: 'Afgewezen verzoek',
+      requester: { id: 'user-4', name: 'Vierde gebruiker' },
+      updated_at: '2026-07-27T13:00:00Z',
+    }),
     request('resolved-other', {
       status: 'resolved',
       title: 'Agenda gewijzigd',
@@ -90,6 +104,13 @@ test('keeps presentation filtering deterministic for ownership, handling and sea
     query: '',
     userId: 'user-1',
   }).map((item) => item.id)).toEqual(['other-progress', 'own-open']);
+  expect(filterProductRequests(requests, {
+    tab: 'closed',
+    type: 'all',
+    status: 'all',
+    query: '',
+    userId: 'user-1',
+  }).map((item) => item.id)).toEqual(['rejected-other', 'resolved-other']);
   expect(filterProductRequests(requests, {
     tab: 'all',
     type: 'all',
@@ -153,6 +174,72 @@ test('wires the requests page into route access, navigation, help and responsive
   expect(styles).toContain('@media (max-width: 760px)');
   expect(styles).toContain('@media (max-width: 620px)');
   expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
+});
+
+test('orders workflow tabs and loads active versus closed requests', async ({ page }) => {
+  const state = productRequestMockState();
+  state.items = [
+    request('open', {
+      title: 'Open verzoek',
+      status: 'open',
+      updated_at: '2026-07-27T09:00:00Z',
+    }),
+    request('progress', {
+      title: 'Verzoek in behandeling',
+      status: 'in_progress',
+      updated_at: '2026-07-27T10:00:00Z',
+    }),
+    request('resolved', {
+      title: 'Opgelost verzoek',
+      status: 'resolved',
+      updated_at: '2026-07-27T11:00:00Z',
+    }),
+    request('rejected', {
+      title: 'Afgewezen verzoek',
+      status: 'rejected',
+      updated_at: '2026-07-27T12:00:00Z',
+    }),
+  ];
+  const listRequests = await mockProductRequestApi(page, state, [
+    'product-requests.view',
+    'product-requests.resolve',
+  ]);
+
+  await page.goto('/verzoeken');
+
+  const tabs = page.getByRole('group', { name: 'Verzoeken selecteren' });
+  await expect(tabs.getByRole('button')).toHaveText([
+    'Te behandelen',
+    'Mijn verzoeken',
+    'Afgesloten verzoeken',
+    'Alle verzoeken',
+  ]);
+
+  await tabs.getByRole('button', { name: 'Te behandelen', exact: true }).click();
+  await expect.poll(() => listRequests.at(-1) ?? '').toContain('status=open%2Cin_progress');
+  await expect(productRequestRow(page, 'Open verzoek')).toHaveCount(1);
+  await expect(productRequestRow(page, 'Verzoek in behandeling')).toHaveCount(1);
+  await expect(productRequestRow(page, 'Opgelost verzoek')).toHaveCount(0);
+  await expect(page.getByLabel('Status').locator('option')).toHaveText([
+    'Alle statussen',
+    'Open',
+    'In behandeling',
+  ]);
+
+  await tabs.getByRole('button', { name: 'Afgesloten verzoeken', exact: true }).click();
+  await expect.poll(() => listRequests.at(-1) ?? '').toContain('status=resolved%2Crejected');
+  await expect(productRequestRow(page, 'Open verzoek')).toHaveCount(0);
+  await expect(productRequestRow(page, 'Opgelost verzoek')).toHaveCount(1);
+  await expect(productRequestRow(page, 'Afgewezen verzoek')).toHaveCount(1);
+  await expect(page.getByLabel('Status').locator('option')).toHaveText([
+    'Alle statussen',
+    'Opgelost',
+    'Afgewezen',
+  ]);
+
+  await tabs.getByRole('button', { name: 'Alle verzoeken', exact: true }).click();
+  await expect.poll(() => listRequests.at(-1) ?? '').toBe('/api/product-requests?page=1&per_page=25');
+  await expect(productRequestsTable(page).getByRole('row')).toHaveCount(5);
 });
 
 test('creates, edits and resolves a request through the table and dialogs', async ({ page }) => {
@@ -267,6 +354,11 @@ test('hides actions without action rights and reloads the latest version after a
   await expect(productRequestRow(page, 'Bestaand verzoek')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Nieuw verzoek' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Te behandelen', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Verzoeken selecteren' }).getByRole('button')).toHaveText([
+    'Mijn verzoeken',
+    'Afgesloten verzoeken',
+    'Alle verzoeken',
+  ]);
   await productRequestViewButton(page, 'Bestaand verzoek').click();
   let detailDialog = page.getByRole('dialog', { name: 'Bestaand verzoek', exact: true });
   await expect(detailDialog.getByRole('button', { name: 'Aanpassen', exact: true })).toHaveCount(0);
@@ -302,6 +394,7 @@ test('keeps the requests table and create dialog within a mobile viewport', asyn
   await mockProductRequestApi(page, state, [
     'product-requests.view',
     'product-requests.create',
+    'product-requests.resolve',
   ]);
 
   await page.goto('/verzoeken');
@@ -378,7 +471,9 @@ async function mockProductRequestApi(
   page: Page,
   state: ProductRequestMockState,
   permissionNames: string[],
-): Promise<void> {
+): Promise<string[]> {
+  const listRequests: string[] = [];
+
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -407,17 +502,19 @@ async function mockProductRequestApi(
     }
 
     if (path === '/api/product-requests' && method === 'GET') {
+      listRequests.push(`${path}${url.search}`);
       const pageNumber = Math.max(1, Number(url.searchParams.get('page') ?? '1'));
+      const items = filterMockProductRequests(state.items, url);
       await fulfillProductRequestJson(route, 200, {
-        data: state.items,
+        data: items,
         meta: {
           current_page: pageNumber,
-          from: state.items.length === 0 ? null : 1,
+          from: items.length === 0 ? null : 1,
           last_page: 1,
           path: '/api/product-requests',
           per_page: 25,
-          to: state.items.length,
-          total: state.items.length,
+          to: items.length,
+          total: items.length,
         },
       });
       return;
@@ -545,6 +642,39 @@ async function mockProductRequestApi(
       error: { code: 'not_found', message: 'Testroute niet gemockt.', details: {} },
     });
   });
+
+  return listRequests;
+}
+
+function filterMockProductRequests(items: readonly ProductRequest[], url: URL): ProductRequest[] {
+  const statuses = new Set((url.searchParams.get('status') ?? '').split(',').filter(Boolean));
+  const types = new Set((url.searchParams.get('type') ?? '').split(',').filter(Boolean));
+  const onlyMine = url.searchParams.get('mine') === '1';
+  const search = (url.searchParams.get('search') ?? '').trim().toLocaleLowerCase('nl-NL');
+
+  return items
+    .filter((item) => {
+      if (statuses.size > 0 && !statuses.has(item.status)) {
+        return false;
+      }
+      if (types.size > 0 && !types.has(item.type)) {
+        return false;
+      }
+      if (onlyMine && item.requester.id !== 'user-1') {
+        return false;
+      }
+      if (search === '') {
+        return true;
+      }
+
+      return [
+        item.title,
+        item.description,
+        item.requester.name ?? '',
+        item.resolution_note ?? '',
+      ].join(' ').toLocaleLowerCase('nl-NL').includes(search);
+    })
+    .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
 }
 
 async function fulfillProductRequestJson(

@@ -169,7 +169,7 @@ const helpTopics: readonly HelpTopic[] = [
     permissions: ['calendar.view'],
     actions: [
       { title: 'Afspraken bekijken', description: 'Bekijk algemene afspraken en afspraken voor jouw teams, met datum, tijd, soort, locatie en team.' },
-      { title: 'Afspraken beheren', description: 'Voeg een afspraak toe of verwijder een afspraak die niet meer doorgaat. Een bestaande afspraak heeft geen aparte wijzigknop.', permissions: ['calendar.view', 'calendar.manage'] },
+      { title: 'Afspraken beheren', description: 'Voeg een afspraak toe, pas een bestaande afspraak aan of verwijder een afspraak die niet meer doorgaat.', permissions: ['calendar.view', 'calendar.manage'] },
     ],
   },
   {

@@ -4,7 +4,7 @@ import type {
   ProductRequestType,
 } from '../../types/api';
 
-export type ProductRequestTab = 'all' | 'mine' | 'handling';
+export type ProductRequestTab = 'handling' | 'mine' | 'closed' | 'all';
 
 export interface ProductRequestFilters {
   tab: ProductRequestTab;
@@ -43,6 +43,7 @@ export const productRequestStatusOptions: ReadonlyArray<{
 ];
 
 const handlingStatuses = new Set<ProductRequestStatus>(['open', 'in_progress']);
+const closedStatuses = new Set<ProductRequestStatus>(['resolved', 'rejected']);
 
 export function buildProductRequestsPath(query: ProductRequestQuery): string {
   const parameters = new URLSearchParams();
@@ -56,6 +57,8 @@ export function buildProductRequestsPath(query: ProductRequestQuery): string {
     parameters.set('status', query.status);
   } else if (query.tab === 'handling') {
     parameters.set('status', 'open,in_progress');
+  } else if (query.tab === 'closed') {
+    parameters.set('status', 'resolved,rejected');
   }
 
   const normalizedSearch = query.query.trim().replace(/\s+/g, ' ');
@@ -81,6 +84,9 @@ export function filterProductRequests(
         return false;
       }
       if (filters.tab === 'handling' && !handlingStatuses.has(request.status)) {
+        return false;
+      }
+      if (filters.tab === 'closed' && !closedStatuses.has(request.status)) {
         return false;
       }
       if (filters.type !== 'all' && request.type !== filters.type) {

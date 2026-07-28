@@ -343,6 +343,11 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
                 'permission:calendar.view',
                 'permission:calendar.manage',
             ]);
+        Route::patch('/calendar-events/{calendarEvent}', [CalendarEventController::class, 'update'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.manage',
+            ]);
         Route::delete('/calendar-events/{calendarEvent}', [CalendarEventController::class, 'destroy'])
             ->middleware([
                 'permission:calendar.view',

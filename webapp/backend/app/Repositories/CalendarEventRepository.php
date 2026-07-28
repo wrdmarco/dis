@@ -17,6 +17,21 @@ final class CalendarEventRepository extends BaseRepository
         return CalendarEvent::class;
     }
 
+    public function lock(string $id): CalendarEvent
+    {
+        return $this->query()
+            ->whereKey($id)
+            ->lockForUpdate()
+            ->firstOrFail();
+    }
+
+    public function forPresentation(string $id): CalendarEvent
+    {
+        return $this->query()
+            ->with(['team', 'creator'])
+            ->findOrFail($id);
+    }
+
     /** @return Collection<int, CalendarEvent> */
     public function currentAndUpcoming(DateTimeInterface $now, int $limit): Collection
     {

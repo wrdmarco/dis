@@ -1,5 +1,6 @@
-import { AlertTriangle, Cloud, CloudRain, Database, RadioTower, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Cloud, Database, RadioTower, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { Panel } from '../../components/Panel';
 import { formatDateTime } from '../../lib/dateTime';
 import type {
   OperationalWeatherCloudState,
@@ -47,17 +48,14 @@ export function WeatherPage() {
 
   return (
     <div className={`page-stack ${styles.page}`}>
-      <header className={styles.pageHero}>
-        <span className={styles.eyebrow}><Database aria-hidden size={15} /> Lokaal opgeslagen brondata</span>
-        <div className={styles.heroTitleRow}>
-          <div>
-            <h1>Weer</h1>
-            <p>KNMI-bewolking en neerslag, aangevuld met lokaal opgeslagen EUMETSAT-bliksemdetectie.</p>
-          </div>
-          <span className={styles.heroIcon} aria-hidden><CloudRain size={31} /></span>
+      <Panel title="Weerbeeld">
+        <div className={`panel-body ${styles.pageIntroduction}`}>
+          <p>KNMI-bewolking en neerslag, aangevuld met lokaal opgeslagen EUMETSAT-bliksemdetectie.</p>
+          <p className={styles.pageIntroductionNote}>
+            <strong>Lokaal opgeslagen brondata.</strong> Dit weerbeeld is geen vliegadvies. De browser laadt geen externe weer- of radarkaart.
+          </p>
         </div>
-        <p className={styles.heroNote}>Dit weerbeeld is geen vliegadvies. De browser laadt geen externe weer- of radarkaart.</p>
-      </header>
+      </Panel>
 
       <ForecastLocationControl
         busy={resource.busy}

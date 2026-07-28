@@ -42,6 +42,18 @@ test('weather and UAV Forecast are permission-gated operation routes and preload
   expect(uavRoute).toContain('<ProtectedShell {...webRouteAccess.uavForecast}>');
 });
 
+test('weather pages use compact standard panels instead of duplicate page heroes', () => {
+  expect(weatherPage).toContain('<Panel title="Weerbeeld">');
+  expect(uavPage).toContain('<Panel title="Vluchtvoorbereiding">');
+  expect(weatherPage).not.toContain('styles.pageHero');
+  expect(uavPage).not.toContain('styles.pageHero');
+  expect(weatherPage).not.toContain('<h1>');
+  expect(uavPage).not.toContain('<h1>');
+  expect(styles).toContain('.pageIntroduction');
+  expect(styles).not.toContain('.pageHero');
+  expect(styles).not.toContain('.heroIcon');
+});
+
 test('forecast queries use only a national scope or a normalized server-side address', () => {
   expect(normalizeForecastAddress('  Stationsplein   1, Utrecht  ')).toBe('Stationsplein 1, Utrecht');
   expect(buildForecastResourcePath('/operational-weather', { mode: 'netherlands', label: 'ignored' }))
@@ -539,6 +551,11 @@ for (const scenario of [
     await page.goto(scenario.path);
 
     await expect(page.getByRole('heading', { name: scenario.heading })).toBeVisible();
+    await expect(page.getByRole('heading', {
+      exact: true,
+      level: 1,
+      name: scenario.path === '/weather' ? 'Weer' : 'UAV Forecast',
+    })).toHaveCount(1);
     await expect(page.locator('html')).toHaveAttribute('data-theme', scenario.theme);
     const widths = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\CalendarEvent;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\Team;
 use App\Models\User;
 use Database\Seeders\RoleAndPermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -159,15 +160,27 @@ final class CalendarEventAuthorizationTest extends TestCase
             'starts_at' => now()->addDays(2)->toIso8601String(),
             'location_label' => 'Utrecht',
         ];
+        $existing = CalendarEvent::query()->create([
+            ...$payload,
+            'description' => 'Oorspronkelijke omschrijving',
+            'created_by' => $viewer->id,
+            'updated_by' => $viewer->id,
+        ]);
 
         $this->asWebClient($viewer)
             ->postJson('/api/calendar-events', $payload)
+            ->assertForbidden();
+        $this->asWebClient($viewer)
+            ->patchJson('/api/calendar-events/'.$existing->id, $payload)
             ->assertForbidden();
 
         $settingsManager = $this->user('calendar-settings-only@example.test');
         $this->grant($settingsManager, ['settings.manage']);
         $this->asWebClient($settingsManager)
             ->postJson('/api/calendar-events', $payload)
+            ->assertForbidden();
+        $this->asWebClient($settingsManager)
+            ->patchJson('/api/calendar-events/'.$existing->id, $payload)
             ->assertForbidden();
 
         $manageOnly = $this->user('calendar-manage-only@example.test');
@@ -177,6 +190,9 @@ final class CalendarEventAuthorizationTest extends TestCase
             ->assertForbidden();
         $this->asWebClient($manageOnly)
             ->postJson('/api/calendar-events', $payload)
+            ->assertForbidden();
+        $this->asWebClient($manageOnly)
+            ->patchJson('/api/calendar-events/'.$existing->id, $payload)
             ->assertForbidden();
 
         $manager = $this->user('calendar-manager@example.test');
@@ -195,6 +211,36 @@ final class CalendarEventAuthorizationTest extends TestCase
             ->assertJsonPath('data.title', 'Teamavond')
             ->assertJsonPath('data.location_label', 'Utrecht');
 
+        $updatedStartsAt = now()->addDays(3)->startOfHour();
+        $updatedEndsAt = $updatedStartsAt->copy()->addHours(2);
+        $this->asWebClient($manager)
+            ->patchJson('/api/calendar-events/'.$existing->id, [
+                'title' => 'Bijgewerkte teamavond',
+                'type' => 'training',
+                'starts_at' => $updatedStartsAt->toIso8601String(),
+                'ends_at' => $updatedEndsAt->toIso8601String(),
+                'location_label' => null,
+                'description' => 'Nieuwe omschrijving',
+                'team_id' => null,
+                'created_by' => $manager->id,
+                'updated_by' => $viewer->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.id', $existing->id)
+            ->assertJsonPath('data.title', 'Bijgewerkte teamavond')
+            ->assertJsonPath('data.type', 'training')
+            ->assertJsonPath('data.location_label', null)
+            ->assertJsonPath('data.description', 'Nieuwe omschrijving')
+            ->assertJsonPath('data.created_by_name', $viewer->name);
+
+        $existing->refresh();
+        $this->assertSame('Bijgewerkte teamavond', $existing->title);
+        $this->assertSame('training', $existing->type);
+        $this->assertNull($existing->location_label);
+        $this->assertSame('Nieuwe omschrijving', $existing->description);
+        $this->assertSame($viewer->id, $existing->created_by);
+        $this->assertSame($manager->id, $existing->updated_by);
+
         $eventId = (string) $created->json('data.id');
         $this->asWebClient($manager)
             ->deleteJson('/api/calendar-events/'.$eventId)
@@ -207,8 +253,78 @@ final class CalendarEventAuthorizationTest extends TestCase
         ]);
         $this->assertDatabaseHas('audit_logs', [
             'actor_id' => $manager->id,
+            'target_id' => $existing->id,
+            'action' => 'calendar_events.updated',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'actor_id' => $manager->id,
             'action' => 'calendar_events.deleted',
         ]);
+    }
+
+    public function test_calendar_update_validation_does_not_mutate_the_event(): void
+    {
+        $manager = $this->user('calendar-validation-manager@example.test');
+        $this->grant($manager, ['calendar.view', 'calendar.manage']);
+        $startsAt = now()->addDays(2)->startOfHour();
+        $event = CalendarEvent::query()->create([
+            'title' => 'Oorspronkelijke titel',
+            'type' => 'meeting',
+            'starts_at' => $startsAt,
+            'ends_at' => $startsAt->copy()->addHour(),
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+        ]);
+
+        $this->asWebClient($manager)
+            ->patchJson('/api/calendar-events/'.$event->id, [
+                'title' => 'Mag niet worden opgeslagen',
+                'type' => 'meeting',
+                'starts_at' => $startsAt->toIso8601String(),
+                'ends_at' => $startsAt->copy()->subMinute()->toIso8601String(),
+                'location_label' => null,
+                'description' => null,
+                'team_id' => null,
+            ])
+            ->assertUnprocessable();
+
+        $event->refresh();
+        $this->assertSame('Oorspronkelijke titel', $event->title);
+        $this->assertDatabaseMissing('audit_logs', [
+            'target_id' => $event->id,
+            'action' => 'calendar_events.updated',
+        ]);
+    }
+
+    public function test_calendar_manager_can_read_events_for_all_teams(): void
+    {
+        $team = Team::query()->create([
+            'code' => 'CAL',
+            'name' => 'Agenda testteam',
+            'type' => 'operational',
+            'is_operational' => true,
+        ]);
+        $event = CalendarEvent::query()->create([
+            'title' => 'Teamoverstijgende beheertest',
+            'type' => 'meeting',
+            'starts_at' => now()->addDay(),
+            'team_id' => $team->id,
+        ]);
+
+        $viewer = $this->user('calendar-scoped-viewer@example.test');
+        $this->grant($viewer, ['calendar.view']);
+        $this->asWebClient($viewer)
+            ->getJson('/api/calendar-events')
+            ->assertOk()
+            ->assertJsonPath('data', []);
+
+        $manager = $this->user('calendar-global-manager@example.test');
+        $this->grant($manager, ['calendar.view', 'calendar.manage']);
+        $this->asWebClient($manager)
+            ->getJson('/api/calendar-events')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $event->id)
+            ->assertJsonPath('data.0.team.id', $team->id);
     }
 
     public function test_operator_calendar_bootstrap_remains_available_with_calendar_view(): void

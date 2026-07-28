@@ -8,7 +8,6 @@ import {
   Eye,
   Gauge,
   Navigation,
-  Plane,
   Radar,
   Satellite,
   SatelliteDish,
@@ -18,6 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useState } from 'react';
+import { Panel } from '../../components/Panel';
 import { formatDateTime } from '../../lib/dateTime';
 import type {
   WallboardForecastBlockKey,
@@ -88,17 +88,14 @@ export function UavForecastPage() {
 
   return (
     <div className={`page-stack ${styles.page}`}>
-      <header className={`${styles.pageHero} ${styles.uavHero}`}>
-        <span className={styles.eyebrow}><Plane aria-hidden size={15} /> Operationele beslisondersteuning</span>
-        <div className={styles.heroTitleRow}>
-          <div>
-            <h1>UAV Forecast</h1>
-            <p>Server-beoordeelde weerwaarden, modeldata, daglicht en ruimteweer voor de vluchtvoorbereiding.</p>
-          </div>
-          <span className={styles.heroIcon} aria-hidden><Navigation size={31} /></span>
+      <Panel title="Vluchtvoorbereiding">
+        <div className={`panel-body ${styles.pageIntroduction}`}>
+          <p>Server-beoordeelde weerwaarden, modeldata, daglicht en ruimteweer voor de vluchtvoorbereiding.</p>
+          <p className={styles.pageIntroductionNote}>
+            Ontbrekende, ongeldige of verouderde veiligheidsdata worden nooit als groen advies getoond.
+          </p>
         </div>
-        <p className={styles.heroNote}>Ontbrekende, ongeldige of verouderde veiligheidsdata worden nooit als groen advies getoond.</p>
-      </header>
+      </Panel>
 
       <ForecastLocationControl
         busy={resource.busy}

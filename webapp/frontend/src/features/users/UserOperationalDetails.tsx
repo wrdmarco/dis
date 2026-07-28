@@ -11,6 +11,7 @@ import { droneTypeLabel } from '../../lib/droneTypes';
 import type { Asset, Certification, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { VacationPlanner } from '../vacations/VacationPlanner';
+import { UserAvailabilitySchedule } from './UserAvailabilitySchedule';
 
 interface UserOperationalDetailsProps {
   user: User | null;
@@ -24,6 +25,7 @@ interface UserOperationalDetailsProps {
   certificationsError: string | null;
   canManageAssets: boolean;
   canManageCertifications: boolean;
+  canViewAvailabilitySchedule: boolean;
   canViewVacations: boolean;
   canManageVacations: boolean;
   onChanged: () => Promise<void>;
@@ -41,6 +43,7 @@ export function UserOperationalDetails({
   certificationsError,
   canManageAssets,
   canManageCertifications,
+  canViewAvailabilitySchedule,
   canViewVacations,
   canManageVacations,
   onChanged,
@@ -62,6 +65,12 @@ export function UserOperationalDetails({
   const [linking, setLinking] = useState(false);
   const [certificationActionError, setCertificationActionError] = useState<string | null>(null);
   const [assetActionError, setAssetActionError] = useState<string | null>(null);
+  const [availabilityScheduleVersion, setAvailabilityScheduleVersion] = useState(0);
+
+  async function handleVacationChanged() {
+    setAvailabilityScheduleVersion((current) => current + 1);
+    await onChanged();
+  }
 
   async function assignAsset() {
     if (userId === null || assetId === '') {
@@ -110,12 +119,18 @@ export function UserOperationalDetails({
 
   return (
     <>
+      <UserAvailabilitySchedule
+        userId={userId ?? undefined}
+        canView={canViewAvailabilitySchedule}
+        refreshVersion={availabilityScheduleVersion}
+      />
+
       <VacationPlanner
         scope="user"
         userId={userId ?? undefined}
         canView={canViewVacations}
         canManage={canManageVacations}
-        onChanged={onChanged}
+        onChanged={handleVacationChanged}
       />
 
       <Panel title="Certificaten">

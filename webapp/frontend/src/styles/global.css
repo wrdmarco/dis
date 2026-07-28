@@ -717,27 +717,25 @@ a:hover {
   position: sticky;
   top: 0;
   z-index: 20;
-  min-height: 92px;
+  min-height: 72px;
   display: flex;
   justify-content: space-between;
   gap: 24px;
   align-items: center;
-  padding: 18px 28px;
+  padding: 14px 28px;
   border-bottom: 1px solid #1f2b3a;
   background: rgba(13, 19, 27, 0.96);
   backdrop-filter: blur(16px);
 }
 
 .topbar h1 {
-  margin: 2px 0 0;
+  margin: 0;
   color: var(--dis-text-strong);
   font-size: clamp(1.35rem, 2.2vw, 2rem);
   line-height: 1.08;
 }
 
 .topbar__title {
-  display: grid;
-  gap: 3px;
   min-width: 0;
 }
 
@@ -747,11 +745,6 @@ a:hover {
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
-}
-
-.topbar__app {
-  color: #718399;
-  font-size: 0.83rem;
 }
 
 .operator {
@@ -5530,8 +5523,7 @@ button:disabled,
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.18);
 }
 
-.topbar__title h1,
-.topbar__app {
+.topbar__title h1 {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -13746,7 +13738,6 @@ pre {
 
   .topbar__title {
     grid-area: title;
-    gap: 3px;
     min-width: 0;
   }
 
@@ -13755,8 +13746,7 @@ pre {
     line-height: 1.18;
   }
 
-  .topbar__eyebrow,
-  .topbar__app {
+  .topbar__eyebrow {
     font-size: 0.68rem;
   }
 
@@ -14181,7 +14171,6 @@ pre {
 
 :root[data-theme="light"] .nav__label,
 :root[data-theme="light"] .topbar__eyebrow,
-:root[data-theme="light"] .topbar__app,
 :root[data-theme="light"] .operator span,
 :root[data-theme="light"] .resource-state,
 :root[data-theme="light"] .muted-text,

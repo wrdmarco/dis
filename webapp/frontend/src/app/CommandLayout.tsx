@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, ClipboardList, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, GitBranch, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MessageSquareText, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ApiClientError } from '../lib/apiClient';
 import type { ApiClient } from '../lib/apiClient';
@@ -27,6 +27,7 @@ interface NavGroup {
 
 const PROFILE_PATH = '/profile';
 const HELP_PATH = '/help';
+const NAVIGATION_SCROLL_STORAGE_KEY = 'dis.command-navigation-scroll.v1';
 const helpNavItem: NavItem = { to: HELP_PATH, label: 'Help', icon: BookOpen, end: true };
 
 const navGroups: NavGroup[] = [
@@ -139,6 +140,54 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   [PROFILE_PATH]: () => import('../features/profile/ProfilePage'),
 };
 
+interface NavigationScrollPosition {
+  sidebar: number;
+  navigation: number;
+}
+
+function readNavigationScrollPosition(): NavigationScrollPosition {
+  if (typeof window === 'undefined') {
+    return { sidebar: 0, navigation: 0 };
+  }
+
+  try {
+    const stored = window.sessionStorage.getItem(NAVIGATION_SCROLL_STORAGE_KEY);
+    if (stored === null) {
+      return { sidebar: 0, navigation: 0 };
+    }
+
+    const parsed = JSON.parse(stored) as Partial<Record<keyof NavigationScrollPosition, unknown>>;
+    return {
+      sidebar: validScrollTop(parsed.sidebar),
+      navigation: validScrollTop(parsed.navigation),
+    };
+  } catch {
+    return { sidebar: 0, navigation: 0 };
+  }
+}
+
+function persistNavigationScrollPosition(
+  sidebar: HTMLElement | null,
+  navigation: HTMLElement | null,
+): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(NAVIGATION_SCROLL_STORAGE_KEY, JSON.stringify({
+      sidebar: sidebar?.scrollTop ?? 0,
+      navigation: navigation?.scrollTop ?? 0,
+    } satisfies NavigationScrollPosition));
+  } catch {
+    // Navigation remains usable when session storage is unavailable.
+  }
+}
+
+function validScrollTop(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
 interface BrandingState {
   name: string;
   short_name: string;
@@ -152,6 +201,8 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const navigationRef = useRef<HTMLElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const accountMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [branding, setBranding] = useState<BrandingState>({
@@ -170,6 +221,21 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useLayoutEffect(() => {
+    const sidebar = sidebarRef.current;
+    const navigation = navigationRef.current;
+    const position = readNavigationScrollPosition();
+
+    if (sidebar !== null) {
+      sidebar.scrollTop = position.sidebar;
+    }
+    if (navigation !== null) {
+      navigation.scrollTop = position.navigation;
+    }
+
+    return () => persistNavigationScrollPosition(sidebar, navigation);
+  }, []);
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -243,19 +309,23 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
       .filter((group) => group.items.length > 0),
   [canUseWebConsole, hasPermission]);
   const currentNavItem = useMemo(
-    () => pathname === HELP_PATH ? { groupLabel: 'Account', item: helpNavItem } : currentNavForPath(visibleNavGroups, pathname),
+    () => pathname === HELP_PATH ? helpNavItem : currentNavForPath(visibleNavGroups, pathname),
     [pathname, visibleNavGroups],
   );
   const profileCompletionRequired = user?.profile_completion_required === true;
 
   useEffect(() => {
-    document.title = documentTitleForBranding(branding, currentNavItem?.item.label);
-  }, [branding, currentNavItem?.item.label]);
+    document.title = documentTitleForBranding(branding, currentNavItem?.label);
+  }, [branding, currentNavItem?.label]);
 
   return (
     <div className="command-layout">
       <a className="skip-link" href="#main-content">Naar hoofdinhoud</a>
-      <aside className={`sidebar ${mobileNavOpen ? 'sidebar--open' : ''}`} id="mobile-navigation">
+      <aside
+        ref={sidebarRef}
+        className={`sidebar ${mobileNavOpen ? 'sidebar--open' : ''}`}
+        id="mobile-navigation"
+      >
         <div className="brand">
           <span className="brand__mark">
             {branding.logo_data_url ? <img src={branding.logo_data_url} alt="" /> : branding.short_name}
@@ -265,7 +335,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
             <X size={18} />
           </button>
         </div>
-        <nav className="nav" aria-label="Hoofdnavigatie">
+        <nav ref={navigationRef} className="nav" aria-label="Hoofdnavigatie">
           {visibleNavGroups.map((group) => (
             <section className="nav__group" key={group.label}>
               <h2 className="nav__label">{group.label}</h2>
@@ -277,6 +347,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
                       key={item.to}
                       href={item.to}
                       className={`nav__item ${isActivePath(pathname, item) ? 'nav__item--active' : ''}`}
+                      onClick={() => persistNavigationScrollPosition(sidebarRef.current, navigationRef.current)}
                       onFocus={() => void preloadRoute(item.to)}
                       onMouseEnter={() => void preloadRoute(item.to)}
                     >
@@ -306,9 +377,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
             <Menu size={18} />
           </button>
           <div className="topbar__title">
-            <span className="topbar__eyebrow">{currentNavItem?.groupLabel ?? branding.tenant_name}</span>
-            <h1>{currentNavItem?.item.label ?? branding.name}</h1>
-            <span className="topbar__app">{branding.tenant_name} - {branding.name}</span>
+            <h1>{currentNavItem?.label ?? branding.name}</h1>
           </div>
           <div className="operator account-menu" ref={accountMenuRef}>
             <button
@@ -530,16 +599,16 @@ function preloadRoute(path: string): Promise<unknown> | undefined {
   return routePreloaders[path]?.();
 }
 
-function currentNavForPath(groups: NavGroup[], pathname: string): { groupLabel: string; item: NavItem } | null {
-  let match: { groupLabel: string; item: NavItem } | null = null;
+function currentNavForPath(groups: NavGroup[], pathname: string): NavItem | null {
+  let match: NavItem | null = null;
   let matchLength = -1;
 
   for (const group of groups) {
     for (const item of group.items) {
       const isExact = pathname === item.to;
-      const isNested = !item.end && pathname.startsWith(`${item.to}/`);
+      const isNested = pathname.startsWith(`${item.to}/`);
       if ((isExact || isNested) && item.to.length > matchLength) {
-        match = { groupLabel: group.label, item };
+        match = item;
         matchLength = item.to.length;
       }
     }

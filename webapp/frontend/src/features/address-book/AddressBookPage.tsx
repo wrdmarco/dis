@@ -5,6 +5,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { locationLabel } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import type { AddressBookEntry } from '../../types/api';
+import styles from './AddressBookPage.module.css';
 
 export function AddressBookPage() {
   const [searchInput, setSearchInput] = useState('');
@@ -51,7 +52,7 @@ export function AddressBookPage() {
               <tbody>
                 {entries.data?.map((entry) => (
                   <tr key={entry.id}>
-                    <td><strong>{entry.name}</strong></td>
+                    <td><span className={styles.contactName}>{entry.name}</span></td>
                     <td>{entry.phone_number ? <a href={`tel:${entry.phone_number}`}>{entry.phone_number}</a> : '-'}</td>
                     <td>{locationLabel(entry.city, entry.region, entry.country)}</td>
                   </tr>
