@@ -28,6 +28,10 @@ export const webRouteAccess = {
     permissions: ['calendar.view'],
     anyPermission: false,
   },
+  calendarGroups: {
+    permissions: ['calendar.view', 'calendar.groups.manage'],
+    anyPermission: false,
+  },
   assets: {
     permissions: ['assets.view'],
     anyPermission: false,

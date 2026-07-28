@@ -227,7 +227,7 @@ final class UserService
                 $user->tokens()->delete();
                 $user->roles()->detach();
                 $user->teams()->detach();
-                $this->deleteUserOwnedOperationalData($user);
+                $this->deleteUserOwnedOperationalData($user, $actor);
 
                 $this->auditService->record('users.deleted', $user, $actor, [
                     'name' => $user->name,
@@ -252,7 +252,7 @@ final class UserService
             ->update(['actor_name' => $user->name]);
     }
 
-    private function deleteUserOwnedOperationalData(User $user): void
+    private function deleteUserOwnedOperationalData(User $user, User $actor): void
     {
         $now = now();
         $userId = $user->id;
@@ -291,6 +291,16 @@ final class UserService
         DB::table('asset_assignments')->where('user_id', $userId)->delete();
         DB::table('location_sharing_consents')->where('user_id', $userId)->delete();
         DB::table('location_updates')->where('user_id', $userId)->delete();
+        DB::table('calendar_event_registrations')
+            ->where('user_id', $userId)
+            ->where('status', 'registered')
+            ->update([
+                'status' => 'cancelled',
+                'cancelled_by' => $actor->id,
+                'cancelled_by_name' => $actor->name,
+                'cancelled_at' => $now,
+                'updated_at' => $now,
+            ]);
         DB::table('fcm_tokens')->where('user_id', $userId)->delete();
         DB::table('password_reset_tokens')->where('email', $user->email)->delete();
     }

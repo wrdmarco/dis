@@ -117,8 +117,20 @@ user automatically.
 
 The operational `/weather`, `/uav-forecast` and `/calendar` web routes and their first-party API endpoints
 require `operational-weather.view`, `uav-forecast.view` and `calendar.view` respectively. Agenda mutation is
-separate under `calendar.manage` and requires `calendar.view` as well; it exposes only the bounded team-option
-payload needed by the agenda form and does not grant general team-management access. Frontend permission
+separate under `calendar.manage` and requires `calendar.view` as well. Every agenda item belongs to at least
+one agenda-specific group. A group can contain direct users and dynamic team sources; its effective membership
+is the deduplicated union of those sources. The protected `Iedereen` system group dynamically represents every
+non-deleted user and cannot be changed or removed. The legacy `team_id` response field is compatibility data
+only and never decides new agenda visibility.
+
+Self-registration and cancellation require `calendar.register` alongside `calendar.view` and are available to
+both the secure web session and Operator mobile clients. Capacity is enforced transactionally against the same
+locked agenda row; duplicate registration requests are idempotent, cancellation always releases a seat, and a
+maximum cannot be lowered below the active participant count. Participant names are exposed only by the
+separate roster endpoint. Viewing registrations, managing registrations for another active audience member,
+and managing agenda groups use the dedicated `calendar.registrations.view`,
+`calendar.registrations.manage` and `calendar.groups.manage` permissions respectively. Those privileged
+group and participant endpoints require a stateful web session and produce audit records. Frontend permission
 checks control navigation and route UX only; Laravel middleware and validated requests remain authoritative.
 
 ### Deployment location enrichment
@@ -308,10 +320,11 @@ quote. The display selects one entry deterministically from the page identifier 
 oversized values and unknown fields are rejected server-side; a malformed legacy configuration is shown as an
 explicit unconfigured state rather than substituted content.
 
-The calendar page reuses organisation-wide current and upcoming events already managed in the DIS agenda.
-Administrators choose a bounded number of entries per page; the kiosk presents their date, time, relative day
-and location. Team-scoped events are excluded because an anonymous wallboard has no team authorisation context.
-Calendar data remains server-authoritative live state and is not stored as static media.
+The calendar page reuses current and upcoming events already managed in the DIS agenda. Administrators choose
+a bounded number of entries per page; the kiosk presents their date, time, relative day and location. Only
+events linked to the protected `Iedereen` group are exposed to a paired wallboard; limited-group events remain
+private regardless of any legacy team column. Calendar data remains server-authoritative live state and is not
+stored as static media.
 
 The KPI page exposes a fixed, server-owned catalogue of 42 aggregate metrics for pilot availability, real
 deployments, managed assets, live dispatch responses and submitted flight reports. Administrators can enable or

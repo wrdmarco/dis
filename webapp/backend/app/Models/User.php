@@ -111,6 +111,22 @@ final class User extends Authenticatable
         return $this->hasMany(UserVacation::class);
     }
 
+    public function userNotifications(): HasMany
+    {
+        return $this->hasMany(UserNotification::class);
+    }
+
+    public function calendarGroups(): BelongsToMany
+    {
+        return $this->belongsToMany(CalendarGroup::class, 'calendar_group_user')
+            ->withPivot(['assigned_by', 'created_at']);
+    }
+
+    public function calendarEventRegistrations(): HasMany
+    {
+        return $this->hasMany(CalendarEventRegistration::class);
+    }
+
     public function hasPermission(string $permission): bool
     {
         $query = $this->roles()

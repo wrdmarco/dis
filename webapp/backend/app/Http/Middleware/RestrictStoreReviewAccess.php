@@ -506,8 +506,28 @@ final class RestrictStoreReviewAccess
             'ends_at' => now()->addDay()->startOfHour()->addHours(2)->toIso8601String(),
             'location_label' => 'Utrecht',
             'description' => 'Afgeschermde demonstratiedata voor app-review.',
+            'audience_scope' => 'everyone',
+            'group_ids' => ['store-review-calendar-everyone'],
+            'audience_groups' => [[
+                'id' => 'store-review-calendar-everyone',
+                'name' => 'Iedereen',
+            ]],
+            'team_id' => 'store-review-team',
             'team' => $this->reviewTeam(),
+            'registration' => [
+                'enabled' => false,
+                'status' => 'closed',
+                'max_participants' => null,
+                'participant_count' => 0,
+                'current_user_registered' => false,
+                'can_register' => false,
+                'can_unregister' => false,
+                'can_view_participants' => false,
+                'can_manage_participants' => false,
+                'unavailable_reason' => 'registration_closed',
+            ],
             'created_by_name' => 'D.I.S Reviewomgeving',
+            'created_at' => now()->toIso8601String(),
         ];
     }
 }

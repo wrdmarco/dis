@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\StoreWallboardRequest;
 use App\Http\Requests\Admin\UpdateWallboardPlaylistRequest;
 use App\Http\Requests\Admin\UpdateWallboardRequest;
 use App\Models\CalendarEvent;
+use App\Models\CalendarGroup;
 use App\Models\Team;
 use App\Models\Wallboard;
 use App\Models\WallboardPlaylist;
@@ -96,6 +97,11 @@ final class WallboardCalendarTest extends TestCase
             'type' => 'base',
             'is_operational' => true,
         ]);
+        $limitedGroup = CalendarGroup::query()->create([
+            'name' => 'Beperkte wallboardgroep',
+            'description' => null,
+        ]);
+        $limitedGroup->teams()->attach($team->id, ['created_at' => now()]);
 
         $ongoing = $this->event([
             'title' => 'Lopende oefening',
@@ -112,8 +118,7 @@ final class WallboardCalendarTest extends TestCase
             'ends_at' => now()->addHours(2),
             'location_label' => 'Niet openbaar',
             'description' => 'Alleen voor het toegewezen team.',
-            'team_id' => $team->id,
-        ]);
+        ], $limitedGroup);
         $upcoming = $this->event([
             'title' => 'Training morgen',
             'type' => 'training',
@@ -262,9 +267,11 @@ final class WallboardCalendarTest extends TestCase
     }
 
     /** @param array<string, mixed> $attributes */
-    private function event(array $attributes): CalendarEvent
-    {
-        return CalendarEvent::query()->create([
+    private function event(
+        array $attributes,
+        ?CalendarGroup $audienceGroup = null,
+    ): CalendarEvent {
+        $event = CalendarEvent::query()->create([
             'title' => 'Kalenderitem',
             'type' => 'other',
             'starts_at' => now()->addHour(),
@@ -274,6 +281,14 @@ final class WallboardCalendarTest extends TestCase
             'team_id' => null,
             ...$attributes,
         ]);
+        $audienceGroup ??= CalendarGroup::query()
+            ->where('is_everyone', true)
+            ->sole();
+        $event->audienceGroups()->attach($audienceGroup->id, [
+            'created_at' => now(),
+        ]);
+
+        return $event;
     }
 
     /** @return array<string, mixed> */

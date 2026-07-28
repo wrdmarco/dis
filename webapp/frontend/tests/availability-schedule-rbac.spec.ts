@@ -254,7 +254,7 @@ test('refreshes the two-week schedule after a vacation period is added', async (
   await vacationPanel.getByRole('combobox').selectOption('unavailable');
   await page.getByRole('button', { name: 'Periode toevoegen', exact: true }).click();
 
-  await expect(page.getByRole('status')).toHaveText('Periode toegevoegd.');
+  await expect(page.getByText('Periode toegevoegd.', { exact: true })).toBeVisible();
   await expect.poll(() => requests.schedule).toBeGreaterThan(1);
   await expect(todayMorning).toHaveText('Niet beschikbaar');
   expect(requests.vacationCreate).toBe(1);

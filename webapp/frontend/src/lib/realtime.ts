@@ -16,6 +16,9 @@ export interface RealtimeOptions {
   onOsrmOperationStatus?: (payload: unknown) => void;
   userId?: string;
   onAuthorizationChanged?: () => void;
+  notificationUserId?: string;
+  onNotificationCreated?: () => void;
+  onNotificationChanged?: () => void;
 }
 
 export function createRealtime(options: RealtimeOptions): Echo<'reverb'> | null {
@@ -84,6 +87,19 @@ export function createRealtime(options: RealtimeOptions): Echo<'reverb'> | null 
   if (options.userId !== undefined && options.onAuthorizationChanged !== undefined) {
     echo.private(`users.${options.userId}`)
       .listen('.authorization.changed', options.onAuthorizationChanged);
+  }
+
+  if (
+    options.notificationUserId !== undefined
+    && (options.onNotificationCreated !== undefined || options.onNotificationChanged !== undefined)
+  ) {
+    const notificationChannel = echo.private(`user-notifications.${options.notificationUserId}`);
+    if (options.onNotificationCreated !== undefined) {
+      notificationChannel.listen('.notification.created', options.onNotificationCreated);
+    }
+    if (options.onNotificationChanged !== undefined) {
+      notificationChannel.listen('.notification.changed', options.onNotificationChanged);
+    }
   }
 
   return echo;

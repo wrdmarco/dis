@@ -272,7 +272,7 @@ function permissionCategoryDescription(category: string): string | null {
     case 'vacation_management':
       return 'Eigen periodes plannen blijft voor iedere gebruiker beschikbaar. Deze rechten bepalen alleen wie de vakantieplanning van anderen mag bekijken of beheren.';
     case 'calendar_management':
-      return 'Agenda bekijken en agenda-items beheren zijn aparte rechten. Beheer geeft niet automatisch toegang tot andere instellingen.';
+      return 'Agenda bekijken, jezelf inschrijven, agenda-items beheren, deelnemers inzien/beheren en agendagroepen beheren zijn afzonderlijke rechten.';
     case 'product_request_management':
       return 'Bepaal afzonderlijk wie verzoeken kan lezen, indienen, eigen open verzoeken kan wijzigen, ieder niet-afgesloten verzoek inhoudelijk kan aanpassen en verzoeken kan afhandelen.';
     case 'form_configuration':

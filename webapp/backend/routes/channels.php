@@ -19,3 +19,5 @@ Broadcast::channel('deployments.{deploymentId}', function ($user, string $deploy
 });
 
 Broadcast::channel('users.{userId}', fn ($user, string $userId) => (string) $user->id === $userId || $user->hasPermission('users.view'));
+
+Broadcast::channel('user-notifications.{userId}', fn ($user, string $userId) => (string) $user->id === $userId);

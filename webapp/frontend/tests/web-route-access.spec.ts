@@ -107,14 +107,18 @@ test('calendar mutations use their dedicated manage permission throughout the fr
 
   expect(calendar).toContain("hasPermission('calendar.manage')");
   expect(calendar).not.toContain("hasPermission('settings.manage')");
-  expect(calendar).toContain("useApiResource<Team[]>('/calendar-events/team-options', canManageAgenda)");
-  expect(calendar).not.toContain("useApiResource<Team[]>('/teams'");
+  expect(calendar).toContain("useApiResource<CalendarAudienceGroup[]>(");
+  expect(calendar).toContain("'/calendar-events/group-options'");
+  expect(calendar).not.toContain("'/calendar-events/team-options'");
+  expect(calendar).not.toContain("'/teams'");
   expect(calendar).toMatch(/api\.patch<CalendarEvent>\(\s*`\/calendar-events\/\$\{editingEvent\.id\}`/);
   expect(calendar).toContain('role="dialog"');
   expect(calendar).toContain('Wijzigingen opslaan');
   expect(help).toContain("permissions: ['calendar.view']");
   expect(help).toContain("permissions: ['calendar.view', 'calendar.manage']");
-  expect(help).toContain('pas een bestaande afspraak aan');
+  expect(help).toContain("permissions: ['calendar.view', 'calendar.register']");
+  expect(help).toContain("permissions: ['calendar.view', 'calendar.groups.manage']");
+  expect(help).toContain('pas afspraken aan');
   expect(help).not.toContain('geen aparte wijzigknop');
   expect(accountManual).toContain("permissions: ['calendar.view', 'calendar.manage']");
   expect(accountManual).toContain("id: 'calendar-edit-event'");

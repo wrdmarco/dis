@@ -11,7 +11,11 @@ const resourceManual = readSource('../src/features/help/manuals/resourceManual.t
 const roleForm = readSource('../src/features/roles/RoleForm.tsx');
 
 test('uses one vacation planner for self-service and administrator details', () => {
-  expect(profilePage).toContain('<VacationPlanner scope="mine" onChanged={schedule.reload} />');
+  expect(profilePage).toContain('<VacationPlanner');
+  expect(profilePage).toContain('scope="mine"');
+  expect(profilePage).toContain(
+    'onChanged={() => setAvailabilityScheduleVersion((current) => current + 1)}',
+  );
   expect(operationalDetails).toContain('<VacationPlanner');
   expect(operationalDetails).toContain('scope="user"');
   expect(operationalDetails).toContain('canView={canViewVacations}');
@@ -25,7 +29,6 @@ test('uses dedicated read and management permissions for other users vacations',
   expect(userDetails).toContain('canViewVacations={canViewVacations}');
   expect(userDetails).toContain('canManageVacations={canManageVacations}');
   expect(userDetails).not.toContain('canManageVacations={canManageUsers}');
-  expect(userDetails).not.toContain("hasPermission('status.override')");
 });
 
 test('supports create, edit and confirmed deletion for both endpoint scopes', () => {

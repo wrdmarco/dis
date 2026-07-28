@@ -2,12 +2,13 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, ClipboardList, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, GitBranch, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MessageSquareText, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ApiClientError } from '../lib/apiClient';
 import type { ApiClient } from '../lib/apiClient';
 import { countryOptions, regionOptionsForCountry } from '../lib/profileLocation';
 import { useAuth } from '../features/auth/AuthContext';
+import { NotificationCenter } from '../features/notifications/NotificationCenter';
 import { hasWebRouteAccess, webRouteAccess } from '../features/auth/webRouteAccess';
 import type { User } from '../types/api';
 
@@ -127,6 +128,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/forms': () => import('../features/admin/AdminPage'),
   '/prioriteitsbesluiten': () => import('../features/admin/DeploymentRequestPriorityDecisionsPage'),
   '/calendar': () => import('../features/calendar/CalendarPage'),
+  '/calendar/groups': () => import('../features/calendar/CalendarGroupsPage'),
   '/admin': () => import('../features/admin/AdminPage'),
   '/knmi': () => import('../features/admin/KnmiAdminPage'),
   '/branding': () => import('../features/branding/BrandingPage'),
@@ -200,7 +202,8 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [openTopbarPopover, setOpenTopbarPopover] = useState<'account' | 'notifications' | null>(null);
+  const accountMenuOpen = openTopbarPopover === 'account';
   const sidebarRef = useRef<HTMLElement | null>(null);
   const navigationRef = useRef<HTMLElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
@@ -239,7 +242,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMobileNavOpen(false);
-    setAccountMenuOpen(false);
+    setOpenTopbarPopover(null);
   }, [pathname]);
 
   useEffect(() => {
@@ -265,12 +268,12 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
 
     const closeOnOutsideClick = (event: PointerEvent) => {
       if (accountMenuRef.current !== null && !accountMenuRef.current.contains(event.target as Node)) {
-        setAccountMenuOpen(false);
+        setOpenTopbarPopover(null);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setAccountMenuOpen(false);
+        setOpenTopbarPopover(null);
         accountMenuTriggerRef.current?.focus();
       }
     };
@@ -285,7 +288,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   }, [accountMenuOpen]);
 
   const logout = async () => {
-    setAccountMenuOpen(false);
+    setOpenTopbarPopover(null);
     try {
       await api.post('/auth/logout');
       clearSession();
@@ -313,6 +316,9 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
     [pathname, visibleNavGroups],
   );
   const profileCompletionRequired = user?.profile_completion_required === true;
+  const setNotificationsOpen = useCallback((open: boolean) => {
+    setOpenTopbarPopover(open ? 'notifications' : null);
+  }, []);
 
   useEffect(() => {
     document.title = documentTitleForBranding(branding, currentNavItem?.label);
@@ -379,12 +385,16 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
           <div className="topbar__title">
             <h1>{currentNavItem?.label ?? branding.name}</h1>
           </div>
+          <NotificationCenter
+            open={openTopbarPopover === 'notifications'}
+            onOpenChange={setNotificationsOpen}
+          />
           <div className="operator account-menu" ref={accountMenuRef}>
             <button
               ref={accountMenuTriggerRef}
               className={`account-menu__trigger ${accountMenuOpen ? 'account-menu__trigger--open' : ''}`}
               type="button"
-              onClick={() => setAccountMenuOpen((open) => !open)}
+              onClick={() => setOpenTopbarPopover((current) => current === 'account' ? null : 'account')}
               aria-expanded={accountMenuOpen}
               aria-controls="account-menu-popover"
               aria-label={accountMenuOpen ? 'Accountmenu sluiten' : 'Accountmenu openen'}
@@ -420,7 +430,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
                   className="account-menu__item"
                   type="button"
                   onClick={() => {
-                    setAccountMenuOpen(false);
+                    setOpenTopbarPopover(null);
                     void setThemePreference(theme === 'dark' ? 'light' : 'dark').catch(() => undefined);
                   }}
                 >

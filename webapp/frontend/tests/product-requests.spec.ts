@@ -131,7 +131,8 @@ test('keeps request actions server-authoritative and optimistic-lock safe', () =
   const types = readFileSync(new URL('../src/types/api.ts', import.meta.url), 'utf8');
 
   expect(page).toContain("useApiResource<ProductRequest[]>(resourcePath)");
-  expect(page).toContain("useApiResource<ProductRequest>(`/product-requests/${summary.id}`)");
+  expect(page).toContain("`/product-requests/${summary.id}`");
+  expect(page).toContain("prefetched === undefined");
   expect(page).toContain("api.post<ProductRequest>('/product-requests'");
   expect(page).toContain("api.patch<ProductRequest>(`/product-requests/${request.id}`");
   expect(page).toContain("api.patch<ProductRequest>(`/product-requests/${request.id}/status`");

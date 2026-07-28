@@ -23,7 +23,17 @@ abstract class ManageCalendarEventRequest extends FormRequest
             'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
             'location_label' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'team_id' => ['nullable', 'ulid', 'exists:teams,id'],
+            'group_ids' => ['required', 'array', 'min:1'],
+            'group_ids.*' => [
+                'required',
+                'ulid',
+                'distinct',
+                Rule::exists('calendar_groups', 'id')->whereNull('deleted_at'),
+            ],
+            'registration_enabled' => ['required', 'boolean'],
+            'max_participants' => ['present', 'nullable', 'integer', 'min:1', 'max:2147483647'],
+            'team_id' => ['prohibited'],
+            'audience_scope' => ['prohibited'],
         ];
     }
 }

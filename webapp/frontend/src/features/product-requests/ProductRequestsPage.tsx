@@ -12,6 +12,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   type FormEvent,
   type ReactNode,
@@ -67,7 +68,12 @@ function emptyRequestContent(): RequestContentForm {
 
 export function ProductRequestsPage() {
   const { api, hasPermission } = useAuth();
-  const [tab, setTab] = useState<ProductRequestTab>('handling');
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const linkedRequestId = notificationRequestId(searchParams);
+  const [tab, setTab] = useState<ProductRequestTab>(() => (
+    searchParams.get('tab') === 'mine' ? 'mine' : 'handling'
+  ));
   const [typeFilter, setTypeFilter] = useState<ProductRequestType | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<ProductRequestStatus | 'all'>('all');
   const [query, setQuery] = useState('');
@@ -91,15 +97,40 @@ export function ProductRequestsPage() {
     [debouncedQuery, effectiveTab, page, statusFilter, typeFilter],
   );
   const requests = useApiResource<ProductRequest[]>(resourcePath);
+  const linkedRequest = useApiResource<ProductRequest>(
+    linkedRequestId === null ? '/product-requests' : `/product-requests/${encodeURIComponent(linkedRequestId)}`,
+    linkedRequestId !== null,
+  );
   const visibleRequests = requests.data ?? EMPTY_REQUESTS;
   const pagination = paginationMeta(requests.meta);
   const selectedRequest = visibleRequests.find((request) => request.id === selectedId) ?? null;
+  const dialogRequest = linkedRequestId === null ? selectedRequest : linkedRequest.data;
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'mine') {
+      setTab('mine');
+    }
+  }, [searchParams]);
 
   function selectTab(nextTab: ProductRequestTab) {
     setTab(nextTab);
     setStatusFilter('all');
     setPage(1);
     setSelectedId(null);
+    if (linkedRequestId !== null) {
+      replaceNotificationRequestQuery(null, nextTab);
+    }
+  }
+
+  function replaceNotificationRequestQuery(requestId: string | null, nextTab: ProductRequestTab = 'mine') {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set('tab', nextTab);
+    if (requestId === null) {
+      nextParams.delete('request');
+    } else {
+      nextParams.set('request', requestId);
+    }
+    router.replace(`/verzoeken?${nextParams.toString()}`, { scroll: false });
   }
 
   function applyRequest(nextRequest: ProductRequest) {
@@ -154,11 +185,17 @@ export function ProductRequestsPage() {
         lock_version: request.lock_version,
       });
       applyRequest(response.data);
+      if (linkedRequestId === response.data.id) {
+        linkedRequest.mutate(response.data);
+      }
       await requests.silentReload();
       setMessage('Wijzigingen opgeslagen.');
     } catch (error) {
       if (isVersionConflict(error)) {
-        await requests.reload();
+        await Promise.all([
+          requests.reload(),
+          linkedRequestId === request.id ? linkedRequest.reload() : Promise.resolve(),
+        ]);
         setMutationError('Dit verzoek is intussen gewijzigd. De nieuwste versie is geladen; controleer je wijziging opnieuw.');
       } else {
         setMutationError(errorMessage(error, 'Verzoek wijzigen is niet gelukt.'));
@@ -180,11 +217,17 @@ export function ProductRequestsPage() {
         lock_version: request.lock_version,
       });
       applyRequest(response.data);
+      if (linkedRequestId === response.data.id) {
+        linkedRequest.mutate(response.data);
+      }
       await requests.silentReload();
       setMessage('Afhandeling opgeslagen.');
     } catch (error) {
       if (isVersionConflict(error)) {
-        await requests.reload();
+        await Promise.all([
+          requests.reload(),
+          linkedRequestId === request.id ? linkedRequest.reload() : Promise.resolve(),
+        ]);
         setMutationError('Dit verzoek is intussen gewijzigd. De nieuwste status is geladen; beoordeel het verzoek opnieuw.');
       } else {
         setMutationError(errorMessage(error, 'Afhandeling opslaan is niet gelukt.'));
@@ -205,6 +248,9 @@ export function ProductRequestsPage() {
             onClick={() => {
               setCreateOpen(true);
               setSelectedId(null);
+              if (linkedRequestId !== null) {
+                replaceNotificationRequestQuery(null);
+              }
               setMutationError(null);
               setMessage(null);
             }}
@@ -336,6 +382,9 @@ export function ProductRequestsPage() {
               setMessage(null);
               setMutationError(null);
               setSelectedId(requestId);
+              if (linkedRequestId !== null) {
+                replaceNotificationRequestQuery(null, effectiveTab);
+              }
             }}
           />
           {pagination !== null && pagination.last_page > 1 ? (
@@ -372,32 +421,57 @@ export function ProductRequestsPage() {
         </RequestDialog>
       ) : null}
 
-      {selectedRequest !== null ? (
+      {dialogRequest !== null ? (
         <RequestDialog
-          title={selectedRequest.title}
-          titleId={`product-request-dialog-${selectedRequest.id}`}
+          title={dialogRequest.title}
+          titleId={`product-request-dialog-${dialogRequest.id}`}
           meta={(
             <div className={styles.dialogLabels}>
-              <span className={styles.typeLabel} data-type={selectedRequest.type}>
-                <RequestTypeIcon type={selectedRequest.type} />
-                {productRequestTypeLabel(selectedRequest.type)}
+              <span className={styles.typeLabel} data-type={dialogRequest.type}>
+                <RequestTypeIcon type={dialogRequest.type} />
+                {productRequestTypeLabel(dialogRequest.type)}
               </span>
-              <RequestStatusBadge status={selectedRequest.status} />
+              <RequestStatusBadge status={dialogRequest.status} />
             </div>
           )}
           onClose={() => {
             setSelectedId(null);
             setMutationError(null);
+            if (linkedRequestId !== null) {
+              replaceNotificationRequestQuery(null);
+            }
           }}
         >
           {message ? <p className={styles.dialogSuccess} role="status">{message}</p> : null}
           {mutationError ? <p className={styles.dialogError} role="alert">{mutationError}</p> : null}
           <ProductRequestDetailLoader
-            key={`${selectedRequest.id}:${selectedRequest.lock_version}`}
-            summary={selectedRequest}
+            key={`${dialogRequest.id}:${dialogRequest.lock_version}`}
+            summary={dialogRequest}
+            prefetched={linkedRequestId === null ? undefined : dialogRequest}
             onUpdate={updateRequest}
             onStatusUpdate={updateRequestStatus}
           />
+        </RequestDialog>
+      ) : null}
+      {linkedRequestId !== null && dialogRequest === null ? (
+        <RequestDialog
+          title={linkedRequest.error ? 'Verzoek niet beschikbaar' : 'Verzoek laden…'}
+          titleId="product-request-notification-title"
+          narrow
+          onClose={() => replaceNotificationRequestQuery(null)}
+        >
+          {linkedRequest.error ? (
+            <>
+              <p className={styles.dialogError} role="alert">
+                Dit verzoek kon niet worden geladen. Mogelijk bestaat het niet meer.
+              </p>
+              <button className="secondary-button" type="button" onClick={() => void linkedRequest.reload()}>
+                Opnieuw proberen
+              </button>
+            </>
+          ) : (
+            <p className={styles.detailWarning} role="status">Verzoek laden…</p>
+          )}
         </RequestDialog>
       ) : null}
     </div>
@@ -754,14 +828,19 @@ function Pagination({
 
 function ProductRequestDetailLoader({
   summary,
+  prefetched,
   onUpdate,
   onStatusUpdate,
 }: {
   summary: ProductRequest;
+  prefetched?: ProductRequest;
   onUpdate: (request: ProductRequest, form: RequestContentForm) => Promise<void>;
   onStatusUpdate: (request: ProductRequest, form: RequestStatusForm) => Promise<void>;
 }) {
-  const detail = useApiResource<ProductRequest>(`/product-requests/${summary.id}`);
+  const detail = useApiResource<ProductRequest>(
+    `/product-requests/${summary.id}`,
+    prefetched === undefined,
+  );
 
   return (
     <>
@@ -771,7 +850,7 @@ function ProductRequestDetailLoader({
         </p>
       ) : null}
       <ProductRequestDetail
-        request={detail.data ?? summary}
+        request={prefetched ?? detail.data ?? summary}
         onUpdate={onUpdate}
         onStatusUpdate={onStatusUpdate}
       />
@@ -1062,6 +1141,18 @@ function RequestTypeIcon({ type }: { type: ProductRequestType }) {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiClientError ? error.message : fallback;
+}
+
+function notificationRequestId(searchParams: { get: (name: string) => string | null }): string | null {
+  if (searchParams.get('tab') !== 'mine') {
+    return null;
+  }
+
+  const requestId = searchParams.get('request');
+
+  return requestId !== null && /^[A-Za-z0-9_-]{1,80}$/.test(requestId)
+    ? requestId
+    : null;
 }
 
 function actorName(name: string | null): string {

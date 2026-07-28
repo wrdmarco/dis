@@ -19,6 +19,8 @@ use App\Http\Controllers\AvailabilityScheduleController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\CalendarEventController;
+use App\Http\Controllers\CalendarEventRegistrationController;
+use App\Http\Controllers\CalendarGroupController;
 use App\Http\Controllers\CertificationController;
 use App\Http\Controllers\DeploymentController;
 use App\Http\Controllers\DeploymentFormController;
@@ -47,6 +49,7 @@ use App\Http\Controllers\StatusController;
 use App\Http\Controllers\TestAlertController;
 use App\Http\Controllers\UpdateController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\UserNotificationController;
 use App\Http\Controllers\VacationController;
 use App\Http\Controllers\WallboardController;
 use App\Http\Controllers\WallboardMediaController;
@@ -125,6 +128,10 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
 
     Route::middleware('two_factor.complete')->group(function (): void {
         Route::post('/auth/2fa/disable', [AuthController::class, 'disableTwoFactor'])->middleware('throttle:two-factor');
+        Route::get('/notifications', [UserNotificationController::class, 'index']);
+        Route::patch('/notifications/read-all', [UserNotificationController::class, 'markAllRead']);
+        Route::patch('/notifications/{notification}/read', [UserNotificationController::class, 'markRead'])
+            ->whereUlid('notification');
         Route::get('/software/download-options', [UpdateController::class, 'downloadOptions']);
         Route::post('/auth/mobile-pairing', [MobilePairingController::class, 'create'])->middleware('throttle:api');
 
@@ -325,6 +332,73 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware([
                 'permission:calendar.view',
                 'permission:calendar.manage',
+            ]);
+        Route::get('/calendar-events/group-options', [CalendarEventController::class, 'groupOptions'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.manage',
+            ]);
+        Route::post('/calendar-events/{calendarEvent}/registrations/me', [CalendarEventRegistrationController::class, 'storeMine'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.register',
+            ]);
+        Route::delete('/calendar-events/{calendarEvent}/registrations/me', [CalendarEventRegistrationController::class, 'destroyMine'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.register',
+            ]);
+        Route::get('/calendar-events/{calendarEvent}/registrations', [CalendarEventRegistrationController::class, 'index'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.registrations.view',
+            ]);
+        Route::get('/calendar-events/{calendarEvent}/registration-options', [CalendarEventRegistrationController::class, 'options'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.registrations.manage',
+            ]);
+        Route::post('/calendar-events/{calendarEvent}/registrations/{user}', [CalendarEventRegistrationController::class, 'store'])
+            ->whereUlid('user')
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.registrations.manage',
+            ]);
+        Route::delete('/calendar-events/{calendarEvent}/registrations/{user}', [CalendarEventRegistrationController::class, 'destroy'])
+            ->whereUlid('user')
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.registrations.manage',
+            ]);
+        Route::get('/calendar-groups/member-options', [CalendarGroupController::class, 'memberOptions'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.groups.manage',
+            ]);
+        Route::get('/calendar-groups', [CalendarGroupController::class, 'index'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.groups.manage',
+            ]);
+        Route::post('/calendar-groups', [CalendarGroupController::class, 'store'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.groups.manage',
+            ]);
+        Route::get('/calendar-groups/{calendarGroup}', [CalendarGroupController::class, 'show'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.groups.manage',
+            ]);
+        Route::patch('/calendar-groups/{calendarGroup}', [CalendarGroupController::class, 'update'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.groups.manage',
+            ]);
+        Route::delete('/calendar-groups/{calendarGroup}', [CalendarGroupController::class, 'destroy'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.groups.manage',
             ]);
         Route::get('/operational-weather', [OperationalForecastController::class, 'weather'])
             ->withoutMiddleware('throttle:authenticated')

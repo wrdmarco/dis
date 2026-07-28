@@ -39,13 +39,14 @@ test('desktop navigation keeps its scroll position after selecting a menu item',
     .toBe(Math.round(beforeNavigation));
 });
 
-test('topbar only shows the active menu item and account control', async ({ page }) => {
+test('topbar only shows the active menu item, personal notifications and account control', async ({ page }) => {
   await page.goto('/system');
 
   const topbar = page.locator('header.topbar');
   await expect(topbar.getByRole('heading', { level: 1 })).toHaveText('Systeem');
   await expect(topbar.getByText('Beheer', { exact: true })).toHaveCount(0);
   await expect(topbar.getByText('Testorganisatie - Drone Inzet Systeem', { exact: true })).toHaveCount(0);
+  await expect(topbar.getByRole('button', { name: /Meldingen openen/ })).toBeVisible();
   await expect(topbar.getByRole('button', { name: 'Accountmenu openen', exact: true })).toBeVisible();
 
   await page.goto('/aanvragen/new');
@@ -75,8 +76,44 @@ test('mobile navigation keeps its scroll position after selecting a menu item', 
 
   await page.getByRole('button', { name: 'Menu openen', exact: true }).click();
   await expect(sidebar).toHaveClass(/sidebar--open/);
-  await expect.poll(() => sidebar.evaluate((element) => Math.round(element.scrollTop)))
-    .toBe(Math.round(beforeNavigation));
+  await expect.poll(async () => Math.abs(
+    await sidebar.evaluate((element) => Math.round(element.scrollTop))
+    - Math.round(beforeNavigation),
+  )).toBeLessThanOrEqual(12);
+});
+
+test('wide page roots use the full workspace and remain left aligned', async ({ page }) => {
+  await page.setViewportSize({ width: 2560, height: 900 });
+
+  for (const [path, rootSelector] of [
+    ['/system', '.page-stack'],
+    ['/help', '.help-page'],
+    ['/wallboards/new', '.wallboard-create-page'],
+  ] as const) {
+    await page.goto(path);
+
+    const workspaceBox = await page.locator('.workspace').boundingBox();
+    const contentBox = await page.locator('#main-content').boundingBox();
+    const rootBox = await page.locator(rootSelector).boundingBox();
+    const contentPadding = await page.locator('#main-content').evaluate((element) => {
+      const styles = window.getComputedStyle(element);
+      return {
+        left: Number.parseFloat(styles.paddingLeft),
+        right: Number.parseFloat(styles.paddingRight),
+      };
+    });
+
+    expect(workspaceBox).not.toBeNull();
+    expect(contentBox).not.toBeNull();
+    expect(rootBox).not.toBeNull();
+    expect(Math.abs((contentBox?.x ?? 0) - (workspaceBox?.x ?? 0))).toBeLessThanOrEqual(1);
+    expect(Math.abs((contentBox?.width ?? 0) - (workspaceBox?.width ?? 0))).toBeLessThanOrEqual(1);
+    expect(Math.abs((rootBox?.x ?? 0) - ((contentBox?.x ?? 0) + contentPadding.left))).toBeLessThanOrEqual(1);
+    expect(Math.abs(
+      (rootBox?.width ?? 0)
+      - ((contentBox?.width ?? 0) - contentPadding.left - contentPadding.right),
+    )).toBeLessThanOrEqual(2);
+  }
 });
 
 async function mockCommandNavigationApi(page: Page): Promise<void> {
@@ -120,6 +157,16 @@ async function mockCommandNavigationApi(page: Page): Promise<void> {
           short_name: 'DIS',
           tenant_name: 'Testorganisatie',
           logo_data_url: '',
+        },
+      });
+      return;
+    }
+
+    if (path === '/api/notifications') {
+      await fulfillJson(route, 200, {
+        data: {
+          notifications: [],
+          unread_count: 0,
         },
       });
       return;

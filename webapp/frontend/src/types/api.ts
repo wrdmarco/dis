@@ -148,6 +148,35 @@ export interface ProductRequest {
   updated_at: string;
 }
 
+export type UserNotificationType =
+  | 'certification_expiring'
+  | 'certification_expired'
+  | 'asset_maintenance_due'
+  | 'asset_maintenance_overdue'
+  | 'product_request_status';
+
+export type UserNotificationTone = 'info' | 'success' | 'warning' | 'critical';
+
+export interface UserNotification {
+  id: string;
+  type: UserNotificationType;
+  tone: UserNotificationTone;
+  title: string;
+  message: string;
+  action_url: string;
+  occurred_at: string;
+  read_at: string | null;
+}
+
+export interface UserNotificationFeed {
+  notifications: UserNotification[];
+  unread_count: number;
+}
+
+export interface UserNotificationMarkAllResult {
+  marked_read: number;
+}
+
 export interface FcmToken {
   id: string;
   user_id: string;
@@ -1343,6 +1372,28 @@ export interface UserVacation {
   user?: Pick<User, 'id' | 'name' | 'email'> | null;
 }
 
+export type CalendarAudienceScope = 'everyone' | 'groups';
+
+export interface CalendarAudienceGroup {
+  id: string;
+  name: string;
+  is_everyone?: boolean;
+  effective_member_count?: number;
+}
+
+export interface CalendarRegistrationSummary {
+  enabled: boolean;
+  status: 'open' | 'full' | 'closed';
+  max_participants: number | null;
+  participant_count: number;
+  current_user_registered: boolean;
+  can_register: boolean;
+  can_unregister: boolean;
+  can_view_participants: boolean;
+  can_manage_participants: boolean;
+  unavailable_reason?: string | null;
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -1351,10 +1402,46 @@ export interface CalendarEvent {
   ends_at?: string | null;
   location_label?: string | null;
   description?: string | null;
+  audience_scope?: CalendarAudienceScope;
+  group_ids?: string[];
+  audience_groups?: CalendarAudienceGroup[];
+  registration?: CalendarRegistrationSummary;
   team_id?: string | null;
   team?: Pick<Team, 'id' | 'code' | 'name' | 'type'> | null;
   created_by_name?: string | null;
   created_at?: string | null;
+}
+
+export interface CalendarRegistration {
+  id: string;
+  user: Pick<User, 'id' | 'name' | 'email'>;
+  registered_at: string;
+  registered_by_name?: string | null;
+}
+
+export interface CalendarRegistrationOption {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface CalendarGroup {
+  id: string;
+  name: string;
+  description?: string | null;
+  is_everyone: boolean;
+  direct_users: Array<Pick<User, 'id' | 'name' | 'email'>>;
+  teams: Array<Pick<Team, 'id' | 'code' | 'name'>>;
+  direct_user_count: number;
+  team_count: number;
+  effective_member_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CalendarGroupMemberOptions {
+  users: Array<Pick<User, 'id' | 'name' | 'email'>>;
+  teams: Array<Pick<Team, 'id' | 'code' | 'name'>>;
 }
 
 export interface StatusAuditEntry {

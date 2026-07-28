@@ -1,3 +1,4 @@
+import { useSearchParams } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { KeyRound, Plus, RefreshCw, ShieldCheck, Smartphone, Tablet, Trash2, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
@@ -69,6 +70,7 @@ function emptyCertificationForm() {
 
 export function ProfilePage() {
   const { api, user, theme, setThemePreference, startTwoFactorSetup, enableTwoFactor, disableTwoFactor, refreshMe } = useAuth();
+  const searchParams = useSearchParams();
   const assets = useApiResource<Asset[]>('/assets/mine');
   const devices = useApiResource<FcmToken[]>('/devices');
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
@@ -159,6 +161,45 @@ export function ProfilePage() {
       homeCountry: user.home_country ?? 'NL',
     });
   }, [user]);
+
+  useEffect(() => {
+    const section = searchParams.get('section');
+    const targetId = section === 'assets'
+      ? searchParams.get('asset')
+      : section === 'certifications'
+        ? searchParams.get('certification')
+        : null;
+    const targetPrefix = section === 'assets'
+      ? 'profile-asset-'
+      : section === 'certifications'
+        ? 'profile-certification-'
+        : null;
+
+    if (
+      targetId === null
+      || targetPrefix === null
+      || (section === 'assets' && assets.loading)
+      || (section === 'certifications' && userCertifications.loading)
+    ) {
+      return undefined;
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(`${targetPrefix}${targetId}`);
+      if (target instanceof HTMLElement) {
+        target.scrollIntoView({ block: 'center' });
+        target.focus({ preventScroll: true });
+      }
+    });
+
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [
+    assets.data,
+    assets.loading,
+    searchParams,
+    userCertifications.data,
+    userCertifications.loading,
+  ]);
 
   const loadPairingCode = useCallback(async (clientType: MobilePairingClientType | '') => {
     if (clientType === '') {
@@ -1085,7 +1126,12 @@ function AssetTable({
         </thead>
         <tbody>
           {assets.map((asset) => (
-            <tr key={asset.id}>
+            <tr
+              className="profile-notification-target"
+              id={`profile-asset-${asset.id}`}
+              key={asset.id}
+              tabIndex={-1}
+            >
               <td>{asset.name}</td>
               <td>{asset.drone_type ? droneTypeLabel(asset.drone_type) : assetTypeLabel(asset.type)}</td>
               <td><StatusPill value={assetStatusLabel(asset.status)} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
@@ -1133,7 +1179,12 @@ function CertificationTable({
         </thead>
         <tbody>
           {certifications.map((certification) => (
-            <tr key={certification.id}>
+            <tr
+              className="profile-notification-target"
+              id={`profile-certification-${certification.id}`}
+              key={certification.id}
+              tabIndex={-1}
+            >
               <td>{certification.certification?.name ?? '-'}</td>
               <td><StatusPill value={certificationStatusLabel(certification.status)} tone={certification.status === 'active' ? 'good' : 'warn'} /></td>
               <td>{certification.certificate_number ?? '-'}</td>

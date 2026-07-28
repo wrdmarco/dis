@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Contracts\WallboardContentProvider;
 use App\Models\AuditLog;
 use App\Models\CalendarEvent;
+use App\Models\CalendarGroup;
 use App\Models\Deployment;
 use App\Models\Permission;
 use App\Models\Role;
@@ -190,7 +191,7 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
             'media_asset_id' => $image->id,
             'position' => 0,
         ]);
-        CalendarEvent::query()->create([
+        $calendarEvent = CalendarEvent::query()->create([
             'title' => 'Previewbriefing',
             'type' => 'meeting',
             'starts_at' => now()->addHour(),
@@ -198,6 +199,10 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
             'created_by' => $manager->id,
             'updated_by' => $manager->id,
         ]);
+        $calendarEvent->audienceGroups()->attach(
+            CalendarGroup::query()->where('is_everyone', true)->sole()->id,
+            ['created_at' => now()],
+        );
         $deployment = Deployment::query()->create([
             'reference' => 'PREVIEW-001',
             'title' => 'Actuele preview-inzet',

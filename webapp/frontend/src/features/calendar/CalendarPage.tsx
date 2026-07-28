@@ -1,60 +1,106 @@
-import { type Dispatch, type FormEvent, type Ref, type SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Pencil, Plus, X } from 'lucide-react';
+import Link from 'next/link';
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  CalendarCheck,
+  CalendarDays,
+  MapPin,
+  Pencil,
+  Plus,
+  Settings2,
+  Users,
+  X,
+} from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
+import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { CalendarEvent, Team } from '../../types/api';
+import type { CalendarAudienceGroup, CalendarEvent } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
-
-const eventTypes = [
-  { value: 'training', label: 'Training' },
-  { value: 'open_day', label: 'Open dag' },
-  { value: 'exercise', label: 'Oefening' },
-  { value: 'meeting', label: 'Overleg' },
-  { value: 'other', label: 'Overig' },
-] as const;
-
-interface CalendarEventFormState {
-  title: string;
-  type: CalendarEvent['type'];
-  startsAt: string;
-  endsAt: string;
-  locationLabel: string;
-  description: string;
-  teamId: string;
-}
-
-const initialForm: CalendarEventFormState = {
-  title: '',
-  type: 'training',
-  startsAt: '',
-  endsAt: '',
-  locationLabel: '',
-  description: '',
-  teamId: '',
-};
-
-const calendarDateTimePattern = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/;
+import {
+  CalendarEventFields,
+  calendarEventForm,
+  calendarEventFormIsValid,
+  calendarEventPayload,
+  initialCalendarEventForm,
+  type CalendarEventFormState,
+} from './CalendarEventForm';
+import { CalendarRegistrationDialog } from './CalendarRegistrationDialog';
+import {
+  calendarAudienceLabels,
+  calendarEventTypeLabel,
+  participantCountLabel,
+  registrationStatusLabel,
+  registrationStatusTone,
+  remainingPlacesLabel,
+} from './calendarPresentation';
+import styles from './CalendarPage.module.css';
 
 export function CalendarPage() {
   const { api, hasPermission } = useAuth();
   const canManageAgenda = hasPermission('calendar.manage');
+  const canManageGroups = hasPermission('calendar.groups.manage');
   const events = useApiResource<CalendarEvent[]>('/calendar-events');
-  const teams = useApiResource<Team[]>('/calendar-events/team-options', canManageAgenda);
-  const upcoming = useMemo(() => [...(events.data ?? [])].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()), [events.data]);
-  const [form, setForm] = useState(initialForm);
+  const groupOptions = useApiResource<CalendarAudienceGroup[]>(
+    '/calendar-events/group-options',
+    canManageAgenda,
+  );
+  const upcoming = useMemo(
+    () => [...(events.data ?? [])].sort(
+      (left, right) => new Date(left.starts_at).getTime() - new Date(right.starts_at).getTime(),
+    ),
+    [events.data],
+  );
+  const [form, setForm] = useState<CalendarEventFormState>(initialCalendarEventForm);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingRegistrationIds, setPendingRegistrationIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [editForm, setEditForm] = useState<CalendarEventFormState>(initialForm);
+  const [editForm, setEditForm] = useState<CalendarEventFormState>(initialCalendarEventForm);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [registrationEvent, setRegistrationEvent] = useState<CalendarEvent | null>(null);
+  const defaultGroupInitializedRef = useRef(false);
   const editDialogRef = useRef<HTMLElement>(null);
   const editTitleInputRef = useRef<HTMLInputElement>(null);
   const editTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (
+      !canManageAgenda
+      || groupOptions.data === null
+      || defaultGroupInitializedRef.current
+    ) {
+      return;
+    }
+
+    defaultGroupInitializedRef.current = true;
+    const everyoneGroup = groupOptions.data.find((group) => group.is_everyone);
+    if (everyoneGroup !== undefined) {
+      setForm((current) => current.groupIds.length === 0
+        ? { ...current, groupIds: [everyoneGroup.id] }
+        : current);
+    }
+  }, [canManageAgenda, groupOptions.data]);
+
+  const closeEditModal = useCallback(() => {
+    if (editSaving) {
+      return;
+    }
+    setEditError(null);
+    setEditingEvent(null);
+  }, [editSaving]);
 
   useEffect(() => {
     if (editingEvent === null) {
@@ -63,70 +109,59 @@ export function CalendarPage() {
 
     const trigger = editTriggerRef.current;
     const animationFrame = window.requestAnimationFrame(() => editTitleInputRef.current?.focus());
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.requestAnimationFrame(() => trigger?.focus());
-    };
-  }, [editingEvent]);
-
-  useEffect(() => {
-    if (editingEvent === null) {
-      return undefined;
-    }
-
-    function handleDialogKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
+    const dialog = editDialogRef.current;
+    function handleDialogKeyDown(keyEvent: KeyboardEvent) {
+      if (keyEvent.key === 'Escape') {
         if (!editSaving) {
-          event.preventDefault();
-          setEditError(null);
-          setEditingEvent(null);
+          keyEvent.preventDefault();
+          closeEditModal();
         }
-
+        return;
+      }
+      if (keyEvent.key !== 'Tab' || dialog === null) {
         return;
       }
 
-      if (event.key !== 'Tab') {
-        return;
-      }
-
-      const focusableElements = Array.from(editDialogRef.current?.querySelectorAll<HTMLElement>(
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-      ) ?? []);
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements.at(-1);
-
-      if (firstElement === undefined || lastElement === undefined) {
-        return;
-      }
-
-      if (event.shiftKey && document.activeElement === firstElement) {
-        event.preventDefault();
-        lastElement.focus();
-      } else if (!event.shiftKey && document.activeElement === lastElement) {
-        event.preventDefault();
-        firstElement.focus();
+      )).filter((element) => element.tabIndex >= 0);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (first === undefined || last === undefined) {
+        keyEvent.preventDefault();
+        dialog.focus();
+      } else if (keyEvent.shiftKey && document.activeElement === first) {
+        keyEvent.preventDefault();
+        last.focus();
+      } else if (!keyEvent.shiftKey && document.activeElement === last) {
+        keyEvent.preventDefault();
+        first.focus();
       }
     }
 
     document.addEventListener('keydown', handleDialogKeyDown);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      document.removeEventListener('keydown', handleDialogKeyDown);
+      window.requestAnimationFrame(() => trigger?.focus());
+    };
+  }, [closeEditModal, editingEvent, editSaving]);
 
-    return () => document.removeEventListener('keydown', handleDialogKeyDown);
-  }, [editingEvent, editSaving]);
+  async function submitCreate(submitEvent: FormEvent<HTMLFormElement>) {
+    submitEvent.preventDefault();
+    if (!calendarEventFormIsValid(form)) {
+      return;
+    }
 
-  async function submitCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
     setSaving(true);
-    setMessage(null);
-    setError(null);
-
+    clearFeedback();
     try {
       await api.post<CalendarEvent>('/calendar-events', calendarEventPayload(form));
-      setForm(initialForm);
+      setForm(newCalendarEventForm(groupOptions.data));
       setMessage('Agenda-item toegevoegd.');
       await events.reload();
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Agenda-item opslaan mislukt.');
+      setError(apiError(err, 'Agenda-item opslaan mislukt.'));
     } finally {
       setSaving(false);
     }
@@ -136,85 +171,136 @@ export function CalendarPage() {
     editTriggerRef.current = trigger;
     setEditForm(calendarEventForm(calendarEvent));
     setEditError(null);
-    setMessage(null);
-    setError(null);
+    clearFeedback();
     setEditingEvent(calendarEvent);
   }
 
-  function closeEditModal() {
-    if (editSaving) {
-      return;
-    }
-
-    setEditError(null);
-    setEditingEvent(null);
-  }
-
-  async function submitEdit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (editingEvent === null) {
+  async function submitEdit(submitEvent: FormEvent<HTMLFormElement>) {
+    submitEvent.preventDefault();
+    if (editingEvent === null || !calendarEventFormIsValid(editForm)) {
       return;
     }
 
     setEditSaving(true);
     setEditError(null);
-    setMessage(null);
-    setError(null);
-
+    clearFeedback();
     try {
       const response = await api.patch<CalendarEvent>(
         `/calendar-events/${editingEvent.id}`,
         calendarEventPayload(editForm),
       );
-      events.mutate((current) => current?.map((item) => (
-        item.id === response.data.id ? response.data : item
-      )) ?? current);
+      replaceEvent(response.data);
       setMessage('Agenda-item bijgewerkt.');
       setEditingEvent(null);
     } catch (err) {
-      setEditError(err instanceof ApiClientError ? err.message : 'Agenda-item aanpassen mislukt.');
+      setEditError(apiError(err, 'Agenda-item aanpassen mislukt.'));
     } finally {
       setEditSaving(false);
     }
   }
 
   async function deleteEvent(eventId: string) {
-    if (!window.confirm('Agenda-item verwijderen?')) {
+    if (!window.confirm('Agenda-item verwijderen? Bestaande inschrijvingen blijven in de audit bewaard.')) {
       return;
     }
 
-    setMessage(null);
-    setError(null);
+    clearFeedback();
     try {
       await api.delete(`/calendar-events/${eventId}`);
       setMessage('Agenda-item verwijderd.');
       await events.reload();
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Agenda-item verwijderen mislukt.');
+      setError(apiError(err, 'Agenda-item verwijderen mislukt.'));
     }
   }
 
+  async function updateOwnRegistration(calendarEvent: CalendarEvent, action: 'register' | 'unregister') {
+    setPendingRegistrationIds((current) => new Set(current).add(calendarEvent.id));
+    clearFeedback();
+    try {
+      const path = `/calendar-events/${calendarEvent.id}/registrations/me`;
+      const response = action === 'register'
+        ? await api.post<CalendarEvent>(path)
+        : await api.delete<CalendarEvent>(path);
+      replaceEvent(response.data);
+      setMessage(action === 'register'
+        ? `Je bent ingeschreven voor ${calendarEvent.title}.`
+        : `Je bent afgemeld voor ${calendarEvent.title}.`);
+    } catch (err) {
+      const conflict = err instanceof ApiClientError && err.status === 409;
+      const conflictMessage = err instanceof ApiClientError
+        ? registrationConflictMessage(err)
+        : null;
+      setError(conflict && action === 'register' && conflictMessage !== null
+        ? conflictMessage
+        : apiError(err, action === 'register' ? 'Inschrijven mislukt.' : 'Afmelden mislukt.'));
+      if (conflict) {
+        await events.silentReload();
+      }
+    } finally {
+      setPendingRegistrationIds((current) => {
+        const next = new Set(current);
+        next.delete(calendarEvent.id);
+        return next;
+      });
+    }
+  }
+
+  function replaceEvent(updated: CalendarEvent) {
+    events.mutate((current) => current?.map((item) => (
+      item.id === updated.id ? updated : item
+    )) ?? current);
+    setRegistrationEvent((current) => current?.id === updated.id ? updated : current);
+    setEditingEvent((current) => current?.id === updated.id ? updated : current);
+  }
+
+  function clearFeedback() {
+    setMessage(null);
+    setError(null);
+  }
+
   return (
-    <div className="page-stack">
-      <Panel title="Algemene agenda">
-        <div className="test-alert-hero">
-          <div className="test-alert-hero__icon"><CalendarDays size={28} /></div>
+    <div className={`page-stack ${styles.calendarPage}`}>
+      <Panel
+        title="Agenda"
+        action={canManageGroups ? (
+          <Link className="secondary-button" href="/calendar/groups">
+            <Settings2 size={16} aria-hidden /> Agendagroepen
+          </Link>
+        ) : undefined}
+      >
+        <div className={styles.hero}>
+          <div className={styles.heroIcon}><CalendarDays size={28} aria-hidden /></div>
           <div>
             <h3>Trainingen, open dagen en teammomenten</h3>
-            <p>Deze agenda is zichtbaar in de webapp en alleen-lezen in de mobiele app. Beschikbaarheid blijft apart.</p>
+            <p>
+              Bekijk voor wie een moment bedoeld is, hoeveel plaatsen er zijn en schrijf je direct
+              in via web of de Operator-app.
+            </p>
           </div>
         </div>
+        {message ? <p className="success-text" role="status">{message}</p> : null}
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
       </Panel>
 
       {canManageAgenda ? (
         <Panel title="Agenda-item toevoegen">
           <form className="form-grid" onSubmit={submitCreate}>
-            <CalendarEventFields form={form} setForm={setForm} teams={teams.data} />
-            {error ? <p className="form-error form-grid__wide">{error}</p> : null}
-            {message ? <p className="success-text form-grid__wide">{message}</p> : null}
+            <CalendarEventFields
+              form={form}
+              setForm={setForm}
+              groups={groupOptions.data}
+            />
+            {groupOptions.error ? (
+              <p className="form-error form-grid__wide">{groupOptions.error}</p>
+            ) : null}
             <div className="actions-row form-grid__wide">
-              <button className="primary-button" type="submit" disabled={saving || form.title.trim() === '' || form.startsAt === ''}>
-                <Plus size={16} /> {saving ? 'Opslaan...' : 'Toevoegen'}
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={saving || !calendarEventFormIsValid(form)}
+              >
+                <Plus size={16} aria-hidden /> {saving ? 'Opslaan...' : 'Toevoegen'}
               </button>
             </div>
           </form>
@@ -223,44 +309,39 @@ export function CalendarPage() {
 
       <Panel title="Geplande items">
         <ResourceState loading={events.loading} error={events.error} empty={upcoming.length === 0}>
-          <table className="data-table">
-            <thead><tr><th scope="col">Datum</th><th scope="col">Type</th><th scope="col">Titel</th><th scope="col">Locatie</th><th scope="col">Team</th><th scope="col">Aangemaakt door</th>{canManageAgenda ? <th scope="col">Acties</th> : null}</tr></thead>
-            <tbody>
-              {upcoming.map((event) => (
-                <tr key={event.id}>
-                  <td>{formatDateTime(event.starts_at)}{event.ends_at ? <><br /><span>tot {formatDateTime(event.ends_at)}</span></> : null}</td>
-                  <td>{eventTypeLabel(event.type)}</td>
-                  <td><strong>{event.title}</strong>{event.description ? <><br /><span>{event.description}</span></> : null}</td>
-                  <td>{event.location_label ?? '-'}</td>
-                  <td>{event.team?.name ?? 'Iedereen'}</td>
-                  <td>{event.created_by_name ?? '-'}</td>
-                  {canManageAgenda ? (
-                    <td>
-                      <div className="table-actions">
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={(clickEvent) => openEditModal(event, clickEvent.currentTarget)}
-                        >
-                          <Pencil size={16} aria-hidden="true" /> Aanpassen
-                        </button>
-                        <button className="secondary-button" type="button" onClick={() => void deleteEvent(event.id)}>Verwijderen</button>
-                      </div>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className={styles.eventGrid}>
+            {upcoming.map((calendarEvent) => (
+              <CalendarEventCard
+                key={calendarEvent.id}
+                event={calendarEvent}
+                canManageAgenda={canManageAgenda}
+                registrationPending={pendingRegistrationIds.has(calendarEvent.id)}
+                onRegister={() => void updateOwnRegistration(calendarEvent, 'register')}
+                onUnregister={() => void updateOwnRegistration(calendarEvent, 'unregister')}
+                onParticipants={() => setRegistrationEvent(calendarEvent)}
+                onEdit={(trigger) => openEditModal(calendarEvent, trigger)}
+                onDelete={() => void deleteEvent(calendarEvent.id)}
+              />
+            ))}
+          </div>
         </ResourceState>
       </Panel>
 
       {editingEvent !== null && canManageAgenda ? (
-        <div className="modal-backdrop" role="presentation">
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(mouseEvent) => {
+            if (mouseEvent.target === mouseEvent.currentTarget) {
+              closeEditModal();
+            }
+          }}
+        >
           <section
             ref={editDialogRef}
-            className="modal"
+            className={`modal ${styles.editDialog}`}
             role="dialog"
+            tabIndex={-1}
             aria-modal="true"
             aria-labelledby="calendar-edit-title"
             aria-describedby={editError ? 'calendar-edit-error' : undefined}
@@ -274,15 +355,16 @@ export function CalendarPage() {
                 disabled={editSaving}
                 aria-label="Bewerkvenster sluiten"
               >
-                <X size={18} aria-hidden="true" />
+                <X size={18} aria-hidden />
               </button>
             </header>
-            <form className="form-grid" onSubmit={submitEdit}>
+            <form className={`form-grid ${styles.dialogForm}`} onSubmit={submitEdit}>
               <CalendarEventFields
                 form={editForm}
                 setForm={setEditForm}
-                teams={teams.data}
+                groups={groupOptions.data}
                 titleInputRef={editTitleInputRef}
+                participantCount={editingEvent.registration?.participant_count ?? 0}
               />
               {editError ? (
                 <p id="calendar-edit-error" className="form-error form-grid__wide" role="alert">
@@ -296,7 +378,7 @@ export function CalendarPage() {
                 <button
                   className="primary-button"
                   type="submit"
-                  disabled={editSaving || editForm.title.trim() === '' || editForm.startsAt === ''}
+                  disabled={editSaving || !calendarEventFormIsValid(editForm)}
                 >
                   {editSaving ? 'Opslaan...' : 'Wijzigingen opslaan'}
                 </button>
@@ -305,122 +387,221 @@ export function CalendarPage() {
           </section>
         </div>
       ) : null}
+
+      {registrationEvent !== null
+        && registrationEvent.registration?.can_view_participants === true ? (
+          <CalendarRegistrationDialog
+            event={registrationEvent}
+            onClose={() => setRegistrationEvent(null)}
+            onEventUpdated={replaceEvent}
+          />
+        ) : null}
     </div>
   );
 }
 
-interface CalendarEventFieldsProps {
-  form: CalendarEventFormState;
-  setForm: Dispatch<SetStateAction<CalendarEventFormState>>;
-  teams: Team[] | null;
-  titleInputRef?: Ref<HTMLInputElement>;
+interface CalendarEventCardProps {
+  event: CalendarEvent;
+  canManageAgenda: boolean;
+  registrationPending: boolean;
+  onRegister: () => void;
+  onUnregister: () => void;
+  onParticipants: () => void;
+  onEdit: (trigger: HTMLButtonElement) => void;
+  onDelete: () => void;
 }
 
-function CalendarEventFields({ form, setForm, teams, titleInputRef }: CalendarEventFieldsProps) {
+function CalendarEventCard({
+  event,
+  canManageAgenda,
+  registrationPending,
+  onRegister,
+  onUnregister,
+  onParticipants,
+  onEdit,
+  onDelete,
+}: CalendarEventCardProps) {
+  const dateParts = calendarDateParts(event.starts_at);
+  const registration = event.registration;
+  const audienceLabels = calendarAudienceLabels(event);
+  const canViewParticipants = registration?.can_view_participants === true;
+
   return (
-    <>
-      <label>
-        Titel
-        <input
-          ref={titleInputRef}
-          maxLength={180}
-          value={form.title}
-          onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-          required
-        />
-      </label>
-      <label>
-        Type
-        <select
-          value={form.type}
-          onChange={(event) => setForm((current) => ({ ...current, type: event.target.value as CalendarEvent['type'] }))}
-        >
-          {eventTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
-        </select>
-      </label>
-      <label>
-        Start
-        <input
-          type="datetime-local"
-          value={form.startsAt}
-          onChange={(event) => setForm((current) => ({ ...current, startsAt: event.target.value }))}
-          required
-        />
-      </label>
-      <label>
-        Einde
-        <input
-          type="datetime-local"
-          value={form.endsAt}
-          min={form.startsAt || undefined}
-          onChange={(event) => setForm((current) => ({ ...current, endsAt: event.target.value }))}
-        />
-      </label>
-      <label>
-        Locatie
-        <input
-          maxLength={255}
-          value={form.locationLabel}
-          onChange={(event) => setForm((current) => ({ ...current, locationLabel: event.target.value }))}
-        />
-      </label>
-      <label>
-        Team
-        <select
-          value={form.teamId}
-          onChange={(event) => setForm((current) => ({ ...current, teamId: event.target.value }))}
-        >
-          <option value="">Iedereen</option>
-          {teams?.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-        </select>
-      </label>
-      <label className="form-grid__wide">
-        Omschrijving
-        <textarea
-          rows={3}
-          maxLength={2000}
-          value={form.description}
-          onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-        />
-      </label>
-    </>
+    <article className={styles.eventCard}>
+      <div className={styles.dateRail} aria-hidden>
+        <span>{dateParts.month}</span>
+        <strong>{dateParts.day}</strong>
+        <small>{dateParts.weekday}</small>
+      </div>
+      <div className={styles.eventBody}>
+        <header className={styles.eventHeader}>
+          <div>
+            <span className={styles.eventType}>{calendarEventTypeLabel(event.type)}</span>
+            <h3>{event.title}</h3>
+          </div>
+          {registration ? (
+            <StatusPill
+              value={registrationStatusLabel(registration)}
+              tone={registrationStatusTone(registration)}
+            />
+          ) : (
+            <StatusPill value="Geen inschrijving" />
+          )}
+        </header>
+
+        <p className={styles.eventTime}>
+          <CalendarCheck size={18} aria-hidden />
+          <span>
+            {formatDateTime(event.starts_at)}
+            {event.ends_at ? ` tot ${formatDateTime(event.ends_at)}` : ''}
+          </span>
+        </p>
+        {event.location_label ? (
+          <p className={styles.eventLocation}>
+            <MapPin size={18} aria-hidden />
+            <span>{event.location_label}</span>
+          </p>
+        ) : null}
+        {event.description ? <p className={styles.eventDescription}>{event.description}</p> : null}
+
+        <div className={styles.groupChips} aria-label="Doelgroep">
+          {audienceLabels.map((label) => <span key={label}>{label}</span>)}
+        </div>
+
+        {registration ? (
+          <div className={styles.registrationSummary}>
+            <div>
+              <Users size={20} aria-hidden />
+              <span>
+                <strong>{participantCountLabel(registration)}</strong>
+                {remainingPlacesLabel(registration) ? (
+                  <small>{remainingPlacesLabel(registration)}</small>
+                ) : null}
+              </span>
+            </div>
+            {registration.current_user_registered ? (
+              <span className={styles.registeredBadge}>Je komt</span>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className={styles.cardActions}>
+          {registration?.can_unregister ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onUnregister}
+              disabled={registrationPending}
+            >
+              {registrationPending ? 'Afmelden...' : 'Afmelden'}
+            </button>
+          ) : null}
+          {registration?.can_register ? (
+            <button
+              className="primary-button"
+              type="button"
+              onClick={onRegister}
+              disabled={registrationPending}
+            >
+              <CalendarCheck size={16} aria-hidden />
+              {registrationPending ? 'Inschrijven...' : 'Ik kom'}
+            </button>
+          ) : null}
+          {registration?.enabled
+            && !registration.can_register
+            && !registration.can_unregister
+            && registration.status !== 'open' ? (
+              <button className="secondary-button" type="button" disabled>
+                {registration.status === 'full' ? 'Vol' : 'Gesloten'}
+              </button>
+            ) : null}
+          {canViewParticipants ? (
+            <button className="secondary-button" type="button" onClick={onParticipants}>
+              <Users size={16} aria-hidden /> Deelnemers
+            </button>
+          ) : null}
+          {canManageAgenda ? (
+            <>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={(clickEvent) => onEdit(clickEvent.currentTarget)}
+              >
+                <Pencil size={16} aria-hidden /> Aanpassen
+              </button>
+              <button className="secondary-button" type="button" onClick={onDelete}>
+                Verwijderen
+              </button>
+            </>
+          ) : null}
+        </div>
+
+        {registration?.unavailable_reason
+          && !registration.can_register
+          && !registration.current_user_registered ? (
+            <p className={styles.registrationReason}>
+              {registrationUnavailableReason(registration.unavailable_reason)}
+            </p>
+          ) : null}
+        {event.created_by_name ? (
+          <footer className={styles.eventFooter}>Aangemaakt door {event.created_by_name}</footer>
+        ) : null}
+      </div>
+    </article>
   );
 }
 
-function calendarEventForm(event: CalendarEvent): CalendarEventFormState {
+function calendarDateParts(value: string): { month: string; day: string; weekday: string } {
+  const date = new Date(value);
   return {
-    title: event.title,
-    type: event.type,
-    startsAt: calendarDateTimeLocalValue(event.starts_at),
-    endsAt: calendarDateTimeLocalValue(event.ends_at),
-    locationLabel: event.location_label ?? '',
-    description: event.description ?? '',
-    teamId: event.team_id ?? event.team?.id ?? '',
+    month: new Intl.DateTimeFormat('nl-NL', { month: 'short', timeZone: 'Europe/Amsterdam' })
+      .format(date)
+      .replace('.', '')
+      .toUpperCase(),
+    day: new Intl.DateTimeFormat('nl-NL', { day: '2-digit', timeZone: 'Europe/Amsterdam' }).format(date),
+    weekday: new Intl.DateTimeFormat('nl-NL', { weekday: 'short', timeZone: 'Europe/Amsterdam' })
+      .format(date)
+      .replace('.', ''),
   };
 }
 
-function calendarDateTimeLocalValue(value: string | null | undefined): string {
-  if (!value) {
-    return '';
+function registrationUnavailableReason(reason: string): string {
+  const labels: Record<string, string> = {
+    already_registered: 'Je bent al ingeschreven.',
+    full: 'Dit agenda-item is vol.',
+    calendar_event_full: 'Dit agenda-item is vol.',
+    closed: 'De inschrijving is gesloten.',
+    registration_closed: 'De inschrijving is gesloten.',
+    not_eligible: 'Dit agenda-item is niet op jouw groep gericht.',
+    outside_audience: 'Dit agenda-item is niet op jouw groep gericht.',
+    permission_required: 'Je hebt geen recht om jezelf in te schrijven.',
+    permission_missing: 'Je hebt geen recht om jezelf in te schrijven.',
+    inactive_account: 'Je account is niet actief.',
+  };
+  return labels[reason] ?? reason;
+}
+
+function apiError(error: unknown, fallback: string): string {
+  return error instanceof ApiClientError ? error.message : fallback;
+}
+
+function registrationConflictMessage(error: ApiClientError): string {
+  if (error.code === 'calendar_event_full') {
+    return 'Dit agenda-item is zojuist vol geraakt. De actuele status is opnieuw geladen.';
+  }
+  if (error.code === 'calendar_registration_closed') {
+    return 'De inschrijving is zojuist gesloten. De actuele status is opnieuw geladen.';
   }
 
-  const match = value.match(calendarDateTimePattern);
-
-  return match ? `${match[1]}T${match[2]}` : '';
+  return error.message;
 }
 
-function calendarEventPayload(form: CalendarEventFormState) {
+function newCalendarEventForm(
+  groups: CalendarAudienceGroup[] | null,
+): CalendarEventFormState {
+  const everyoneGroup = groups?.find((group) => group.is_everyone);
   return {
-    title: form.title.trim(),
-    type: form.type,
-    starts_at: form.startsAt,
-    ends_at: form.endsAt || null,
-    location_label: form.locationLabel.trim() || null,
-    description: form.description.trim() || null,
-    team_id: form.teamId || null,
+    ...initialCalendarEventForm,
+    groupIds: everyoneGroup ? [everyoneGroup.id] : [],
   };
-}
-
-function eventTypeLabel(value: CalendarEvent['type']): string {
-  return eventTypes.find((type) => type.value === value)?.label ?? value;
 }

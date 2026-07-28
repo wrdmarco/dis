@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\CalendarEvent;
+use App\Models\CalendarGroup;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Team;
@@ -22,7 +23,11 @@ final class CalendarEventAuthorizationTest extends TestCase
         $this->seed(RoleAndPermissionSeeder::class);
 
         $allPermissions = [
+            'calendar.groups.manage',
             'calendar.manage',
+            'calendar.register',
+            'calendar.registrations.manage',
+            'calendar.registrations.view',
             'calendar.view',
             'operational-weather.view',
             'uav-forecast.view',
@@ -38,7 +43,7 @@ final class CalendarEventAuthorizationTest extends TestCase
 
         foreach (['national-coordinator', 'deployment-coordinator', 'operator-pilot'] as $roleName) {
             $this->assertSame(
-                ['calendar.view'],
+                ['calendar.register', 'calendar.view'],
                 $this->rolePermissionNames(
                     Role::query()->where('name', $roleName)->sole(),
                     $allPermissions,
@@ -131,6 +136,7 @@ final class CalendarEventAuthorizationTest extends TestCase
             'type' => 'exercise',
             'starts_at' => now()->addDay(),
         ]);
+        $this->attachEveryoneAudience($event);
 
         $this->getJson('/api/calendar-events')->assertUnauthorized();
 
@@ -159,13 +165,21 @@ final class CalendarEventAuthorizationTest extends TestCase
             'type' => 'meeting',
             'starts_at' => now()->addDays(2)->toIso8601String(),
             'location_label' => 'Utrecht',
+            'group_ids' => [$this->everyoneGroup()->id],
+            'registration_enabled' => false,
+            'max_participants' => null,
         ];
         $existing = CalendarEvent::query()->create([
-            ...$payload,
+            'title' => $payload['title'],
+            'type' => $payload['type'],
+            'starts_at' => $payload['starts_at'],
+            'location_label' => $payload['location_label'],
             'description' => 'Oorspronkelijke omschrijving',
+            'registration_enabled' => false,
             'created_by' => $viewer->id,
             'updated_by' => $viewer->id,
         ]);
+        $this->attachEveryoneAudience($existing);
 
         $this->asWebClient($viewer)
             ->postJson('/api/calendar-events', $payload)
@@ -221,7 +235,9 @@ final class CalendarEventAuthorizationTest extends TestCase
                 'ends_at' => $updatedEndsAt->toIso8601String(),
                 'location_label' => null,
                 'description' => 'Nieuwe omschrijving',
-                'team_id' => null,
+                'group_ids' => [$this->everyoneGroup()->id],
+                'registration_enabled' => false,
+                'max_participants' => null,
                 'created_by' => $manager->id,
                 'updated_by' => $viewer->id,
             ])
@@ -275,6 +291,7 @@ final class CalendarEventAuthorizationTest extends TestCase
             'created_by' => $manager->id,
             'updated_by' => $manager->id,
         ]);
+        $this->attachEveryoneAudience($event);
 
         $this->asWebClient($manager)
             ->patchJson('/api/calendar-events/'.$event->id, [
@@ -284,7 +301,9 @@ final class CalendarEventAuthorizationTest extends TestCase
                 'ends_at' => $startsAt->copy()->subMinute()->toIso8601String(),
                 'location_label' => null,
                 'description' => null,
-                'team_id' => null,
+                'group_ids' => [$this->everyoneGroup()->id],
+                'registration_enabled' => false,
+                'max_participants' => null,
             ])
             ->assertUnprocessable();
 
@@ -310,6 +329,13 @@ final class CalendarEventAuthorizationTest extends TestCase
             'starts_at' => now()->addDay(),
             'team_id' => $team->id,
         ]);
+        $group = CalendarGroup::query()->create([
+            'name' => 'Agenda testgroep',
+            'description' => null,
+            'legacy_team_id' => $team->id,
+        ]);
+        $group->teams()->attach($team->id, ['created_at' => now()]);
+        $event->audienceGroups()->attach($group->id, ['created_at' => now()]);
 
         $viewer = $this->user('calendar-scoped-viewer@example.test');
         $this->grant($viewer, ['calendar.view']);
@@ -408,6 +434,18 @@ final class CalendarEventAuthorizationTest extends TestCase
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);
+    }
+
+    private function everyoneGroup(): CalendarGroup
+    {
+        return CalendarGroup::query()->where('is_everyone', true)->sole();
+    }
+
+    private function attachEveryoneAudience(CalendarEvent $event): void
+    {
+        $event->audienceGroups()->attach($this->everyoneGroup()->id, [
+            'created_at' => now(),
+        ]);
     }
 
     /**

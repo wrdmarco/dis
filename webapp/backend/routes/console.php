@@ -38,6 +38,10 @@ Schedule::command('dis:backfill-pilot-report-drone-snapshots')
     ->withoutOverlapping(10);
 Schedule::command('dis:prune-operational-data')->dailyAt('03:45');
 Schedule::command('dis:send-certification-expiry-mails')->dailyAt('08:00');
+Schedule::command('dis:sync-user-notifications')
+    ->everyFifteenMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(10);
 Schedule::command('dis:apply-availability-schedule-statuses')->everyMinute();
 Schedule::command('dis:send-device-presence-ping')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('dis:reconcile-push-queue-work-items')

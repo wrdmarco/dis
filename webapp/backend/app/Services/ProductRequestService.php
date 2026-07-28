@@ -18,6 +18,7 @@ final class ProductRequestService
     public function __construct(
         private readonly ProductRequestRepository $requests,
         private readonly AuditService $audit,
+        private readonly UserNotificationService $notifications,
     ) {}
 
     /**
@@ -183,7 +184,13 @@ final class ProductRequestService
             'product-requests.resolve',
         );
 
-        return DB::transaction(function () use ($productRequest, $data, $actor): ProductRequest {
+        $notification = null;
+        $updatedProductRequest = DB::transaction(function () use (
+            $productRequest,
+            $data,
+            $actor,
+            &$notification,
+        ): ProductRequest {
             $locked = $this->requests->lock($productRequest->id);
             $this->assertCurrentVersion($locked, $data['lock_version']);
 
@@ -219,7 +226,7 @@ final class ProductRequestService
             ]);
             $locked->save();
 
-            $this->requests->createStatusHistory([
+            $history = $this->requests->createStatusHistory([
                 'product_request_id' => $locked->id,
                 'from_status' => $fromStatus,
                 'to_status' => $targetStatus,
@@ -239,8 +246,17 @@ final class ProductRequestService
                 ],
             );
 
+            $notification = $this->notifications->createProductRequestStatusNotification(
+                $locked,
+                $history,
+            );
+
             return $this->requests->forPresentation($locked->id, withHistory: true);
         });
+
+        $this->notifications->broadcastCreated($notification);
+
+        return $updatedProductRequest;
     }
 
     private function requireWebPermissions(User $actor, string ...$permissions): void
