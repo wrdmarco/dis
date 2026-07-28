@@ -26,6 +26,7 @@ interface UserOperationalDetailsProps {
   canManageAssets: boolean;
   canManageCertifications: boolean;
   canViewAvailabilitySchedule: boolean;
+  canManageAvailabilitySchedule: boolean;
   canViewVacations: boolean;
   canManageVacations: boolean;
   onChanged: () => Promise<void>;
@@ -44,6 +45,7 @@ export function UserOperationalDetails({
   canManageAssets,
   canManageCertifications,
   canViewAvailabilitySchedule,
+  canManageAvailabilitySchedule,
   canViewVacations,
   canManageVacations,
   onChanged,
@@ -122,6 +124,7 @@ export function UserOperationalDetails({
       <UserAvailabilitySchedule
         userId={userId ?? undefined}
         canView={canViewAvailabilitySchedule}
+        canManage={canManageAvailabilitySchedule}
         refreshVersion={availabilityScheduleVersion}
       />
 

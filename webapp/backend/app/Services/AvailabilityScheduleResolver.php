@@ -26,15 +26,15 @@ final class AvailabilityScheduleResolver
         $date ??= CarbonImmutable::now();
         $dayPart = $this->dayPartFor($date);
 
-        $override = AvailabilityOverride::query()
+        $overrides = AvailabilityOverride::query()
             ->where('user_id', $user->id)
             ->whereDate('starts_at', '<=', $date->toDateString())
             ->whereDate('ends_at', '>=', $date->toDateString())
             ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
-            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
             ->orderByDesc('updated_at')
             ->orderByDesc('id')
-            ->first();
+            ->get();
+        $override = $this->authoritativeOverride($overrides, $dayPart);
         if ($override !== null) {
             return [
                 'is_available' => (bool) $override->is_available,
@@ -87,12 +87,10 @@ final class AvailabilityScheduleResolver
             ->whereDate('starts_at', '<=', $date->toDateString())
             ->whereDate('ends_at', '>=', $date->toDateString())
             ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
-            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
             ->orderByDesc('updated_at')
             ->orderByDesc('id')
             ->get(['id', 'user_id', 'day_part', 'is_available', 'updated_at'])
-            ->unique(fn (AvailabilityOverride $override): string => (string) $override->user_id)
-            ->keyBy(fn (AvailabilityOverride $override): string => (string) $override->user_id);
+            ->groupBy(fn (AvailabilityOverride $override): string => (string) $override->user_id);
         $patterns = AvailabilityWeekPattern::query()
             ->whereIn('user_id', $userIds)
             ->where('day_of_week', $date->dayOfWeekIso)
@@ -104,15 +102,35 @@ final class AvailabilityScheduleResolver
             ->unique(fn (AvailabilityWeekPattern $pattern): string => (string) $pattern->user_id)
             ->keyBy(fn (AvailabilityWeekPattern $pattern): string => (string) $pattern->user_id);
 
-        return $users->mapWithKeys(function (User $user) use ($overrides, $patterns): array {
+        return $users->mapWithKeys(function (User $user) use ($overrides, $patterns, $dayPart): array {
             $userId = (string) $user->id;
-            $override = $overrides->get($userId);
+            $userOverrides = $overrides->get($userId, collect());
+            $override = $this->authoritativeOverride($userOverrides, $dayPart);
             $pattern = $patterns->get($userId);
 
             return [$userId => $override instanceof AvailabilityOverride
                 ? (bool) $override->is_available
                 : ($pattern instanceof AvailabilityWeekPattern ? (bool) $pattern->is_available : true)];
         })->all();
+    }
+
+    /**
+     * A current all-day override is authoritative for every day part. Within
+     * each scope, the most recently updated record remains authoritative so an
+     * explicitly replaced all-day override can still change that boundary.
+     *
+     * @param  Collection<int, AvailabilityOverride>  $overrides
+     */
+    private function authoritativeOverride(Collection $overrides, string $dayPart): ?AvailabilityOverride
+    {
+        $allDay = $overrides->first(
+            fn (AvailabilityOverride $override): bool => $override->day_part === self::DAY_PART_ALL_DAY,
+        );
+        $specific = $overrides->first(
+            fn (AvailabilityOverride $override): bool => $override->day_part === $dayPart,
+        );
+
+        return $allDay instanceof AvailabilityOverride ? $allDay : $specific;
     }
 
     private function dayPartFor(CarbonImmutable $date): string

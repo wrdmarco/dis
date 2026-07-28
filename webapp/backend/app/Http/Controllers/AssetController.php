@@ -6,6 +6,7 @@ use App\Events\AssetChanged;
 use App\Http\Requests\Assets\AssignAssetRequest;
 use App\Http\Requests\Assets\StoreAssetRequest;
 use App\Http\Requests\Assets\UpdateAssetRequest;
+use App\Http\Requests\Assets\UpdateOwnAssetRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\Asset;
 use App\Models\AssetAssignment;
@@ -118,22 +119,9 @@ final class AssetController extends Controller
         );
     }
 
-    public function updateMine(Request $request, Asset $asset): JsonResponse
+    public function updateMine(UpdateOwnAssetRequest $request, Asset $asset): JsonResponse
     {
-        abort_unless($asset->assignments()
-            ->where('user_id', $request->user()?->id)
-            ->whereNull('released_at')
-            ->exists(), 403);
-
-        $data = $request->validate([
-            'status' => ['required', 'in:ready,maintenance,unavailable'],
-            'has_spotlight' => ['sometimes', 'boolean'],
-            'has_speaker' => ['sometimes', 'boolean'],
-            'maintenance_due_at' => ['nullable', 'date'],
-            'notes' => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        return ApiResponse::success(MobileApiPayload::asset($this->service->update($asset, $data, $request->user())));
+        return ApiResponse::success(MobileApiPayload::asset($this->service->update($asset, $request->validated(), $request->user())));
     }
 
     public function destroyMine(Request $request, Asset $asset): JsonResponse

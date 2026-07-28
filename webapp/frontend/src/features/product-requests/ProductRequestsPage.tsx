@@ -67,7 +67,7 @@ function emptyRequestContent(): RequestContentForm {
 
 export function ProductRequestsPage() {
   const { api, hasPermission } = useAuth();
-  const [tab, setTab] = useState<ProductRequestTab>('all');
+  const [tab, setTab] = useState<ProductRequestTab>('handling');
   const [typeFilter, setTypeFilter] = useState<ProductRequestType | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<ProductRequestStatus | 'all'>('all');
   const [query, setQuery] = useState('');

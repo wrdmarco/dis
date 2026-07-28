@@ -16,7 +16,7 @@ final class AssetService
     public function __construct(private readonly AuditService $auditService) {}
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function create(array $data, User $actor): Asset
     {
@@ -30,7 +30,7 @@ final class AssetService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function createForUser(array $data, User $actor): Asset
     {
@@ -53,7 +53,7 @@ final class AssetService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function update(Asset $asset, array $data, User $actor): Asset
     {
@@ -81,7 +81,7 @@ final class AssetService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function assign(Asset $asset, array $data, User $actor): AssetAssignment
     {
@@ -105,7 +105,7 @@ final class AssetService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function normalizeDroneType(array $data, ?Asset $asset = null): array
@@ -119,8 +119,11 @@ final class AssetService
             return $data;
         }
 
-        $droneTypeId = $data['drone_type_id'] ?? $asset?->drone_type_id;
+        $droneTypeId = array_key_exists('drone_type_id', $data)
+            ? $data['drone_type_id']
+            : $asset?->drone_type_id;
         if (! is_string($droneTypeId) || $droneTypeId === '') {
+            $data['drone_type_id'] = null;
             $data['has_spotlight'] = false;
             $data['has_speaker'] = false;
 
@@ -141,7 +144,7 @@ final class AssetService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function ensureAssetTag(array $data): array

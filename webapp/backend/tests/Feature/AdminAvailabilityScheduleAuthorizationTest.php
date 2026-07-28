@@ -16,12 +16,14 @@ final class AdminAvailabilityScheduleAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_status_view_can_read_a_users_full_week_plan_but_other_admins_cannot(): void
+    public function test_status_view_or_override_can_read_a_users_full_week_plan_but_other_admins_cannot(): void
     {
         $target = $this->user('week-plan-target@example.test');
         $viewer = $this->user('week-plan-viewer@example.test');
+        $manager = $this->user('week-plan-manager-reader@example.test');
         $otherAdmin = $this->user('week-plan-other-admin@example.test');
         $this->grant($viewer, ['status.view']);
+        $this->grant($manager, ['status.override']);
         $this->grant($otherAdmin, ['users.view']);
 
         $response = $this->asWebClient($viewer)
@@ -39,6 +41,11 @@ final class AdminAvailabilityScheduleAuthorizationTest extends TestCase
                     ->all(),
             );
         }
+
+        $this->asWebClient($manager)
+            ->getJson("/api/availability-statuses/users/{$target->id}/availability-schedule")
+            ->assertOk()
+            ->assertJsonCount(21, 'data.week_day_parts');
 
         $this->asWebClient($otherAdmin)
             ->getJson("/api/availability-statuses/users/{$target->id}/availability-schedule")

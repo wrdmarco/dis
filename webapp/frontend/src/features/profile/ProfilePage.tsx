@@ -10,13 +10,11 @@ import { droneTypeLabel } from '../../lib/droneTypes';
 import { countryOptions, regionOptionsForCountry } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
+import { UserAvailabilitySchedule } from '../users/UserAvailabilitySchedule';
 import { VacationPlanner } from '../vacations/VacationPlanner';
-import type { Asset, AvailabilityOverride, AvailabilitySchedule, AvailabilityScheduleDay, Certification, DroneType, FcmToken, MobilePairingClientType, MobilePairingCode, TwoFactorSetup, User, UserCertification } from '../../types/api';
+import type { Asset, Certification, DroneType, FcmToken, MobilePairingClientType, MobilePairingCode, TwoFactorSetup, User, UserCertification } from '../../types/api';
 
 type OwnAssetStatus = 'ready' | 'maintenance' | 'unavailable';
-type AvailabilityDayPart = NonNullable<AvailabilityOverride['day_part']>;
-
-const availabilityDayParts: AvailabilityDayPart[] = ['morning', 'afternoon', 'evening'];
 
 interface ProfileFormState {
   firstName: string;
@@ -45,6 +43,7 @@ const emptyProfileForm: ProfileFormState = {
 function emptyAssetForm() {
   return {
     id: null as string | null,
+    canEditIdentity: true,
     name: '',
     type: 'drone',
     droneTypeId: '',
@@ -72,7 +71,6 @@ export function ProfilePage() {
   const { api, user, theme, setThemePreference, startTwoFactorSetup, enableTwoFactor, disableTwoFactor, refreshMe } = useAuth();
   const assets = useApiResource<Asset[]>('/assets/mine');
   const devices = useApiResource<FcmToken[]>('/devices');
-  const schedule = useApiResource<AvailabilitySchedule>('/availability-schedule/me');
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
   const certificationOptions = useApiResource<Certification[]>('/certifications/options');
   const userCertifications = useApiResource<UserCertification[]>('/certifications/me');
@@ -80,8 +78,6 @@ export function ProfilePage() {
   const [enableCode, setEnableCode] = useState('');
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
-  const [workPlanOpen, setWorkPlanOpen] = useState(false);
-  const [workPlanDraft, setWorkPlanDraft] = useState<AvailabilityScheduleDay[] | null>(null);
   const [addDeviceOpen, setAddDeviceOpen] = useState(false);
   const [deviceToDelete, setDeviceToDelete] = useState<FcmToken | null>(null);
   const [profileForm, setProfileForm] = useState<ProfileFormState>(emptyProfileForm);
@@ -90,7 +86,6 @@ export function ProfilePage() {
   const [pairingClientType, setPairingClientType] = useState<MobilePairingClientType | ''>('');
   const [pairing, setPairing] = useState<MobilePairingCode | null>(null);
   const [pairingSecondsLeft, setPairingSecondsLeft] = useState(0);
-  const [savingSchedule, setSavingSchedule] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAsset, setSavingAsset] = useState(false);
   const [savingCertification, setSavingCertification] = useState(false);
@@ -106,8 +101,7 @@ export function ProfilePage() {
   const [themeError, setThemeError] = useState<string | null>(null);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
-  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
-  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [availabilityScheduleVersion, setAvailabilityScheduleVersion] = useState(0);
   const [assetMessage, setAssetMessage] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
   const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
@@ -255,71 +249,6 @@ export function ProfilePage() {
     }
   }
 
-  function openWorkPlan() {
-    if (schedule.data === null) {
-      return;
-    }
-
-    setScheduleError(null);
-    setScheduleMessage(null);
-    setWorkPlanDraft(weekDayPartPattern(schedule.data).map((day) => ({ ...day })));
-    setWorkPlanOpen(true);
-  }
-
-  function updateWorkPlanDayPart(dayOfWeek: number, dayPart: AvailabilityDayPart, isAvailable: boolean) {
-    setWorkPlanDraft((current) => current === null ? current : current.map((day) => (
-      day.day_of_week === dayOfWeek && day.day_part === dayPart ? { ...day, is_available: isAvailable } : day
-    )));
-  }
-
-  async function saveWorkPlan() {
-    if (workPlanDraft === null) {
-      return;
-    }
-
-    setSavingSchedule(true);
-    setScheduleError(null);
-    setScheduleMessage(null);
-    try {
-      const response = await api.patch<AvailabilitySchedule>('/availability-schedule/me/week-pattern', {
-        patterns: workPlanDraft.map((day) => ({
-          day_of_week: day.day_of_week,
-          day_part: day.day_part,
-          is_available: day.is_available,
-          note: day.note ?? null,
-        })),
-      });
-      schedule.mutate(response.data);
-      setWorkPlanDraft(weekDayPartPattern(response.data).map((day) => ({ ...day })));
-      setScheduleMessage('Vaste dagdelen opgeslagen.');
-    } catch (err) {
-      setScheduleError(err instanceof ApiClientError ? err.message : 'Vaste dagdelen konden niet worden opgeslagen.');
-    } finally {
-      setSavingSchedule(false);
-    }
-  }
-
-  async function planDayPart(date: string, dayPart: AvailabilityDayPart, isAvailable: boolean) {
-    setSavingSchedule(true);
-    setScheduleError(null);
-    setScheduleMessage(null);
-    try {
-      const response = await api.post<AvailabilitySchedule>('/availability-schedule/me/overrides', {
-        starts_at: date,
-        ends_at: date,
-        day_part: dayPart,
-        is_available: isAvailable,
-        note: `Gepland via werkplanning: ${availabilityDayPartLabel(dayPart).toLowerCase()}`,
-      });
-      schedule.mutate(response.data);
-      setScheduleMessage(`${shortDateLabel(date)} ${availabilityDayPartLabel(dayPart).toLowerCase()} gepland als ${isAvailable ? 'beschikbaar' : 'niet beschikbaar'}.`);
-    } catch (err) {
-      setScheduleError(err instanceof ApiClientError ? err.message : 'Dagdeel kon niet worden opgeslagen.');
-    } finally {
-      setSavingSchedule(false);
-    }
-  }
-
   async function submitProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSavingProfile(true);
@@ -351,15 +280,17 @@ export function ProfilePage() {
     setAssetMessage(null);
 
     const payload = {
-      name: assetForm.name,
-      type: assetForm.type,
-      drone_type_id: assetForm.type === 'drone' ? assetForm.droneTypeId || null : null,
       has_spotlight: assetSupportsSpotlight ? assetForm.hasSpotlight : false,
       has_speaker: assetSupportsSpeaker ? assetForm.hasSpeaker : false,
       status: assetForm.status,
-      serial_number: assetForm.serialNumber || null,
       maintenance_due_at: assetForm.maintenanceDueAt || null,
       notes: assetForm.notes || null,
+      ...(assetForm.canEditIdentity ? {
+        name: assetForm.name,
+        type: assetForm.type,
+        drone_type_id: assetForm.type === 'drone' ? assetForm.droneTypeId || null : null,
+        serial_number: assetForm.serialNumber || null,
+      } : {}),
     };
 
     try {
@@ -402,6 +333,7 @@ export function ProfilePage() {
     setAssetMessage(null);
     setAssetForm({
       id: asset.id,
+      canEditIdentity: asset.active_assignment?.assigned_by === user?.id,
       name: asset.name,
       type: asset.type,
       droneTypeId: asset.drone_type_id ?? '',
@@ -762,135 +694,27 @@ export function ProfilePage() {
         </div>
       ) : null}
 
-      <Panel title="Mijn beschikbaarheid">
-        <ResourceState loading={schedule.loading} error={schedule.error ?? scheduleError} empty={schedule.data === null}>
-          {schedule.data !== null ? (
-            <div className="panel-body">
-              <div className="summary-grid">
-                <SummaryItem label="Vandaag" value={schedule.data.today.is_available ? 'Beschikbaar' : 'Niet beschikbaar'} />
-                <SummaryItem label="Bron" value={availabilitySourceLabel(schedule.data.today.source)} />
-              </div>
-              <div className="work-plan-card">
-                <div className="work-plan-card__header">
-                  <div>
-                    <strong>Dagdelenplanning</strong>
-                    <p>Plan je beschikbaarheid voor de komende twee weken per ochtend, middag en avond.</p>
-                  </div>
-                  <button className="primary-button" type="button" onClick={openWorkPlan} disabled={savingSchedule}>
-                    Dagdelen plannen
-                  </button>
-                </div>
-              </div>
-              {scheduleError ? <p className="form-error">{scheduleError}</p> : null}
-              {scheduleMessage ? <p className="form-note">{scheduleMessage}</p> : null}
-            </div>
-          ) : null}
-        </ResourceState>
-      </Panel>
+      <UserAvailabilitySchedule
+        scope="mine"
+        canView
+        canManage
+        refreshVersion={availabilityScheduleVersion}
+      />
 
-      <VacationPlanner scope="mine" onChanged={schedule.reload} />
-
-      {workPlanOpen && workPlanDraft !== null && schedule.data !== null ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal work-plan-modal" role="dialog" aria-modal="true" aria-labelledby="work-plan-title">
-            <header className="modal__header">
-              <div>
-                <span className="modal__eyebrow">Profiel</span>
-                <h2 id="work-plan-title">Dagdelen plannen</h2>
-              </div>
-              <button className="icon-button" type="button" onClick={() => { setWorkPlanOpen(false); setWorkPlanDraft(null); }} aria-label="Sluiten">
-                <X size={18} />
-              </button>
-            </header>
-            <div className="panel-body">
-              <section className="stacked-section">
-                <div className="section-heading">
-                  <strong>Vaste weekdagen per dagdeel</strong>
-                  <span>Stel je standaard beschikbaarheid in voor ochtend, middag en avond.</span>
-                </div>
-                <div className="week-daypart-grid">
-                  {rangeDays().map((dayOfWeek) => (
-                    <article className="week-daypart-row" key={dayOfWeek}>
-                      <strong>{dayLabel(dayOfWeek)}</strong>
-                      <div className="daypart-planner-actions">
-                        {availabilityDayParts.map((dayPart) => {
-                          const state = workPlanDraft.find((day) => day.day_of_week === dayOfWeek && day.day_part === dayPart);
-                          const isAvailable = state?.is_available ?? true;
-                          return (
-                            <button
-                              className={isAvailable ? 'secondary-button' : 'danger-button'}
-                              type="button"
-                              key={dayPart}
-                              disabled={savingSchedule}
-                              onClick={() => updateWorkPlanDayPart(dayOfWeek, dayPart, !isAvailable)}
-                              title={`${dayLabel(dayOfWeek)} ${availabilityDayPartLabel(dayPart).toLowerCase()} standaard ${isAvailable ? 'niet beschikbaar' : 'beschikbaar'} zetten`}
-                            >
-                              {availabilityDayPartLabel(dayPart)}: {isAvailable ? 'Aan' : 'Uit'}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </section>
-              <section className="stacked-section">
-                <div className="section-heading">
-                  <strong>2 weken vooruit plannen</strong>
-                  <span>Gebruik dit voor afwijkingen op je vaste weekdagen.</span>
-                </div>
-                <div className="daypart-planner">
-                  {nextCalendarDays(14).map((date) => (
-                    <article className="daypart-planner-row" key={date}>
-                      <div>
-                        <strong>{shortDateLabel(date)}</strong>
-                        <span>{formatDate(date)}</span>
-                      </div>
-                      <div className="daypart-planner-actions">
-                        {availabilityDayParts.map((dayPart) => {
-                          const state = availabilityForDatePart(schedule.data!, date, dayPart);
-                          return (
-                            <button
-                              className={state.is_available ? 'secondary-button' : 'danger-button'}
-                              type="button"
-                              key={dayPart}
-                              disabled={savingSchedule}
-                              onClick={() => void planDayPart(date, dayPart, !state.is_available)}
-                              title={`${availabilityDayPartLabel(dayPart)} wisselen naar ${state.is_available ? 'niet beschikbaar' : 'beschikbaar'}`}
-                            >
-                              {availabilityDayPartLabel(dayPart)}: {state.is_available ? 'Aan' : 'Uit'}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </section>
-              {scheduleMessage ? <p className="form-note">{scheduleMessage}</p> : null}
-              {scheduleError ? <p className="form-error">{scheduleError}</p> : null}
-            </div>
-            <div className="actions-row">
-              <button className="secondary-button" type="button" onClick={() => { setWorkPlanOpen(false); setWorkPlanDraft(null); }} disabled={savingSchedule}>
-                Sluiten
-              </button>
-              <button className="primary-button" type="button" onClick={() => void saveWorkPlan()} disabled={savingSchedule}>
-                {savingSchedule ? 'Opslaan...' : 'Vaste dagdelen opslaan'}
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <VacationPlanner
+        scope="mine"
+        onChanged={() => setAvailabilityScheduleVersion((current) => current + 1)}
+      />
 
       <Panel title="Mijn assets">
         <form className="form-grid" onSubmit={submitAsset}>
           <label>
             Naam
-            <input value={assetForm.name} onChange={(event) => setAssetForm((current) => ({ ...current, name: event.target.value }))} required />
+            <input value={assetForm.name} onChange={(event) => setAssetForm((current) => ({ ...current, name: event.target.value }))} required disabled={!assetForm.canEditIdentity} />
           </label>
           <label>
             Type
-            <select value={assetForm.type} onChange={(event) => setAssetForm((current) => ({ ...current, type: event.target.value, droneTypeId: '', hasSpotlight: false, hasSpeaker: false }))}>
+            <select value={assetForm.type} onChange={(event) => setAssetForm((current) => ({ ...current, type: event.target.value, droneTypeId: '', hasSpotlight: false, hasSpeaker: false }))} disabled={!assetForm.canEditIdentity}>
               <option value="drone">Drone</option>
               <option value="battery">Batterij</option>
               <option value="sensor">Sensor</option>
@@ -913,6 +737,7 @@ export function ProfilePage() {
                   }));
                 }}
                 required
+                disabled={!assetForm.canEditIdentity}
               >
                 <option value="">Kies drone type</option>
                 {droneTypes.data?.filter((type) => type.is_active || type.id === assetForm.droneTypeId).map((type) => (
@@ -931,7 +756,7 @@ export function ProfilePage() {
           </label>
           <label>
             Serienummer
-            <input value={assetForm.serialNumber} onChange={(event) => setAssetForm((current) => ({ ...current, serialNumber: event.target.value }))} />
+            <input value={assetForm.serialNumber} onChange={(event) => setAssetForm((current) => ({ ...current, serialNumber: event.target.value }))} disabled={!assetForm.canEditIdentity} />
           </label>
           <label>
             Onderhoud voor
@@ -1084,15 +909,6 @@ export function ProfilePage() {
           <pre>{recoveryCodes.join('\n')}</pre>
         </Panel>
       ) : null}
-    </div>
-  );
-}
-
-function SummaryItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }
@@ -1366,119 +1182,6 @@ function dateParts(value?: string | null): { input: string; display: string } | 
     input: `${year}-${month}-${day}`,
     display: `${day}-${month}-${year}`,
   };
-}
-
-function dayLabel(dayOfWeek: number): string {
-  return ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'][dayOfWeek - 1] ?? String(dayOfWeek);
-}
-
-function rangeDays(): number[] {
-  return [1, 2, 3, 4, 5, 6, 7];
-}
-
-function weekDayPartPattern(schedule: AvailabilitySchedule): AvailabilityScheduleDay[] {
-  return rangeDays().flatMap((dayOfWeek) => availabilityDayParts.map((dayPart) => {
-    const specific = schedule.week_day_parts?.find((day) => day.day_of_week === dayOfWeek && day.day_part === dayPart);
-    const fallback = schedule.week_pattern.find((day) => day.day_of_week === dayOfWeek);
-
-    return {
-      day_of_week: dayOfWeek,
-      day_part: dayPart,
-      is_available: specific?.is_available ?? fallback?.is_available ?? true,
-      note: specific?.note ?? fallback?.note ?? null,
-      source: specific?.source ?? fallback?.source ?? 'default',
-    };
-  }));
-}
-
-function availabilitySourceLabel(source: AvailabilitySchedule['today']['source']): string {
-  switch (source) {
-    case 'override':
-      return 'Planning';
-    case 'pattern':
-    case 'week_pattern':
-      return 'Werkplanning';
-    default:
-      return 'Standaard beschikbaar';
-  }
-}
-
-function nextCalendarDays(count: number): string[] {
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-
-  return Array.from({ length: count }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() + index);
-
-    return inputDateValue(date);
-  });
-}
-
-function inputDateValue(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-
-  return `${year}-${month}-${day}`;
-}
-
-function shortDateLabel(value: string): string {
-  const date = dateFromInput(value);
-  if (date === null) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat('nl-NL', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(date);
-}
-
-function availabilityForDatePart(schedule: AvailabilitySchedule, dateValue: string, dayPart: AvailabilityDayPart): { is_available: boolean; source: string } {
-  const override = schedule.overrides.find((candidate) => dateInRange(dateValue, candidate) && candidate.day_part === dayPart)
-    ?? schedule.overrides.find((candidate) => dateInRange(dateValue, candidate) && (candidate.day_part ?? 'all_day') === 'all_day');
-  if (override !== undefined) {
-    return { is_available: override.is_available, source: 'planning' };
-  }
-
-  const date = dateFromInput(dateValue);
-  if (date === null) {
-    return { is_available: true, source: 'default' };
-  }
-
-  const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay();
-  const pattern = schedule.week_day_parts?.find((day) => day.day_of_week === dayOfWeek && day.day_part === dayPart)
-    ?? schedule.week_pattern.find((day) => day.day_of_week === dayOfWeek);
-
-  return {
-    is_available: pattern?.is_available ?? true,
-    source: pattern?.source ?? 'default',
-  };
-}
-
-function availabilityDayPartLabel(dayPart: AvailabilityDayPart): string {
-  switch (dayPart) {
-    case 'morning':
-      return 'Ochtend';
-    case 'afternoon':
-      return 'Middag';
-    case 'evening':
-      return 'Avond';
-    case 'all_day':
-    default:
-      return 'Hele dag';
-  }
-}
-
-function dateInRange(dateValue: string, override: AvailabilityOverride): boolean {
-  return dateValue >= override.starts_at && dateValue <= override.ends_at;
-}
-
-function dateFromInput(value: string): Date | null {
-  const parts = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (parts === null) {
-    return null;
-  }
-
-  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 12, 0, 0, 0);
 }
 
 function ownAssetStatus(status: Asset['status']): OwnAssetStatus {

@@ -217,7 +217,8 @@ test('orders workflow tabs and loads active versus closed requests', async ({ pa
     'Alle verzoeken',
   ]);
 
-  await tabs.getByRole('button', { name: 'Te behandelen', exact: true }).click();
+  await expect(tabs.getByRole('button', { name: 'Te behandelen', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => listRequests.at(-1) ?? '').toContain('status=open%2Cin_progress');
   await expect(productRequestRow(page, 'Open verzoek')).toHaveCount(1);
   await expect(productRequestRow(page, 'Verzoek in behandeling')).toHaveCount(1);

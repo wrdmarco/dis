@@ -120,7 +120,7 @@ final class StatusAvailabilityOverrideGuardTest extends TestCase
         $this->assertTrue((bool) $record->is_available);
     }
 
-    public function test_current_day_part_unavailable_override_wins_over_newer_available_all_day_override_everywhere(): void
+    public function test_available_all_day_override_wins_over_older_unavailable_day_part_everywhere(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-07-27 14:00:00', config('app.timezone')));
         $user = $this->user('status-guard-afternoon-unavailable@example.test');
@@ -140,21 +140,18 @@ final class StatusAvailabilityOverrideGuardTest extends TestCase
         );
 
         $schedule = app(AvailabilityScheduleService::class);
-        $this->assertFalse($schedule->isAvailable($user));
-        $this->assertFalse($schedule->availabilityByUser(collect([$user]))[(string) $user->id]);
+        $this->assertTrue($schedule->isAvailable($user));
+        $this->assertTrue($schedule->availabilityByUser(collect([$user]))[(string) $user->id]);
 
-        try {
-            app(StatusService::class)->setStatus($user, 'available', $user);
-            $this->fail('The effective current day-part override must block a manual available status.');
-        } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('status', $exception->errors());
-        }
+        $manualStatus = app(StatusService::class)->setStatus($user, 'available', $user);
+        $this->assertSame('available', $manualStatus->status);
 
+        app(StatusService::class)->setStatus($user, 'unavailable', $user);
         $this->assertSame(0, Artisan::call('dis:apply-availability-schedule-statuses'));
-        $this->assertSame('unavailable', $this->latestStatus($user)?->status);
+        $this->assertSame('available', $this->latestStatus($user)?->status);
     }
 
-    public function test_current_day_part_available_override_wins_over_newer_unavailable_all_day_override_everywhere(): void
+    public function test_unavailable_all_day_override_wins_over_older_available_day_part_everywhere(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-07-27 14:00:00', config('app.timezone')));
         $user = $this->user('status-guard-afternoon-available@example.test');
@@ -175,15 +172,72 @@ final class StatusAvailabilityOverrideGuardTest extends TestCase
         app(StatusService::class)->setStatus($user, 'unavailable', $user);
 
         $schedule = app(AvailabilityScheduleService::class);
-        $this->assertTrue($schedule->isAvailable($user));
-        $this->assertTrue($schedule->availabilityByUser(collect([$user]))[(string) $user->id]);
+        $this->assertFalse($schedule->isAvailable($user));
+        $this->assertFalse($schedule->availabilityByUser(collect([$user]))[(string) $user->id]);
 
-        $manualStatus = app(StatusService::class)->setStatus($user, 'available', $user);
-        $this->assertSame('available', $manualStatus->status);
+        try {
+            app(StatusService::class)->setStatus($user, 'available', $user);
+            $this->fail('An unavailable all-day override must block an older available day-part override.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('status', $exception->errors());
+        }
 
-        app(StatusService::class)->setStatus($user, 'unavailable', $user);
         $this->assertSame(0, Artisan::call('dis:apply-availability-schedule-statuses'));
-        $this->assertSame('available', $this->latestStatus($user)?->status);
+        $this->assertSame('unavailable', $this->latestStatus($user)?->status);
+    }
+
+    public function test_unavailable_all_day_override_wins_over_newer_available_day_part_everywhere(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-07-27 14:00:00', config('app.timezone')));
+        $user = $this->user('status-guard-newer-afternoon-available@example.test');
+        $allDay = $this->override(
+            $user,
+            today()->toDateString(),
+            today()->toDateString(),
+            false,
+        );
+        $allDay->forceFill(['updated_at' => now()->subMinute()])->saveQuietly();
+        $this->override(
+            $user,
+            today()->toDateString(),
+            today()->toDateString(),
+            true,
+            'afternoon',
+        );
+        app(StatusService::class)->setStatus($user, 'unavailable', $user);
+
+        $schedule = app(AvailabilityScheduleService::class);
+        $availability = $schedule->availabilityFor($user);
+        $this->assertFalse($availability['is_available']);
+        $this->assertSame('override', $availability['source']);
+        $this->assertFalse($schedule->availabilityByUser(collect([$user]))[(string) $user->id]);
+
+        try {
+            app(StatusService::class)->setStatus($user, 'available', $user);
+            $this->fail('An unavailable all-day override must block a newer available day-part override.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('status', $exception->errors());
+        }
+
+        $this->assertSame(0, Artisan::call('dis:apply-availability-schedule-statuses'));
+        $this->assertSame('unavailable', $this->latestStatus($user)?->status);
+    }
+
+    public function test_unavailable_all_day_period_blocks_every_day_part_on_inclusive_boundaries(): void
+    {
+        $user = $this->user('status-guard-inclusive-vacation@example.test');
+        $vacation = $this->override($user, '2026-07-27', '2026-07-29', false);
+        $vacation->forceFill(['updated_at' => CarbonImmutable::parse('2026-07-26 12:00:00')])->saveQuietly();
+        $this->override($user, '2026-07-27', '2026-07-27', true, 'morning');
+        $this->override($user, '2026-07-29', '2026-07-29', true, 'evening');
+
+        $schedule = app(AvailabilityScheduleService::class);
+
+        $this->assertTrue($schedule->isAvailable($user, CarbonImmutable::parse('2026-07-26 23:59:59')));
+        $this->assertFalse($schedule->isAvailable($user, CarbonImmutable::parse('2026-07-27 00:00:00')));
+        $this->assertFalse($schedule->isAvailable($user, CarbonImmutable::parse('2026-07-28 14:00:00')));
+        $this->assertFalse($schedule->isAvailable($user, CarbonImmutable::parse('2026-07-29 23:59:59')));
+        $this->assertTrue($schedule->isAvailable($user, CarbonImmutable::parse('2026-07-30 00:00:00')));
     }
 
     public function test_effective_week_pattern_is_used_by_reads_manual_guard_and_scheduler(): void

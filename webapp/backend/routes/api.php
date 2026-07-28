@@ -366,7 +366,7 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::delete('/availability-schedule/overrides/{override}', [AvailabilityScheduleController::class, 'deleteOverride']);
         Route::get('/availability-statuses/users', [StatusController::class, 'users'])->middleware('permission:status.view');
         Route::post('/availability-statuses/users/{user}/override', [StatusController::class, 'override'])->middleware('permission:status.override');
-        Route::get('/availability-statuses/users/{user}/availability-schedule', [AvailabilityScheduleController::class, 'show'])->middleware('permission:status.view');
+        Route::get('/availability-statuses/users/{user}/availability-schedule', [AvailabilityScheduleController::class, 'show'])->middleware('permission:status.view,status.override');
         Route::patch('/availability-statuses/users/{user}/availability-schedule/week-pattern', [AvailabilityScheduleController::class, 'updateForUser'])->middleware('permission:status.override');
         Route::post('/availability-statuses/users/{user}/availability-schedule/overrides', [AvailabilityScheduleController::class, 'storeUserOverride'])->middleware('permission:status.override');
         Route::get('/status/history', [StatusController::class, 'history'])->middleware('permission:status.view');

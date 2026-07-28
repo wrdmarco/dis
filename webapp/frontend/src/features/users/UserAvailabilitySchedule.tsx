@@ -1,14 +1,18 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Pencil, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
+import { ApiClientError } from '../../lib/apiClient';
 import { formatDateOnly, todayAmsterdamDateInputValue } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import type { AvailabilityOverride, AvailabilitySchedule, AvailabilityScheduleDay } from '../../types/api';
+import { useAuth } from '../auth/AuthContext';
 
 type AvailabilityDayPart = 'morning' | 'afternoon' | 'evening';
+type AvailabilityScheduleScope = 'mine' | 'user';
 
 const dayParts: AvailabilityDayPart[] = ['morning', 'afternoon', 'evening'];
 const daysOfWeek = [1, 2, 3, 4, 5, 6, 7];
@@ -16,21 +20,32 @@ const daysOfWeek = [1, 2, 3, 4, 5, 6, 7];
 interface UserAvailabilityScheduleProps {
   userId?: string;
   canView: boolean;
+  canManage?: boolean;
   refreshVersion?: number;
+  scope?: AvailabilityScheduleScope;
 }
 
 export function UserAvailabilitySchedule({
   userId,
   canView,
+  canManage = false,
   refreshVersion = 0,
+  scope = 'user',
 }: UserAvailabilityScheduleProps) {
-  const enabled = canView && userId !== undefined;
-  const schedule = useApiResource<AvailabilitySchedule>(
-    `/availability-statuses/users/${encodeURIComponent(userId ?? '')}/availability-schedule`,
-    enabled,
-  );
+  const { api } = useAuth();
+  const editorTitleId = useId();
+  const enabled = canView && (scope === 'mine' || userId !== undefined);
+  const basePath = scope === 'mine'
+    ? '/availability-schedule/me'
+    : `/availability-statuses/users/${encodeURIComponent(userId ?? '')}/availability-schedule`;
+  const schedule = useApiResource<AvailabilitySchedule>(basePath, enabled);
   const silentReloadSchedule = schedule.silentReload;
   const previousRefreshVersion = useRef(refreshVersion);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [weekDraft, setWeekDraft] = useState<AvailabilityScheduleDay[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (previousRefreshVersion.current === refreshVersion) {
@@ -45,82 +60,307 @@ export function UserAvailabilitySchedule({
     return null;
   }
 
+  function openEditor() {
+    if (!canManage || schedule.data === null) {
+      return;
+    }
+
+    setWeekDraft(weekDayPartPattern(schedule.data));
+    setMessage(null);
+    setActionError(null);
+    setEditorOpen(true);
+  }
+
+  function closeEditor() {
+    if (saving) {
+      return;
+    }
+
+    setEditorOpen(false);
+    setWeekDraft(null);
+    setMessage(null);
+    setActionError(null);
+  }
+
+  function updateWeekDayPart(dayOfWeek: number, dayPart: AvailabilityDayPart, isAvailable: boolean) {
+    setWeekDraft((current) => current?.map((day) => (
+      day.day_of_week === dayOfWeek && day.day_part === dayPart
+        ? { ...day, is_available: isAvailable }
+        : day
+    )) ?? null);
+  }
+
+  async function saveWeekPattern() {
+    if (!canManage || weekDraft === null) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+    setActionError(null);
+    try {
+      const response = await api.patch<AvailabilitySchedule>(`${basePath}/week-pattern`, {
+        patterns: weekDraft.map((day) => ({
+          day_of_week: day.day_of_week,
+          day_part: day.day_part,
+          is_available: day.is_available,
+          note: day.note ?? null,
+        })),
+      });
+      schedule.mutate(response.data);
+      setWeekDraft(weekDayPartPattern(response.data));
+      setMessage('Vaste weekplanning opgeslagen.');
+    } catch (error) {
+      setActionError(error instanceof ApiClientError
+        ? error.message
+        : 'De vaste weekplanning kon niet worden opgeslagen.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function planDayPart(date: string, dayPart: AvailabilityDayPart, isAvailable: boolean) {
+    if (!canManage) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+    setActionError(null);
+    try {
+      const response = await api.post<AvailabilitySchedule>(`${basePath}/overrides`, {
+        starts_at: date,
+        ends_at: date,
+        day_part: dayPart,
+        is_available: isAvailable,
+        note: `Gepland via werkplanning: ${dayPartLabel(dayPart).toLowerCase()}`,
+      });
+      schedule.mutate(response.data);
+      setMessage(
+        `${shortDateLabel(date)} ${dayPartLabel(dayPart).toLowerCase()} is als `
+        + `${isAvailable ? 'beschikbaar' : 'niet beschikbaar'} opgeslagen.`,
+      );
+    } catch (error) {
+      setActionError(error instanceof ApiClientError
+        ? error.message
+        : 'Het dagdeel kon niet worden opgeslagen.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <Panel title="Wekelijkse planning">
-      <ResourceState loading={schedule.loading} error={schedule.error} empty={schedule.data === null}>
-        {schedule.data !== null ? (
-          <div className="panel-body">
-            <div className="summary-grid">
-              <SummaryItem label="Vandaag" value={schedule.data.today.is_available ? 'Beschikbaar' : 'Niet beschikbaar'} />
-              <SummaryItem label="Bron" value={availabilitySourceLabel(schedule.data.today.source)} />
-            </div>
-            <section className="stacked-section">
-              <div className="section-heading">
-                <strong>Vaste weekplanning</strong>
-                <span>De standaard beschikbaarheid per ochtend, middag en avond.</span>
+    <>
+      <Panel
+        title={scope === 'mine' ? 'Mijn beschikbaarheid' : 'Wekelijkse planning'}
+        action={canManage ? (
+          <button
+            className="primary-button"
+            type="button"
+            onClick={openEditor}
+            disabled={schedule.data === null || schedule.loading}
+          >
+            <Pencil size={16} /> Planning aanpassen
+          </button>
+        ) : undefined}
+      >
+        <ResourceState loading={schedule.loading} error={schedule.error} empty={schedule.data === null}>
+          {schedule.data !== null ? (
+            <AvailabilityScheduleOverview schedule={schedule.data} />
+          ) : null}
+        </ResourceState>
+      </Panel>
+
+      {editorOpen && weekDraft !== null && schedule.data !== null ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal work-plan-modal" role="dialog" aria-modal="true" aria-labelledby={editorTitleId}>
+            <header className="modal__header">
+              <div>
+                <span className="modal__eyebrow">
+                  {scope === 'mine' ? 'Eigen profiel' : 'Gebruikersbeheer'}
+                </span>
+                <h2 id={editorTitleId}>Beschikbaarheid aanpassen</h2>
               </div>
-              <table className="data-table compact-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Dag</th>
-                    {dayParts.map((dayPart) => <th scope="col" key={dayPart}>{dayPartLabel(dayPart)}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={closeEditor}
+                aria-label="Sluiten"
+                disabled={saving}
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="panel-body">
+              <section className="stacked-section">
+                <div className="section-heading">
+                  <strong>Vaste weekplanning</strong>
+                  <span>Stel per vaste weekdag de beschikbaarheid voor ochtend, middag en avond in.</span>
+                </div>
+                <div className="week-daypart-grid">
                   {daysOfWeek.map((dayOfWeek) => (
-                    <tr key={dayOfWeek}>
-                      <th scope="row">{dayLabel(dayOfWeek)}</th>
-                      {dayParts.map((dayPart) => {
-                        const state = scheduleForDayPart(schedule.data!, dayOfWeek, dayPart);
+                    <article className="week-daypart-row" key={dayOfWeek}>
+                      <strong>{dayLabel(dayOfWeek)}</strong>
+                      <div className="daypart-planner-actions">
+                        {dayParts.map((dayPart) => {
+                          const state = weekDraft.find(
+                            (day) => day.day_of_week === dayOfWeek && day.day_part === dayPart,
+                          );
+                          const isAvailable = state?.is_available ?? true;
 
-                        return (
-                          <td key={dayPart}>
-                            <StatusPill value={state.is_available ? 'available' : 'unavailable'} tone={state.is_available ? 'good' : 'bad'} />
-                          </td>
-                        );
-                      })}
-                    </tr>
+                          return (
+                            <button
+                              className={isAvailable ? 'secondary-button' : 'danger-button'}
+                              type="button"
+                              key={dayPart}
+                              disabled={saving}
+                              aria-pressed={isAvailable}
+                              onClick={() => updateWeekDayPart(dayOfWeek, dayPart, !isAvailable)}
+                              title={`${dayLabel(dayOfWeek)} ${dayPartLabel(dayPart).toLowerCase()} standaard `
+                                + `${isAvailable ? 'niet beschikbaar' : 'beschikbaar'} zetten`}
+                            >
+                              {dayPartLabel(dayPart)}: {isAvailable ? 'Aan' : 'Uit'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </article>
                   ))}
-                </tbody>
-              </table>
-            </section>
-            <section className="stacked-section">
-              <div className="section-heading">
-                <strong>Komende 2 weken</strong>
-                <span>Vaste planning, dagdeelafwijkingen en vakantieperiodes samengevoegd.</span>
-              </div>
-              <table className="data-table compact-table" aria-label="Beschikbaarheid komende twee weken">
-                <thead>
-                  <tr>
-                    <th scope="col">Datum</th>
-                    {dayParts.map((dayPart) => <th scope="col" key={dayPart}>{dayPartLabel(dayPart)}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
+                </div>
+              </section>
+
+              <section className="stacked-section">
+                <div className="section-heading">
+                  <strong>Komende 2 weken</strong>
+                  <span>Leg hier een afwijking vast zonder de vaste weekplanning te veranderen.</span>
+                </div>
+                <div className="daypart-planner">
                   {nextCalendarDays(14).map((date) => (
-                    <tr key={date}>
-                      <th scope="row">
-                        {shortDateLabel(date)}
-                        <span className="muted-text">{formatDateOnly(date)}</span>
-                      </th>
-                      {dayParts.map((dayPart) => {
-                        const isAvailable = scheduleForDatePart(schedule.data!, date, dayPart);
+                    <article className="daypart-planner-row" key={date}>
+                      <div>
+                        <strong>{shortDateLabel(date)}</strong>
+                        <span>{formatDateOnly(date)}</span>
+                      </div>
+                      <div className="daypart-planner-actions">
+                        {dayParts.map((dayPart) => {
+                          const isAvailable = scheduleForDatePart(schedule.data!, date, dayPart);
 
-                        return (
-                          <td key={dayPart}>
-                            <StatusPill value={isAvailable ? 'available' : 'unavailable'} tone={isAvailable ? 'good' : 'bad'} />
-                          </td>
-                        );
-                      })}
-                    </tr>
+                          return (
+                            <button
+                              className={isAvailable ? 'secondary-button' : 'danger-button'}
+                              type="button"
+                              key={dayPart}
+                              disabled={saving}
+                              aria-pressed={isAvailable}
+                              onClick={() => void planDayPart(date, dayPart, !isAvailable)}
+                              title={`${dayPartLabel(dayPart)} wisselen naar `
+                                + `${isAvailable ? 'niet beschikbaar' : 'beschikbaar'}`}
+                            >
+                              {dayPartLabel(dayPart)}: {isAvailable ? 'Aan' : 'Uit'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </article>
                   ))}
-                </tbody>
-              </table>
-            </section>
-          </div>
-        ) : null}
-      </ResourceState>
-    </Panel>
+                </div>
+              </section>
+
+              {message ? <p className="form-note" role="status">{message}</p> : null}
+              {actionError ? <p className="form-error" role="alert">{actionError}</p> : null}
+            </div>
+            <div className="actions-row">
+              <button className="secondary-button" type="button" onClick={closeEditor} disabled={saving}>
+                Sluiten
+              </button>
+              <button className="primary-button" type="button" onClick={() => void saveWeekPattern()} disabled={saving}>
+                {saving ? 'Opslaan...' : 'Vaste weekplanning opslaan'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function AvailabilityScheduleOverview({ schedule }: { schedule: AvailabilitySchedule }) {
+  return (
+    <div className="panel-body">
+      <div className="summary-grid">
+        <SummaryItem label="Vandaag" value={schedule.today.is_available ? 'Beschikbaar' : 'Niet beschikbaar'} />
+        <SummaryItem label="Bron" value={availabilitySourceLabel(schedule.today.source)} />
+      </div>
+      <section className="stacked-section">
+        <div className="section-heading">
+          <strong>Vaste weekplanning</strong>
+          <span>De standaard beschikbaarheid per ochtend, middag en avond.</span>
+        </div>
+        <table className="data-table compact-table">
+          <thead>
+            <tr>
+              <th scope="col">Dag</th>
+              {dayParts.map((dayPart) => <th scope="col" key={dayPart}>{dayPartLabel(dayPart)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {daysOfWeek.map((dayOfWeek) => (
+              <tr key={dayOfWeek}>
+                <th scope="row">{dayLabel(dayOfWeek)}</th>
+                {dayParts.map((dayPart) => {
+                  const state = scheduleForDayPart(schedule, dayOfWeek, dayPart);
+
+                  return (
+                    <td key={dayPart}>
+                      <StatusPill
+                        value={state.is_available ? 'available' : 'unavailable'}
+                        tone={state.is_available ? 'good' : 'bad'}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      <section className="stacked-section">
+        <div className="section-heading">
+          <strong>Komende 2 weken</strong>
+          <span>Vaste planning, dagdeelafwijkingen en vakantieperiodes samengevoegd.</span>
+        </div>
+        <table className="data-table compact-table" aria-label="Beschikbaarheid komende twee weken">
+          <thead>
+            <tr>
+              <th scope="col">Datum</th>
+              {dayParts.map((dayPart) => <th scope="col" key={dayPart}>{dayPartLabel(dayPart)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {nextCalendarDays(14).map((date) => (
+              <tr key={date}>
+                <th scope="row">
+                  {shortDateLabel(date)}
+                  <span className="muted-text">{formatDateOnly(date)}</span>
+                </th>
+                {dayParts.map((dayPart) => {
+                  const isAvailable = scheduleForDatePart(schedule, date, dayPart);
+
+                  return (
+                    <td key={dayPart}>
+                      <StatusPill
+                        value={isAvailable ? 'available' : 'unavailable'}
+                        tone={isAvailable ? 'good' : 'bad'}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </div>
   );
 }
 
@@ -150,9 +390,9 @@ export function scheduleForDatePart(
 ): boolean {
   const applicableOverrides = schedule.overrides.filter((candidate) => dateInRange(dateValue, candidate));
   const override = mostRecentOverride(
-    applicableOverrides.filter((candidate) => candidate.day_part === dayPart),
-  ) ?? mostRecentOverride(
     applicableOverrides.filter((candidate) => (candidate.day_part ?? 'all_day') === 'all_day'),
+  ) ?? mostRecentOverride(
+    applicableOverrides.filter((candidate) => candidate.day_part === dayPart),
   );
   if (override !== undefined) {
     return override.is_available;
@@ -168,6 +408,14 @@ export function scheduleForDatePart(
   return scheduleForDayPart(schedule, dayOfWeek, dayPart).is_available;
 }
 
+function weekDayPartPattern(schedule: AvailabilitySchedule): AvailabilityScheduleDay[] {
+  return daysOfWeek.flatMap((dayOfWeek) => dayParts.map((dayPart) => ({
+    ...scheduleForDayPart(schedule, dayOfWeek, dayPart),
+    day_of_week: dayOfWeek,
+    day_part: dayPart,
+  })));
+}
+
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -178,7 +426,8 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
 }
 
 function dayLabel(dayOfWeek: number): string {
-  return ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'][dayOfWeek - 1] ?? String(dayOfWeek);
+  return ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'][dayOfWeek - 1]
+    ?? String(dayOfWeek);
 }
 
 function dayPartLabel(dayPart: AvailabilityDayPart): string {

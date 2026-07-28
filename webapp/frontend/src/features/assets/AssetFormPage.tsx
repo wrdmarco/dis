@@ -131,7 +131,6 @@ export function AssetFormPage({ assetId }: { assetId?: string }) {
             <AssetForm
               form={form}
               droneTypes={droneTypes.data ?? []}
-              isEditing={isEditing}
               saving={saving}
               error={error}
               onChange={setForm}
@@ -148,7 +147,6 @@ export function AssetFormPage({ assetId }: { assetId?: string }) {
 function AssetForm({
   form,
   droneTypes,
-  isEditing,
   saving,
   error,
   onChange,
@@ -157,7 +155,6 @@ function AssetForm({
 }: {
   form: AssetFormState;
   droneTypes: DroneType[];
-  isEditing: boolean;
   saving: boolean;
   error: string | null;
   onChange: React.Dispatch<React.SetStateAction<AssetFormState | null>>;
@@ -177,7 +174,7 @@ function AssetForm({
       </label>
       <label>
         Type
-        <select value={form.type} onChange={(event) => updateForm((current) => ({ ...current, type: event.target.value, hasSpotlight: false, hasSpeaker: false }))}>
+        <select value={form.type} onChange={(event) => updateForm((current) => ({ ...current, type: event.target.value, droneTypeId: '', hasSpotlight: false, hasSpeaker: false }))}>
           {assetTypes.map((type) => (
             <option key={type.value} value={type.value}>{type.label}</option>
           ))}
@@ -198,7 +195,6 @@ function AssetForm({
               }));
             }}
             required
-            disabled={isEditing}
           >
             <option value="">Kies drone type</option>
             {droneTypes.filter((type) => type.is_active || type.id === form.droneTypeId).map((type) => (
