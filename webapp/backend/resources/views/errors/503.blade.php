@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090d12">
   <meta http-equiv="refresh" content="20">
-  <title>D.I.S. onderhoud</title>
+  <title>Onderhoud</title>
   <style>
     :root {
       color-scheme: dark;

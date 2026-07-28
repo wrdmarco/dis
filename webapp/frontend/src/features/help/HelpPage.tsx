@@ -184,6 +184,7 @@ const helpTopics: readonly HelpTopic[] = [
       { title: 'Verzoeken bekijken', description: 'Bekijk alle ingediende verzoeken en filter op type, status of vrije tekst.' },
       { title: 'Een verzoek indienen', description: 'Kies Bug, Aanpassing of Feature en beschrijf concreet wat er nodig is.', permissions: ['product-requests.view', 'product-requests.create'] },
       { title: 'Eigen verzoek aanpassen', description: 'Werk je eigen verzoek bij zolang de server aangeeft dat het nog gewijzigd mag worden.', permissions: ['product-requests.view', 'product-requests.update-own'] },
+      { title: 'Alle verzoeken aanpassen', description: 'Wijzig type, titel of omschrijving van een niet-afgesloten verzoek zonder de aanvrager te veranderen.', permissions: ['product-requests.view', 'product-requests.update-any'] },
       { title: 'Een verzoek behandelen', description: 'Zet een verzoek in behandeling, los het op, wijs het af of heropen het met een verplichte toelichting.', permissions: ['product-requests.view', 'product-requests.resolve'] },
     ],
   },

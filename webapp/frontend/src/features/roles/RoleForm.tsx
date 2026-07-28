@@ -274,7 +274,7 @@ function permissionCategoryDescription(category: string): string | null {
     case 'calendar_management':
       return 'Agenda bekijken en agenda-items beheren zijn aparte rechten. Beheer geeft niet automatisch toegang tot andere instellingen.';
     case 'product_request_management':
-      return 'Bepaal afzonderlijk wie verzoeken kan lezen, indienen, eigen open verzoeken wijzigen en verzoeken behandelen.';
+      return 'Bepaal afzonderlijk wie verzoeken kan lezen, indienen, eigen open verzoeken kan wijzigen, ieder niet-afgesloten verzoek inhoudelijk kan aanpassen en verzoeken kan afhandelen.';
     case 'form_configuration':
       return 'Beheer de dynamische inzet- en rapportformulieren zonder toegang tot overige systeeminstellingen.';
     case 'weather_configuration':

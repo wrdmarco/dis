@@ -165,7 +165,9 @@ test('wires the requests page into route access, navigation, help and responsive
   expect(help).toContain("permissions: ['product-requests.view']");
   expect(manual).toContain("id: 'product-request-submit'");
   expect(manual).toContain("id: 'product-request-update-own'");
+  expect(manual).toContain("id: 'product-request-update-any'");
   expect(manual).toContain("id: 'product-request-resolve'");
+  expect(help).toContain("'product-requests.update-any'");
 
   expect(styles).toContain('.tableWrap');
   expect(styles).toContain('.requestTable');
@@ -343,6 +345,66 @@ test('creates, edits and resolves a request through the table and dialogs', asyn
   });
 });
 
+test('edits a non-owned request without exposing or changing its requester', async ({ page }) => {
+  const state = productRequestMockState({
+    type: 'feature',
+    requester: { id: 'user-2', name: 'Ria Aanvrager' },
+    is_owner: false,
+    can_update: true,
+  });
+  await mockProductRequestApi(page, state, [
+    'product-requests.view',
+    'product-requests.update-any',
+  ]);
+
+  await page.goto('/verzoeken');
+  await productRequestViewButton(page, 'Bestaand verzoek').click();
+  let detailDialog = page.getByRole('dialog', { name: 'Bestaand verzoek', exact: true });
+  await expect(detailDialog.getByText('Ria Aanvrager', { exact: true })).toBeVisible();
+  await detailDialog.getByRole('button', { name: 'Aanpassen', exact: true }).click();
+
+  await expect(detailDialog.getByRole('heading', { name: 'Verzoek aanpassen', exact: true })).toBeVisible();
+  await detailDialog.getByRole('combobox', { name: 'Type', exact: true }).selectOption('bug');
+  await detailDialog.getByLabel('Titel', { exact: true }).fill('Gecorrigeerde bugmelding');
+  await detailDialog.getByRole('textbox', { name: 'Omschrijving', exact: true })
+    .fill('De inhoud is verduidelijkt door een behandelaar.');
+  await detailDialog.getByRole('button', { name: 'Wijzigingen opslaan' }).click();
+
+  detailDialog = page.getByRole('dialog', { name: 'Gecorrigeerde bugmelding', exact: true });
+  await expect(detailDialog).toBeVisible();
+  await expect(detailDialog.getByText('Ria Aanvrager', { exact: true })).toBeVisible();
+  expect(state.contentUpdatePayloads).toEqual([{
+    type: 'bug',
+    title: 'Gecorrigeerde bugmelding',
+    description: 'De inhoud is verduidelijkt door een behandelaar.',
+    lock_version: 1,
+  }]);
+  expect(state.items[0]).toMatchObject({
+    type: 'bug',
+    title: 'Gecorrigeerde bugmelding',
+    requester: { id: 'user-2', name: 'Ria Aanvrager' },
+    is_owner: false,
+    lock_version: 2,
+  });
+});
+
+test('keeps update actions controlled by the server capability for update-any roles', async ({ page }) => {
+  const state = productRequestMockState({
+    requester: { id: 'user-2', name: 'Andere aanvrager' },
+    is_owner: false,
+    can_update: false,
+  });
+  await mockProductRequestApi(page, state, [
+    'product-requests.view',
+    'product-requests.update-any',
+  ]);
+
+  await page.goto('/verzoeken');
+  await productRequestViewButton(page, 'Bestaand verzoek').click();
+  const detailDialog = page.getByRole('dialog', { name: 'Bestaand verzoek', exact: true });
+  await expect(detailDialog.getByRole('button', { name: 'Aanpassen', exact: true })).toHaveCount(0);
+});
+
 test('hides actions without action rights and reloads the latest version after a stale edit', async ({ page }) => {
   const readOnlyState = productRequestMockState({
     can_update: false,
@@ -441,6 +503,12 @@ async function expectNoPageOverflow(page: Page): Promise<void> {
 interface ProductRequestMockState {
   items: ProductRequest[];
   conflictOnNextContentUpdate: boolean;
+  contentUpdatePayloads: Array<{
+    type: ProductRequest['type'];
+    title: string;
+    description: string;
+    lock_version: number;
+  }>;
   nextId: number;
 }
 
@@ -463,6 +531,7 @@ function productRequestMockState(
       ...overrides,
     })],
     conflictOnNextContentUpdate: false,
+    contentUpdatePayloads: [],
     nextId: 2,
   };
 }
@@ -593,7 +662,9 @@ async function mockProductRequestApi(
           type: ProductRequest['type'];
           title: string;
           description: string;
+          lock_version: number;
         };
+        state.contentUpdatePayloads.push(payload);
         state.items[index] = {
           ...state.items[index],
           type: payload.type,

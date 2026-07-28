@@ -123,6 +123,8 @@ final class GeneralMaintenancePageRendererTest extends TestCase
         $template = $this->read('webapp/backend/resources/views/errors/503.blade.php');
 
         self::assertStringContainsString('<meta http-equiv="refresh" content="20">', $template);
+        self::assertStringContainsString('<title>Onderhoud</title>', $template);
+        self::assertStringNotContainsString('<title>D.I.S. onderhoud</title>', $template);
         self::assertStringContainsString('class="maintenance-shell"', $template);
         self::assertStringContainsString('class="update-icon"', $template);
         self::assertStringNotContainsString('class="brand"', $template);
@@ -171,6 +173,8 @@ final class GeneralMaintenancePageRendererTest extends TestCase
 
         self::assertStringContainsString('/scripts/render-maintenance-page.php', $common);
         self::assertStringContainsString('/webapp/backend/resources/views/errors/503.blade.php', $common);
+        self::assertStringContainsString('<title>Onderhoud</title>', $common);
+        self::assertStringContainsString('<title>Onderhoud</title>', $controller);
         self::assertStringContainsString('"${WALLBOARD_MAINTENANCE_NOTICE_PATH}" > "${temporary}"', $common);
         self::assertStringContainsString('mktemp "$(dirname "${page_path}")/.dis-maintenance-page.XXXXXX"', $common);
         self::assertStringContainsString('run_cmd mv -fT -- "${temporary}" "${page_path}"', $common);

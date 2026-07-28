@@ -312,7 +312,7 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::patch('/product-requests/{productRequest}', [ProductRequestController::class, 'update'])
             ->middleware([
                 'permission:product-requests.view',
-                'permission:product-requests.update-own',
+                'permission:product-requests.update-own,product-requests.update-any',
             ]);
         Route::patch('/product-requests/{productRequest}/status', [ProductRequestController::class, 'changeStatus'])
             ->middleware([

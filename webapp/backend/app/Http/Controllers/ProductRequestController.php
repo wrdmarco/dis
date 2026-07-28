@@ -7,7 +7,7 @@ use App\Http\Requests\ProductRequests\ChangeProductRequestStatusRequest;
 use App\Http\Requests\ProductRequests\IndexProductRequestsRequest;
 use App\Http\Requests\ProductRequests\ShowProductRequestRequest;
 use App\Http\Requests\ProductRequests\StoreProductRequestRequest;
-use App\Http\Requests\ProductRequests\UpdateOwnProductRequestRequest;
+use App\Http\Requests\ProductRequests\UpdateProductRequestRequest;
 use App\Http\Resources\ProductRequestResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\ProductRequest;
@@ -58,11 +58,11 @@ final class ProductRequestController extends Controller
     }
 
     public function update(
-        UpdateOwnProductRequestRequest $request,
+        UpdateProductRequestRequest $request,
         ProductRequest $productRequest,
     ): JsonResponse {
         try {
-            $productRequest = $this->service->updateOwn(
+            $productRequest = $this->service->updateContent(
                 $productRequest,
                 $request->validated(),
                 $request->user(),

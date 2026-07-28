@@ -27,6 +27,11 @@ final class ProductRequestResource extends JsonResource
             $actor,
             'product-requests.update-own',
         );
+        $mayUpdateAny = $this->hasPermission(
+            $request,
+            $actor,
+            'product-requests.update-any',
+        );
         $mayResolve = $this->hasPermission(
             $request,
             $actor,
@@ -55,10 +60,15 @@ final class ProductRequestResource extends JsonResource
             'resolved_at' => ApiDateTime::dateTime($productRequest->resolved_at),
             'lock_version' => (int) $productRequest->lock_version,
             'is_owner' => $actor !== null && $productRequest->isOwnedBy($actor),
-            'can_update' => $mayUpdateOwn
-                && $actor !== null
-                && $productRequest->isOwnedBy($actor)
-                && ! $productRequest->isTerminal(),
+            'can_update' => ! $productRequest->isTerminal()
+                && (
+                    $mayUpdateAny
+                    || (
+                        $mayUpdateOwn
+                        && $actor !== null
+                        && $productRequest->isOwnedBy($actor)
+                    )
+                ),
             'can_resolve' => $mayResolve,
             'created_at' => ApiDateTime::dateTime($productRequest->created_at),
             'updated_at' => ApiDateTime::dateTime($productRequest->updated_at),

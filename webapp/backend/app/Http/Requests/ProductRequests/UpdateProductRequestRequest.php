@@ -6,7 +6,7 @@ use App\Models\ProductRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
-final class UpdateOwnProductRequestRequest extends ProductRequestFormRequest
+final class UpdateProductRequestRequest extends ProductRequestFormRequest
 {
     protected function prepareForValidation(): void
     {
@@ -18,13 +18,19 @@ final class UpdateOwnProductRequestRequest extends ProductRequestFormRequest
         $user = $this->user();
         $productRequest = $this->route('productRequest');
 
-        return $user !== null
-            && $this->webUserHasPermissions(
-                'product-requests.view',
-                'product-requests.update-own',
-            )
-            && $productRequest instanceof ProductRequest
-            && $productRequest->isOwnedBy($user);
+        if (
+            $user === null
+            || ! $this->webUserHasPermissions('product-requests.view')
+            || ! $productRequest instanceof ProductRequest
+        ) {
+            return false;
+        }
+
+        return $user->hasPermission('product-requests.update-any')
+            || (
+                $user->hasPermission('product-requests.update-own')
+                && $productRequest->isOwnedBy($user)
+            );
     }
 
     /** @return array<string, mixed> */
@@ -35,8 +41,10 @@ final class UpdateOwnProductRequestRequest extends ProductRequestFormRequest
             'type' => ['sometimes', 'required', 'string', Rule::in(ProductRequest::TYPES)],
             'title' => ['sometimes', 'required', 'string', 'max:180'],
             'description' => ['sometimes', 'required', 'string', 'max:20000'],
+            'requester' => ['prohibited'],
             'requester_id' => ['prohibited'],
             'requester_name_snapshot' => ['prohibited'],
+            'created_by' => ['prohibited'],
             'status' => ['prohibited'],
             'resolution_note' => ['prohibited'],
             'resolved_by' => ['prohibited'],

@@ -643,7 +643,7 @@ final class AdminDeveloperController extends Controller
             // Keep the privileged recovery endpoint usable when the view is unavailable.
         }
 
-        return '<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="20"><title>D.I.S. onderhoud</title></head><body><main><h1>D.I.S. is tijdelijk in onderhoud</h1><p>Deze pagina controleert automatisch wanneer D.I.S. weer beschikbaar is.</p></main></body></html>';
+        return '<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="20"><title>Onderhoud</title></head><body><main><h1>D.I.S. is tijdelijk in onderhoud</h1><p>Deze pagina controleert automatisch wanneer D.I.S. weer beschikbaar is.</p></main></body></html>';
     }
 
     private function tailFile(string $path, int $maxBytes): string

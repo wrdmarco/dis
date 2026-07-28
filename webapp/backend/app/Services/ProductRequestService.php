@@ -100,23 +100,16 @@ final class ProductRequestService
     /**
      * @param  array{lock_version: int, type?: string, title?: string, description?: string}  $data
      */
-    public function updateOwn(
+    public function updateContent(
         ProductRequest $productRequest,
         array $data,
         User $actor,
     ): ProductRequest {
-        $this->requireWebPermissions(
-            $actor,
-            'product-requests.view',
-            'product-requests.update-own',
-        );
+        $this->requireWebPermissions($actor, 'product-requests.view');
 
         return DB::transaction(function () use ($productRequest, $data, $actor): ProductRequest {
             $locked = $this->requests->lock($productRequest->id);
-
-            if (! $locked->isOwnedBy($actor)) {
-                throw new AuthorizationException;
-            }
+            $this->assertCanUpdateContent($locked, $actor);
 
             $this->assertCurrentVersion($locked, $data['lock_version']);
 
@@ -158,6 +151,22 @@ final class ProductRequestService
 
             return $this->requests->forPresentation($locked->id, withHistory: true);
         });
+    }
+
+    private function assertCanUpdateContent(ProductRequest $productRequest, User $actor): void
+    {
+        if ($actor->hasPermission('product-requests.update-any')) {
+            return;
+        }
+
+        if (
+            $actor->hasPermission('product-requests.update-own')
+            && $productRequest->isOwnedBy($actor)
+        ) {
+            return;
+        }
+
+        throw new AuthorizationException;
     }
 
     /**

@@ -38,6 +38,7 @@ final class ProductRequestApiTest extends TestCase
         $this->assertSame([
             'product-requests.create',
             'product-requests.resolve',
+            'product-requests.update-any',
             'product-requests.update-own',
             'product-requests.view',
         ], $this->rolePermissionNames($handler));
@@ -54,7 +55,43 @@ final class ProductRequestApiTest extends TestCase
         ], $this->rolePermissionNames($administrator->refresh()));
         $this->assertSame([], $this->rolePermissionNames($operatorRole->refresh()));
         $this->assertSame(0, DB::table('role_user')->where('role_id', $handler->id)->count());
-        $this->assertSame(4, DB::table('permission_role')->where('role_id', $handler->id)->count());
+        $this->assertSame(5, DB::table('permission_role')->where('role_id', $handler->id)->count());
+    }
+
+    public function test_update_any_permission_migration_is_idempotent_and_grants_only_handlers_and_administrators(): void
+    {
+        $administrator = $this->role('system-administrator', true);
+        $unrelatedWebRole = $this->role('unrelated-web-role', true);
+        $operatorRole = $this->role('unrelated-operator-role', false);
+        $handler = Role::query()->where('name', 'request-handler')->sole();
+        $permission = Permission::query()
+            ->where('name', 'product-requests.update-any')
+            ->sole();
+
+        DB::table('permission_role')->where('permission_id', $permission->id)->delete();
+
+        $migration = require database_path('migrations/2026_07_28_000002_add_product_request_update_any_permission.php');
+        $migration->up();
+        $migration->up();
+
+        $permission->refresh();
+        $this->assertSame('Alle verzoeken aanpassen', $permission->display_name);
+        $this->assertSame('product_request_management', $permission->category);
+        $this->assertStringContainsString('De aanvrager blijft ongewijzigd', $permission->description);
+        $this->assertContains(
+            'product-requests.update-any',
+            $this->rolePermissionNames($handler->refresh()),
+        );
+        $this->assertSame(
+            ['product-requests.update-any'],
+            $this->rolePermissionNames($administrator->refresh()),
+        );
+        $this->assertSame([], $this->rolePermissionNames($unrelatedWebRole->refresh()));
+        $this->assertSame([], $this->rolePermissionNames($operatorRole->refresh()));
+        $this->assertSame(
+            2,
+            DB::table('permission_role')->where('permission_id', $permission->id)->count(),
+        );
     }
 
     public function test_routes_require_authentication_and_the_specific_permissions(): void
@@ -115,6 +152,7 @@ final class ProductRequestApiTest extends TestCase
                 'product-requests.view',
                 'product-requests.create',
                 'product-requests.update-own',
+                'product-requests.update-any',
                 'product-requests.resolve',
             ])
             ->get();
@@ -404,6 +442,184 @@ final class ProductRequestApiTest extends TestCase
             'extra informatie',
             json_encode($audit->metadata, JSON_THROW_ON_ERROR),
         );
+    }
+
+    public function test_content_editor_can_update_another_request_without_changing_its_requester(): void
+    {
+        $owner = $this->user(
+            'Ria Aanvrager',
+            'product-request-content-owner@example.test',
+            ['product-requests.view', 'product-requests.create'],
+        );
+        $editor = $this->user(
+            'Edith Bewerker',
+            'product-request-content-editor@example.test',
+            ['product-requests.view', 'product-requests.update-any'],
+        );
+        $updateWithoutView = $this->user(
+            'Alleen Bewerken',
+            'product-request-update-without-view@example.test',
+            ['product-requests.update-any'],
+        );
+        $id = (string) $this->asWebClient($owner)
+            ->postJson('/api/product-requests', [
+                'type' => 'feature',
+                'title' => 'Oorspronkelijke titel',
+                'description' => 'Oorspronkelijke omschrijving.',
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->asWebClient($updateWithoutView)
+            ->patchJson("/api/product-requests/{$id}", [
+                'lock_version' => 1,
+                'title' => 'Leesrecht ontbreekt',
+            ])
+            ->assertForbidden();
+
+        $this->asWebClient($editor)
+            ->getJson("/api/product-requests/{$id}")
+            ->assertOk()
+            ->assertJsonPath('data.is_owner', false)
+            ->assertJsonPath('data.can_update', true)
+            ->assertJsonPath('data.requester.id', $owner->id)
+            ->assertJsonPath('data.requester.name', 'Ria Aanvrager');
+
+        $this->asWebClient($editor)
+            ->patchJson("/api/product-requests/{$id}", [
+                'lock_version' => 1,
+                'type' => 'bug',
+                'title' => 'Mag niet gedeeltelijk wijzigen',
+                'requester' => ['id' => $editor->id, 'name' => 'Edith Bewerker'],
+                'requester_id' => $editor->id,
+                'requester_name_snapshot' => 'Edith Bewerker',
+                'created_by' => $editor->id,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonStructure([
+                'error' => [
+                    'details' => [
+                        'requester',
+                        'requester_id',
+                        'requester_name_snapshot',
+                        'created_by',
+                    ],
+                ],
+            ]);
+
+        $this->assertDatabaseHas('product_requests', [
+            'id' => $id,
+            'requester_id' => $owner->id,
+            'requester_name_snapshot' => 'Ria Aanvrager',
+            'type' => 'feature',
+            'title' => 'Oorspronkelijke titel',
+            'lock_version' => 1,
+        ]);
+
+        $this->asWebClient($editor)
+            ->patchJson("/api/product-requests/{$id}", [
+                'lock_version' => 1,
+                'type' => 'bug',
+                'title' => 'Gecorrigeerde titel',
+                'description' => 'De behandelaar heeft de melding verduidelijkt.',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.type', 'bug')
+            ->assertJsonPath('data.title', 'Gecorrigeerde titel')
+            ->assertJsonPath('data.description', 'De behandelaar heeft de melding verduidelijkt.')
+            ->assertJsonPath('data.requester.id', $owner->id)
+            ->assertJsonPath('data.requester.name', 'Ria Aanvrager')
+            ->assertJsonPath('data.is_owner', false)
+            ->assertJsonPath('data.can_update', true)
+            ->assertJsonPath('data.lock_version', 2);
+
+        $productRequest = ProductRequest::query()->findOrFail($id);
+        $this->assertSame($owner->id, $productRequest->requester_id);
+        $this->assertSame('Ria Aanvrager', $productRequest->requester_name_snapshot);
+        $this->assertSame($editor->id, $productRequest->updated_by);
+
+        $audit = AuditLog::query()
+            ->where('action', 'product_requests.updated')
+            ->where('target_id', $id)
+            ->sole();
+        $this->assertSame($editor->id, $audit->actor_id);
+        $this->assertSame(
+            ['type', 'title', 'description'],
+            $audit->metadata['changed_fields'],
+        );
+        $auditJson = json_encode($audit->metadata, JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString('Gecorrigeerde titel', $auditJson);
+        $this->assertStringNotContainsString('verduidelijkt', $auditJson);
+
+        $productRequest->forceFill(['status' => 'resolved'])->save();
+
+        $this->asWebClient($editor)
+            ->getJson("/api/product-requests/{$id}")
+            ->assertOk()
+            ->assertJsonPath('data.can_update', false);
+        $this->asWebClient($editor)
+            ->patchJson("/api/product-requests/{$id}", [
+                'lock_version' => 2,
+                'title' => 'Afgesloten verzoek wijzigen',
+            ])
+            ->assertConflict()
+            ->assertJsonPath('error.code', 'product_request_terminal');
+    }
+
+    public function test_content_update_is_rolled_back_when_its_required_audit_fails(): void
+    {
+        $owner = $this->user(
+            'Aaf Aanvrager',
+            'product-request-update-audit-owner@example.test',
+            ['product-requests.view', 'product-requests.create'],
+        );
+        $editor = $this->user(
+            'Bep Bewerker',
+            'product-request-update-audit-editor@example.test',
+            ['product-requests.view', 'product-requests.update-any'],
+        );
+        $id = (string) $this->asWebClient($owner)
+            ->postJson('/api/product-requests', [
+                'type' => 'change',
+                'title' => 'Blijvende titel',
+                'description' => 'Deze inhoud mag bij een auditfout niet wijzigen.',
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        AuditLog::creating(function (AuditLog $audit): void {
+            if ($audit->action === 'product_requests.updated') {
+                throw new \RuntimeException('Simulated product-request update audit failure.');
+            }
+        });
+
+        try {
+            $this->asWebClient($editor)
+                ->patchJson("/api/product-requests/{$id}", [
+                    'lock_version' => 1,
+                    'type' => 'bug',
+                    'title' => 'Deze titel wordt teruggedraaid',
+                    'description' => 'Ook deze omschrijving wordt teruggedraaid.',
+                ])
+                ->assertInternalServerError();
+        } finally {
+            AuditLog::flushEventListeners();
+        }
+
+        $this->assertDatabaseHas('product_requests', [
+            'id' => $id,
+            'requester_id' => $owner->id,
+            'requester_name_snapshot' => 'Aaf Aanvrager',
+            'type' => 'change',
+            'title' => 'Blijvende titel',
+            'description' => 'Deze inhoud mag bij een auditfout niet wijzigen.',
+            'updated_by' => $owner->id,
+            'lock_version' => 1,
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'product_requests.updated',
+            'target_id' => $id,
+        ]);
     }
 
     public function test_handler_controls_transitions_with_required_notes_and_preserved_history(): void

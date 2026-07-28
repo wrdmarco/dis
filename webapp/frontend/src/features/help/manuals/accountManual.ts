@@ -243,6 +243,19 @@ export const accountManualGuides = {
       result: 'De nieuwste inhoud en het wijzigingstijdstip zijn zichtbaar voor alle lezers.',
     },
     {
+      id: 'product-request-update-any',
+      title: 'De inhoud van een verzoek aanpassen',
+      intro: 'Corrigeer of verduidelijk een niet-afgesloten verzoek zonder de oorspronkelijke aanvrager te wijzigen.',
+      permissions: ['product-requests.view', 'product-requests.update-any'],
+      steps: [
+        { label: 'Open het verzoek', description: 'Zoek het verzoek in Te behandelen of Alle verzoeken en open de detailweergave.' },
+        { label: 'Controleer de aanvrager', description: 'De aanvrager staat ter informatie bovenaan en kan niet worden gewijzigd.' },
+        { label: 'Kies Aanpassen', description: 'Wijzig alleen het type, de titel of de omschrijving.' },
+        { label: 'Kies Wijzigingen opslaan', description: 'DIS controleert de actuele versie en registreert wie de inhoud heeft aangepast.' },
+      ],
+      result: 'Type, titel en omschrijving zijn bijgewerkt; de aanvrager en status zijn ongewijzigd gebleven.',
+    },
+    {
       id: 'product-request-resolve',
       title: 'Een verzoek behandelen',
       intro: 'Leg iedere statuswijziging uit zodat de afhandeling controleerbaar blijft.',

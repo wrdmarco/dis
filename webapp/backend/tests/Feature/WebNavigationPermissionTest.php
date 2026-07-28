@@ -31,7 +31,7 @@ final class WebNavigationPermissionTest extends TestCase
             ['GET', 'api/product-requests', 'permission:product-requests.view'],
             ['POST', 'api/product-requests', 'permission:product-requests.create'],
             ['GET', 'api/product-requests/{productRequest}', 'permission:product-requests.view'],
-            ['PATCH', 'api/product-requests/{productRequest}', 'permission:product-requests.update-own'],
+            ['PATCH', 'api/product-requests/{productRequest}', 'permission:product-requests.update-own,product-requests.update-any'],
             ['PATCH', 'api/product-requests/{productRequest}/status', 'permission:product-requests.resolve'],
             ['GET', 'api/calendar-events', 'permission:calendar.view'],
             ['GET', 'api/calendar-events/team-options', 'permission:calendar.manage'],
