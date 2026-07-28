@@ -90,6 +90,13 @@
   background: var(--dis-blue-soft);
 }
 
+.groupChoice:has(input:disabled) {
+  border-color: color-mix(in srgb, var(--dis-border) 78%, var(--dis-muted));
+  background: color-mix(in srgb, var(--dis-field) 76%, var(--dis-surface-2));
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .groupChoice input,
 .switchChoice input {
   flex: 0 0 auto;

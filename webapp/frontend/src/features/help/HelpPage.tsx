@@ -107,6 +107,7 @@ const helpTopics: readonly HelpTopic[] = [
     actions: [
       { title: 'Menu openen', description: 'Kies links een onderdeel. Op een telefoon open en sluit je dit menu met de menuknop bovenaan.' },
       { title: 'Accountmenu gebruiken', description: 'Klik rechtsboven op je naam voor je profiel, deze help, de lichte of donkere weergave en uitloggen.' },
+      { title: 'Persoonlijke meldingen bekijken', description: 'Het bel-icoon beweegt bij een nieuwe melding. Ongelezen meldingen worden voor jouw account bewaard en staan er ook wanneer je later opnieuw aanmeldt.' },
       { title: 'Alleen toegestane functies zien', description: 'Menu, knoppen en uitleg worden aangepast aan jouw rechten. Ontbreekt een functie, vraag dan een beheerder om je rol te controleren.' },
       { title: 'Licht of donker kiezen', description: 'Wissel via het accountmenu van weergave. DIS onthoudt deze keuze voor je volgende bezoek.' },
     ],

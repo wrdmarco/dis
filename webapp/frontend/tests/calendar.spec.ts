@@ -56,8 +56,8 @@ function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
     ends_at: '2026-07-30T21:00:00+02:00',
     location_label: 'Vliegveld Noord',
     description: 'Neem een opgeladen accu mee.',
-    group_ids: ['group-everyone', 'group-pilots'],
-    audience_groups: groupOptions.slice(0, 2),
+    group_ids: ['group-pilots'],
+    audience_groups: [groupOptions[1]],
     registration: registration(),
     created_by_name: 'Agenda beheerder',
     created_at: '2026-07-20T09:00:00+02:00',
@@ -67,6 +67,10 @@ function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
 
 test('updates an event with multiple groups and capacity without browser-timezone shifts', async ({ page }) => {
   const state = calendarMockState();
+  state.items = [calendarEvent({
+    group_ids: ['group-everyone', 'group-pilots'],
+    audience_groups: groupOptions.slice(0, 2),
+  })];
   await mockCalendarApi(page, state, [
     'calendar.view',
     'calendar.manage',
@@ -83,7 +87,8 @@ test('updates an event with multiple groups and capacity without browser-timezon
   await expect(dialog.getByLabel('Titel', { exact: true })).toBeFocused();
   await expect(dialog.getByLabel('Start', { exact: true })).toHaveValue('2026-07-30T19:30');
   await expect(dialog.getByLabel('Einde', { exact: true })).toHaveValue('2026-07-30T21:00');
-  await expect(dialog.getByRole('checkbox', { name: /Iedereen/ })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: /Iedereen/ })).not.toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: /Iedereen/ })).toBeDisabled();
   await expect(dialog.getByRole('checkbox', { name: /Piloten West/ })).toBeChecked();
 
   await dialog.getByLabel('Titel', { exact: true }).fill('Avondtraining gewijzigd');
@@ -106,10 +111,46 @@ test('updates an event with multiple groups and capacity without browser-timezon
     ends_at: '2026-07-31T21:30',
     location_label: 'Meldkamer',
     description: 'Nieuwe briefing.',
-    group_ids: ['group-everyone', 'group-pilots', 'group-volunteers'],
+    group_ids: ['group-pilots', 'group-volunteers'],
     registration_enabled: true,
     max_participants: 12,
   }]);
+});
+
+test('keeps Iedereen mutually exclusive with specific calendar groups', async ({ page }) => {
+  const state = calendarMockState();
+  await mockCalendarApi(page, state, [
+    'calendar.view',
+    'calendar.manage',
+  ]);
+
+  await page.goto('/calendar');
+  const createForm = page.locator('form').filter({
+    has: page.getByLabel('Titel', { exact: true }),
+  }).first();
+  const everyone = createForm.getByRole('checkbox', { name: /Iedereen/ });
+  const pilots = createForm.getByRole('checkbox', { name: /Piloten West/ });
+  const volunteers = createForm.getByRole('checkbox', { name: /Vrijwilligers/ });
+
+  await expect(everyone).toBeChecked();
+  await expect(everyone).toBeEnabled();
+
+  await pilots.check();
+  await expect(everyone).not.toBeChecked();
+  await expect(everyone).toBeDisabled();
+  await expect(createForm.getByText(
+    'Niet beschikbaar zolang een specifieke groep is geselecteerd.',
+    { exact: true },
+  )).toBeVisible();
+
+  await volunteers.check();
+  await pilots.uncheck();
+  await expect(everyone).toBeDisabled();
+  await expect(volunteers).toBeChecked();
+
+  await volunteers.uncheck();
+  await expect(everyone).toBeChecked();
+  await expect(everyone).toBeEnabled();
 });
 
 test('lets an eligible user register and unregister without loading management options', async ({ page }) => {

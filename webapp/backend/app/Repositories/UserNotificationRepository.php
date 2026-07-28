@@ -3,7 +3,7 @@
 namespace App\Repositories;
 
 use App\Models\UserNotification;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 /**
  * @extends BaseRepository<UserNotification>
@@ -15,24 +15,20 @@ final class UserNotificationRepository extends BaseRepository
         return UserNotification::class;
     }
 
-    /** @return Collection<int, UserNotification> */
-    public function unreadForUser(string $userId, int $limit = 30): Collection
+    /** @return LengthAwarePaginator<int, UserNotification> */
+    public function unreadPageForUser(string $userId, int $page, int $perPage = 30): LengthAwarePaginator
     {
         return $this->query()
             ->where('user_id', $userId)
             ->whereNull('read_at')
             ->orderByDesc('occurred_at')
             ->orderByDesc('id')
-            ->limit(min(max($limit, 1), 100))
-            ->get();
-    }
-
-    public function unreadCountForUser(string $userId): int
-    {
-        return $this->query()
-            ->where('user_id', $userId)
-            ->whereNull('read_at')
-            ->count();
+            ->paginate(
+                min(max($perPage, 1), 100),
+                ['*'],
+                'page',
+                max($page, 1),
+            );
     }
 
     /** @param array<string, mixed> $attributes */
@@ -79,6 +75,7 @@ final class UserNotificationRepository extends BaseRepository
     {
         $stale = $this->query()
             ->whereIn('type', UserNotification::REMINDER_TYPES)
+            ->whereNotNull('read_at')
             ->when(
                 $expectedKeys !== [],
                 fn ($query) => $query->whereNotIn('deduplication_key', $expectedKeys),

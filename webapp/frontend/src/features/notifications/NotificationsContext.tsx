@@ -28,7 +28,7 @@ import {
 } from './notificationPresentation';
 
 const notificationPollIntervalMs = 60_000;
-const notificationRingDurationMs = 720;
+const notificationRingDurationMs = 1_040;
 const realtimeRingDebounceMs = 1_200;
 
 interface NotificationsContextValue {
@@ -39,9 +39,13 @@ interface NotificationsContextValue {
   actionError: string | null;
   openingId: string | null;
   markingAllRead: boolean;
+  loadingMore: boolean;
+  loadMoreError: string | null;
+  hasMore: boolean;
   isRinging: boolean;
   ringSequence: number;
   refresh: () => Promise<void>;
+  loadMore: () => Promise<boolean>;
   openNotification: (notification: UserNotification) => Promise<boolean>;
   markAllRead: () => Promise<boolean>;
 }
@@ -78,6 +82,8 @@ function NotificationSessionProvider({
   const [actionError, setActionError] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [isRinging, setIsRinging] = useState(false);
   const [ringSequence, setRingSequence] = useState(0);
   const ringTimerRef = useRef<number | null>(null);
@@ -91,6 +97,14 @@ function NotificationSessionProvider({
     [inboxData?.notifications],
   );
   const unreadCount = Math.max(inboxData?.unread_count ?? notifications.length, notifications.length);
+  const nextPage = inboxData?.next_page ?? null;
+  const hasMore = nextPage !== null;
+
+  useEffect(() => {
+    if (!hasMore) {
+      setLoadMoreError(null);
+    }
+  }, [hasMore]);
 
   const ring = useCallback(() => {
     if (ringTimerRef.current !== null) {
@@ -187,6 +201,43 @@ function NotificationSessionProvider({
     };
   }, [ring, silentReload, userId]);
 
+  const loadMore = useCallback(async (): Promise<boolean> => {
+    if (nextPage === null || loadingMore) {
+      return false;
+    }
+
+    setLoadMoreError(null);
+    setLoadingMore(true);
+    try {
+      const response = await api.get<UserNotificationFeed>(`/notifications?page=${nextPage}`);
+      mutateInbox((current) => {
+        if (current === null) {
+          return response.data;
+        }
+
+        const knownIds = new Set(current.notifications.map((notification) => notification.id));
+        const additionalNotifications = response.data.notifications.filter(
+          (notification) => !knownIds.has(notification.id),
+        );
+
+        return {
+          ...response.data,
+          notifications: [...current.notifications, ...additionalNotifications],
+          unread_count: Math.max(current.unread_count, response.data.unread_count),
+        };
+      });
+
+      return true;
+    } catch (error) {
+      setLoadMoreError(error instanceof ApiClientError
+        ? error.message
+        : 'Oudere meldingen konden niet worden geladen.');
+      return false;
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [api, loadingMore, mutateInbox, nextPage]);
+
   const openNotification = useCallback(async (notification: UserNotification): Promise<boolean> => {
     const actionUrl = safeNotificationActionUrl(notification.action_url);
     if (actionUrl === null) {
@@ -199,6 +250,7 @@ function NotificationSessionProvider({
     try {
       await api.patch<UserNotification>(`/notifications/${encodeURIComponent(notification.id)}/read`);
       mutateInbox((current) => current === null ? current : {
+        ...current,
         notifications: current.notifications.filter((candidate) => candidate.id !== notification.id),
         unread_count: Math.max(0, current.unread_count - (
           current.notifications.some((candidate) => candidate.id === notification.id) ? 1 : 0
@@ -222,7 +274,13 @@ function NotificationSessionProvider({
     setMarkingAllRead(true);
     try {
       await api.patch<UserNotificationMarkAllResult>('/notifications/read-all');
-      mutateInbox({ notifications: [], unread_count: 0 });
+      mutateInbox({
+        notifications: [],
+        unread_count: 0,
+        current_page: 1,
+        last_page: 1,
+        next_page: null,
+      });
       return true;
     } catch (error) {
       setActionError(error instanceof ApiClientError
@@ -242,16 +300,24 @@ function NotificationSessionProvider({
     actionError,
     openingId,
     markingAllRead,
+    loadingMore,
+    loadMoreError,
+    hasMore,
     isRinging,
     ringSequence,
     refresh: silentReload,
+    loadMore,
     openNotification,
     markAllRead,
   }), [
     actionError,
+    hasMore,
     inboxError,
     inboxLoading,
     isRinging,
+    loadMore,
+    loadMoreError,
+    loadingMore,
     markAllRead,
     markingAllRead,
     notifications,

@@ -226,6 +226,16 @@ final class CalendarEventService
                 'group_ids' => ['Ieder agenda-item moet aan ten minste één bestaande agendagroep zijn gekoppeld.'],
             ]);
         }
+        if (
+            $groups->count() > 1
+            && $groups->contains(
+                static fn (CalendarGroup $group): bool => $group->is_everyone,
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'group_ids' => ['De systeemgroep Iedereen kan niet met andere agendagroepen worden gecombineerd.'],
+            ]);
+        }
 
         return $groups;
     }

@@ -76,6 +76,7 @@ final class CalendarEventResource extends JsonResource
                 ->map(static fn ($group): array => [
                     'id' => (string) $group->id,
                     'name' => (string) $group->name,
+                    'is_everyone' => (bool) $group->is_everyone,
                 ])
                 ->values()
                 ->all(),

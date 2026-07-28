@@ -85,6 +85,50 @@ final class UserNotificationTest extends TestCase
         $this->assertNull($otherUnread->refresh()->read_at);
     }
 
+    public function test_every_unread_notification_remains_reachable_through_inbox_pages(): void
+    {
+        $owner = $this->user('Offline Gebruiker', 'offline-notifications@example.test');
+
+        foreach (range(1, 31) as $index) {
+            $notification = $this->notification(
+                $owner,
+                sprintf('Bewaarde melding %02d', $index),
+                'offline-page-'.$index,
+            );
+            $notification->forceFill([
+                'occurred_at' => now()->subMinutes($index),
+            ])->save();
+        }
+
+        $firstPage = $this->asWebClient($owner)
+            ->getJson('/api/notifications')
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 31)
+            ->assertJsonPath('data.current_page', 1)
+            ->assertJsonPath('data.last_page', 2)
+            ->assertJsonPath('data.next_page', 2)
+            ->assertJsonCount(30, 'data.notifications');
+
+        $secondPage = $this->asWebClient($owner)
+            ->getJson('/api/notifications?page=2')
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 31)
+            ->assertJsonPath('data.current_page', 2)
+            ->assertJsonPath('data.last_page', 2)
+            ->assertJsonPath('data.next_page', null)
+            ->assertJsonCount(1, 'data.notifications');
+
+        $ids = collect($firstPage->json('data.notifications'))
+            ->concat($secondPage->json('data.notifications'))
+            ->pluck('id');
+        $this->assertCount(31, $ids);
+        $this->assertCount(31, $ids->unique());
+
+        $this->asWebClient($owner)
+            ->getJson('/api/notifications?page=0')
+            ->assertUnprocessable();
+    }
+
     public function test_native_tokens_and_users_view_cannot_access_another_users_web_inbox_channel(): void
     {
         $owner = $this->user(
@@ -213,16 +257,33 @@ final class UserNotificationTest extends TestCase
         $third = $service->syncDueReminders();
         $this->assertSame(3, $third['active']);
         $this->assertSame(1, $third['created']);
-        $this->assertSame(2, $third['removed']);
-        $this->assertSame(0, UserNotification::query()->where('user_id', $alice->id)->count());
+        $this->assertSame(0, $third['removed']);
+        $this->assertSame(2, UserNotification::query()->where('user_id', $alice->id)->count());
         $this->assertSame(3, UserNotification::query()->where('user_id', $bob->id)->count());
+
+        $this->asWebClient($alice)
+            ->getJson('/api/notifications')
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 2)
+            ->assertJsonCount(2, 'data.notifications');
+
+        UserNotification::query()
+            ->where('user_id', $alice->id)
+            ->update([
+                'read_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        $fourth = $service->syncDueReminders();
+        $this->assertSame(['active' => 3, 'created' => 0, 'removed' => 2], $fourth);
+        $this->assertSame(0, UserNotification::query()->where('user_id', $alice->id)->count());
         Event::assertDispatched(
             UserNotificationsChanged::class,
             fn (UserNotificationsChanged $event): bool => $event->userId === (string) $alice->id,
         );
     }
 
-    public function test_product_request_status_updates_notify_only_the_requester(): void
+    public function test_product_request_status_updates_are_stored_for_the_requesters_next_login(): void
     {
         Event::fake([UserNotificationCreated::class]);
         $requester = $this->user(

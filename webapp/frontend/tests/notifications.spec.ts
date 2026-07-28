@@ -33,7 +33,7 @@ test('accepts only the three exact first-party notification destinations', () =>
   }
 });
 
-test('bell shows only unread personal notifications returned by the self endpoint', async ({ page }) => {
+test('stored unread personal notifications remain visible after a full reload', async ({ page }) => {
   const state = notificationState([
     notification('asset-unread', {
       type: 'asset_maintenance_due',
@@ -72,6 +72,13 @@ test('bell shows only unread personal notifications returned by the self endpoin
   await expect(popover.getByText('Deze gelezen melding blijft verborgen', { exact: true })).toHaveCount(0);
   expect(state.notificationGetUrls).not.toHaveLength(0);
   expect(state.notificationGetUrls.every((url) => url === '/api/notifications')).toBe(true);
+
+  await page.reload();
+  const reloadedBell = page.getByRole('button', { name: 'Meldingen openen, 2 ongelezen' });
+  await expect(reloadedBell).toBeVisible();
+  await reloadedBell.click();
+  await expect(page.getByRole('region', { name: 'Meldingen' })
+    .getByText('Onderhoud van jouw drone komt eraan', { exact: true })).toBeVisible();
 });
 
 for (const destination of [
@@ -146,6 +153,38 @@ test('mark all read clears the unread list and badge', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Ongelezen meldingen' })).toHaveCount(0);
 });
 
+test('all stored unread notifications remain reachable with load more', async ({ page }) => {
+  const state = notificationState([
+    notification('newest', {
+      title: 'Nieuwste bewaarde melding',
+      occurred_at: '2026-07-28T12:00:00Z',
+    }),
+    notification('middle', {
+      title: 'Middelste bewaarde melding',
+      occurred_at: '2026-07-28T11:00:00Z',
+    }),
+    notification('oldest', {
+      title: 'Oudste bewaarde melding',
+      occurred_at: '2026-07-28T10:00:00Z',
+    }),
+  ]);
+  state.pageSize = 2;
+  await mockNotificationApi(page, state);
+
+  await page.goto('/help');
+  await page.getByRole('button', { name: 'Meldingen openen, 3 ongelezen' }).click();
+
+  const popover = page.getByRole('region', { name: 'Meldingen' });
+  const list = popover.getByRole('list', { name: 'Ongelezen meldingen' });
+  await expect(list.getByRole('listitem')).toHaveCount(2);
+  await popover.getByRole('button', { name: 'Oudere meldingen laden (2 van 3)' }).click();
+
+  await expect(list.getByRole('listitem')).toHaveCount(3);
+  await expect(popover.getByText('Oudste bewaarde melding', { exact: true })).toBeVisible();
+  await expect(popover.getByRole('button', { name: /Oudere meldingen laden/ })).toHaveCount(0);
+  expect(state.notificationGetUrls).toContain('/api/notifications?page=2');
+});
+
 test('a failed read PATCH keeps the notification open and does not navigate', async ({ page }) => {
   const state = notificationState([
     notification('read-fails', {
@@ -168,6 +207,7 @@ test('a failed read PATCH keeps the notification open and does not navigate', as
 });
 
 test('focus refresh rings only for a genuinely newer notification', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const state = notificationState([
     notification('initial', {
       title: 'Al aanwezig bij aanmelden',
@@ -190,6 +230,24 @@ test('focus refresh rings only for a genuinely newer notification', async ({ pag
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
 
   await expect(bellIcon).toHaveClass(/notification-center__bell--ringing/);
+  const motion = await bellIcon.evaluate((element) => {
+    const animation = element.getAnimations()[0];
+    if (animation === undefined) {
+      return null;
+    }
+
+    animation.pause();
+    animation.currentTime = 180;
+    const style = window.getComputedStyle(element);
+
+    return {
+      animationName: style.animationName,
+      transform: style.transform,
+    };
+  });
+  expect(motion?.animationName).toBe('notification-center-ring');
+  expect(motion?.transform).not.toBe('none');
+  expect(motion?.transform).not.toBe('matrix(1, 0, 0, 1, 0, 0)');
   await expect(liveStatus).toHaveText('Nieuwe persoonlijke melding ontvangen.');
   await expect(page.getByRole('button', { name: 'Meldingen openen, 2 ongelezen' })).toBeVisible();
   await expect(bellIcon).not.toHaveClass(/notification-center__bell--ringing/, { timeout: 3_000 });
@@ -316,6 +374,7 @@ interface NotificationMockState {
   markAllPatchCount: number;
   failReadIds: Set<string>;
   productRequestDetailGets: string[];
+  pageSize?: number;
   patchGate?: ReadPatchGate;
 }
 
@@ -399,10 +458,20 @@ async function mockNotificationApi(page: Page, state: NotificationMockState): Pr
 
     if (path === '/api/notifications' && method === 'GET') {
       state.notificationGetUrls.push(`${path}${url.search}`);
+      const unreadNotifications = state.notifications.filter((item) => item.read_at === null);
+      const requestedPage = Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+      const pageSize = state.pageSize ?? Math.max(1, state.notifications.length);
+      const pageNotifications = state.pageSize === undefined
+        ? state.notifications
+        : unreadNotifications.slice((requestedPage - 1) * pageSize, requestedPage * pageSize);
+      const lastPage = Math.max(1, Math.ceil(unreadNotifications.length / pageSize));
       await fulfillJson(route, 200, {
         data: {
-          notifications: state.notifications,
-          unread_count: state.notifications.filter((item) => item.read_at === null).length,
+          notifications: pageNotifications,
+          unread_count: unreadNotifications.length,
+          current_page: requestedPage,
+          last_page: lastPage,
+          next_page: requestedPage < lastPage ? requestedPage + 1 : null,
         },
       });
       return;

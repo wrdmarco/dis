@@ -77,6 +77,57 @@ final class CalendarGroupRegistrationTest extends TestCase
         ]);
     }
 
+    public function test_migration_normalizes_mixed_event_audiences_to_specific_groups(): void
+    {
+        $everyone = $this->everyoneGroup();
+        $specificGroup = $this->group('Specifieke doelgroep');
+        $mixedEvent = $this->event(
+            ['title' => 'Gemengde doelgroep'],
+            [(string) $everyone->id, (string) $specificGroup->id],
+        );
+        $everyoneOnlyEvent = $this->event(['title' => 'Alleen iedereen']);
+        $specificOnlyEvent = $this->event(
+            ['title' => 'Alleen specifiek'],
+            [(string) $specificGroup->id],
+        );
+        $migration = require database_path(
+            'migrations/2026_07_28_000006_normalize_mixed_calendar_event_audiences.php',
+        );
+
+        $migration->up();
+        $migration->up();
+
+        $this->assertDatabaseMissing('calendar_event_group', [
+            'calendar_event_id' => $mixedEvent->id,
+            'calendar_group_id' => $everyone->id,
+        ]);
+        $this->assertDatabaseHas('calendar_event_group', [
+            'calendar_event_id' => $mixedEvent->id,
+            'calendar_group_id' => $specificGroup->id,
+        ]);
+        $this->assertDatabaseHas('calendar_events', [
+            'id' => $mixedEvent->id,
+            'audience_scope' => CalendarEvent::AUDIENCE_SCOPE_GROUPS,
+        ]);
+
+        $this->assertDatabaseHas('calendar_event_group', [
+            'calendar_event_id' => $everyoneOnlyEvent->id,
+            'calendar_group_id' => $everyone->id,
+        ]);
+        $this->assertDatabaseHas('calendar_events', [
+            'id' => $everyoneOnlyEvent->id,
+            'audience_scope' => CalendarEvent::AUDIENCE_SCOPE_EVERYONE,
+        ]);
+        $this->assertDatabaseHas('calendar_event_group', [
+            'calendar_event_id' => $specificOnlyEvent->id,
+            'calendar_group_id' => $specificGroup->id,
+        ]);
+        $this->assertDatabaseHas('calendar_events', [
+            'id' => $specificOnlyEvent->id,
+            'audience_scope' => CalendarEvent::AUDIENCE_SCOPE_GROUPS,
+        ]);
+    }
+
     public function test_group_management_requires_both_permissions_and_a_stateful_web_session(): void
     {
         $everyone = $this->everyoneGroup();
@@ -178,7 +229,8 @@ final class CalendarGroupRegistrationTest extends TestCase
             ->postJson('/api/calendar-events', $this->eventPayload([$groupId]))
             ->assertCreated()
             ->assertJsonPath('data.audience_scope', 'groups')
-            ->assertJsonPath('data.group_ids.0', $groupId);
+            ->assertJsonPath('data.group_ids.0', $groupId)
+            ->assertJsonPath('data.audience_groups.0.is_everyone', false);
         $eventId = (string) $eventResponse->json('data.id');
 
         foreach ([$directAndTeamMember, $teamOnlyMember] as $viewer) {
@@ -618,6 +670,61 @@ final class CalendarGroupRegistrationTest extends TestCase
         $this->assertDatabaseHas('calendar_groups', [
             'id' => $group->id,
             'deleted_at' => null,
+        ]);
+    }
+
+    public function test_everyone_group_cannot_be_combined_with_other_event_groups(): void
+    {
+        $manager = $this->user(
+            'calendar-mutual-exclusivity-manager@example.test',
+            'Agenda beheerder',
+        );
+        $this->grant($manager, ['calendar.view', 'calendar.manage']);
+        $everyone = $this->everyoneGroup();
+        $limitedGroup = $this->group('Beperkte doelgroep');
+        $mixedGroupIds = [(string) $everyone->id, (string) $limitedGroup->id];
+
+        $this->asStatefulWebClient($manager)
+            ->postJson('/api/calendar-events', $this->eventPayload($mixedGroupIds))
+            ->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_failed')
+            ->assertJsonPath(
+                'error.details.group_ids.0',
+                'De systeemgroep Iedereen kan niet met andere agendagroepen worden gecombineerd.',
+            );
+
+        $event = $this->event(
+            ['title' => 'Ongewijzigde beperkte agenda'],
+            [(string) $limitedGroup->id],
+        );
+
+        $this->asStatefulWebClient($manager)
+            ->patchJson(
+                '/api/calendar-events/'.$event->id,
+                [
+                    ...$this->eventPayload($mixedGroupIds),
+                    'title' => 'Mag niet worden opgeslagen',
+                ],
+            )
+            ->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_failed')
+            ->assertJsonPath(
+                'error.details.group_ids.0',
+                'De systeemgroep Iedereen kan niet met andere agendagroepen worden gecombineerd.',
+            );
+
+        $this->assertDatabaseHas('calendar_events', [
+            'id' => $event->id,
+            'title' => 'Ongewijzigde beperkte agenda',
+            'audience_scope' => CalendarEvent::AUDIENCE_SCOPE_GROUPS,
+        ]);
+        $this->assertDatabaseHas('calendar_event_group', [
+            'calendar_event_id' => $event->id,
+            'calendar_group_id' => $limitedGroup->id,
+        ]);
+        $this->assertDatabaseMissing('calendar_event_group', [
+            'calendar_event_id' => $event->id,
+            'calendar_group_id' => $everyone->id,
         ]);
     }
 

@@ -44,6 +44,11 @@ export function CalendarEventFields({
   titleInputRef,
   participantCount = 0,
 }: CalendarEventFieldsProps) {
+  const selectedGroupIds = new Set(form.groupIds);
+  const hasSpecificGroupSelection = groups?.some(
+    (group) => !group.is_everyone && selectedGroupIds.has(group.id),
+  ) ?? false;
+
   return (
     <>
       <label>
@@ -99,8 +104,8 @@ export function CalendarEventFields({
       <fieldset className={`form-grid__wide ${styles.groupFieldset}`}>
         <legend>Agendagroepen</legend>
         <p className={styles.fieldsetIntro}>
-          Elk agenda-item hoort bij minimaal één groep. Een groep kan individuele gebruikers en
-          actuele leden van gekoppelde teams bevatten.
+          Kies Iedereen óf één of meer specifieke groepen. Een groep kan individuele gebruikers
+          en actuele leden van gekoppelde teams bevatten.
         </p>
         {groups === null ? <p className="form-note">Groepen laden...</p> : null}
         {groups?.length === 0 ? (
@@ -108,18 +113,26 @@ export function CalendarEventFields({
         ) : null}
         <div className={styles.groupChoices}>
           {groups?.map((group) => {
-            const checked = form.groupIds.includes(group.id);
+            const checked = selectedGroupIds.has(group.id);
+            const disabled = group.is_everyone && hasSpecificGroupSelection;
             return (
               <label className={styles.groupChoice} key={group.id}>
                 <input
                   type="checkbox"
                   checked={checked}
-                  onChange={(event) => setForm((current) => ({
-                    ...current,
-                    groupIds: event.target.checked
-                      ? [...new Set([...current.groupIds, group.id])]
-                      : current.groupIds.filter((id) => id !== group.id),
-                  }))}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    const shouldSelect = event.currentTarget.checked;
+                    setForm((current) => ({
+                      ...current,
+                      groupIds: nextCalendarGroupIds(
+                        current.groupIds,
+                        group,
+                        shouldSelect,
+                        groups,
+                      ),
+                    }));
+                  }}
                 />
                 <span>
                   <strong>
@@ -128,7 +141,9 @@ export function CalendarEventFields({
                   </strong>
                   <small>
                     {group.is_everyone
-                      ? 'Bevat automatisch alle gebruikers.'
+                      ? disabled
+                        ? 'Niet beschikbaar zolang een specifieke groep is geselecteerd.'
+                        : 'Bevat automatisch alle gebruikers.'
                       : `${group.effective_member_count ?? 0} effectieve leden`}
                   </small>
                 </span>
@@ -195,6 +210,14 @@ export function CalendarEventFields({
 }
 
 export function calendarEventForm(event: CalendarEvent): CalendarEventFormState {
+  const groupIds = event.group_ids ?? event.audience_groups?.map((group) => group.id) ?? [];
+  const everyoneGroupIds = new Set(
+    event.audience_groups
+      ?.filter((group) => group.is_everyone)
+      .map((group) => group.id) ?? [],
+  );
+  const specificGroupIds = groupIds.filter((groupId) => !everyoneGroupIds.has(groupId));
+
   return {
     title: event.title,
     type: event.type,
@@ -202,7 +225,7 @@ export function calendarEventForm(event: CalendarEvent): CalendarEventFormState 
     endsAt: calendarDateTimeLocalValue(event.ends_at),
     locationLabel: event.location_label ?? '',
     description: event.description ?? '',
-    groupIds: event.group_ids ?? event.audience_groups?.map((group) => group.id) ?? [],
+    groupIds: specificGroupIds.length > 0 ? specificGroupIds : groupIds,
     registrationEnabled: event.registration?.enabled ?? false,
     maxParticipants: event.registration?.max_participants?.toString() ?? '',
   };
@@ -248,4 +271,27 @@ function calendarDateTimeLocalValue(value: string | null | undefined): string {
 
   const match = value.match(calendarDateTimePattern);
   return match ? `${match[1]}T${match[2]}` : '';
+}
+
+function nextCalendarGroupIds(
+  currentGroupIds: string[],
+  toggledGroup: CalendarAudienceGroup,
+  shouldSelect: boolean,
+  groups: CalendarAudienceGroup[],
+): string[] {
+  if (toggledGroup.is_everyone) {
+    return shouldSelect ? [toggledGroup.id] : currentGroupIds;
+  }
+
+  const everyoneGroupId = groups.find((group) => group.is_everyone)?.id;
+  const specificGroupIds = currentGroupIds.filter((groupId) => groupId !== everyoneGroupId);
+  const nextSpecificGroupIds = shouldSelect
+    ? [...new Set([...specificGroupIds, toggledGroup.id])]
+    : specificGroupIds.filter((groupId) => groupId !== toggledGroup.id);
+
+  if (nextSpecificGroupIds.length > 0) {
+    return nextSpecificGroupIds;
+  }
+
+  return everyoneGroupId === undefined ? [] : [everyoneGroupId];
 }

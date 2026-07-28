@@ -23,15 +23,30 @@ final class UserNotificationService
     public function __construct(private readonly UserNotificationRepository $notifications) {}
 
     /**
-     * @return array{notifications: Collection<int, UserNotification>, unread_count: int}
+     * @return array{
+     *     notifications: Collection<int, UserNotification>,
+     *     unread_count: int,
+     *     current_page: int,
+     *     last_page: int,
+     *     next_page: int|null
+     * }
      */
-    public function inbox(User $user): array
+    public function inbox(User $user, int $page = 1): array
     {
         $this->requireWebSession($user);
+        $notifications = $this->notifications->unreadPageForUser(
+            (string) $user->id,
+            $page,
+        );
 
         return [
-            'notifications' => $this->notifications->unreadForUser((string) $user->id),
-            'unread_count' => $this->notifications->unreadCountForUser((string) $user->id),
+            'notifications' => $notifications->getCollection(),
+            'unread_count' => $notifications->total(),
+            'current_page' => $notifications->currentPage(),
+            'last_page' => $notifications->lastPage(),
+            'next_page' => $notifications->hasMorePages()
+                ? $notifications->currentPage() + 1
+                : null,
         ];
     }
 

@@ -31,9 +31,13 @@ export function NotificationCenter({
     actionError,
     openingId,
     markingAllRead,
+    loadingMore,
+    loadMoreError,
+    hasMore,
     isRinging,
     ringSequence,
     refresh,
+    loadMore,
     openNotification,
     markAllRead,
   } = useNotifications();
@@ -83,12 +87,13 @@ export function NotificationCenter({
         aria-expanded={open}
         aria-controls={notificationPopoverId}
       >
-        <Bell
+        <span
           key={ringSequence}
           className={isRinging ? 'notification-center__bell notification-center__bell--ringing' : 'notification-center__bell'}
           aria-hidden
-          size={20}
-        />
+        >
+          <Bell size={20} />
+        </span>
         {unreadCount > 0 ? (
           <span className="notification-center__badge" aria-hidden>
             {unreadCount > 99 ? '99+' : unreadCount}
@@ -164,10 +169,22 @@ export function NotificationCenter({
             </ul>
           ) : null}
 
-          {unreadCount > notifications.length && notifications.length > 0 ? (
-            <p className="notification-center__overflow-note">
-              De nieuwste {notifications.length} van {unreadCount} meldingen worden getoond.
-            </p>
+          {notifications.length > 0 && hasMore ? (
+            <footer className="notification-center__load-more">
+              <button
+                type="button"
+                disabled={loadingMore || openingId !== null || markingAllRead}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? (
+                  <>
+                    <LoaderCircle className="notification-center__loader" aria-hidden size={16} />
+                    Oudere meldingen laden…
+                  </>
+                ) : `Oudere meldingen laden (${notifications.length} van ${unreadCount})`}
+              </button>
+              {loadMoreError ? <p role="alert">{loadMoreError}</p> : null}
+            </footer>
           ) : null}
         </section>
       ) : null}

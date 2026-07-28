@@ -25,6 +25,19 @@ export const accountManualGuides = {
       ],
       result: 'De gekozen accountactie wordt uitgevoerd. Je kleurkeuze wordt voor een volgend bezoek onthouden.',
     },
+    {
+      id: 'navigation-personal-notifications',
+      title: 'Persoonlijke meldingen bekijken',
+      intro: 'Bekijk updates die specifiek voor jouw account bestemd zijn.',
+      steps: [
+        { label: 'Let op het bel-icoon', description: 'Bij een nieuwe melding beweegt de bel en loopt het aantal ongelezen meldingen op.' },
+        { label: 'Open de meldingen', description: 'Klik rechtsboven op de bel om de nieuwste persoonlijke meldingen te bekijken.' },
+        { label: 'Laad zo nodig oudere meldingen', description: 'Staan er meer meldingen dan direct worden getoond, kies dan Oudere meldingen laden.' },
+        { label: 'Open of rond af', description: 'Klik op een melding om de bijbehorende pagina te openen, of kies Alles gelezen om alle openstaande meldingen af te ronden.' },
+      ],
+      result: 'Ongelezen meldingen blijven server-side bij jouw account staan. Ook meldingen die binnenkomen terwijl je niet in de webapp bent, verschijnen na je volgende aanmelding.',
+      warning: 'De bel beweegt niet opnieuw voor meldingen die bij het aanmelden al ongelezen waren. Daardoor is meteen duidelijk welke melding tijdens je actieve sessie nieuw binnenkomt.',
+    },
   ],
   'account-access': [
     {
@@ -195,7 +208,7 @@ export const accountManualGuides = {
       steps: [
         { label: 'Open Agenda-item toevoegen', description: 'Op de pagina Agenda staat voor beheerders het formulier Agenda-item toevoegen.' },
         { label: 'Vul titel en start in', description: 'Titel en Start zijn verplicht. Kies daarnaast Type en zo nodig Einde en Locatie.' },
-        { label: 'Kies de doelgroep', description: 'Selecteer minimaal één agendagroep; meerdere groepen kunnen tegelijk worden gekozen.' },
+        { label: 'Kies de doelgroep', description: 'Kies Iedereen of selecteer één of meer specifieke groepen. Zodra een specifieke groep is geselecteerd, wordt Iedereen automatisch uitgezet.' },
         { label: 'Stel inschrijving in', description: 'Schakel inschrijving in en vul desgewenst een maximumaantal deelnemers in. Leeg betekent onbeperkt.' },
         { label: 'Voeg uitleg toe', description: 'Gebruik Omschrijving voor informatie die deelnemers vooraf nodig hebben.' },
         { label: 'Kies Toevoegen', description: 'Wacht op de melding dat het agenda-item is opgeslagen.' },

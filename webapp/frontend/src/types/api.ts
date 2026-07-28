@@ -171,6 +171,9 @@ export interface UserNotification {
 export interface UserNotificationFeed {
   notifications: UserNotification[];
   unread_count: number;
+  current_page?: number;
+  last_page?: number;
+  next_page?: number | null;
 }
 
 export interface UserNotificationMarkAllResult {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Notifications\IndexUserNotificationsRequest;
 use App\Http\Resources\UserNotificationResource;
 use App\Http\Responses\ApiResponse;
 use App\Services\UserNotificationService;
@@ -12,9 +13,12 @@ final class UserNotificationController extends Controller
 {
     public function __construct(private readonly UserNotificationService $service) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(IndexUserNotificationsRequest $request): JsonResponse
     {
-        $inbox = $this->service->inbox($request->user());
+        $inbox = $this->service->inbox(
+            $request->user(),
+            $request->notificationPage(),
+        );
 
         return ApiResponse::success([
             'notifications' => $inbox['notifications']
@@ -22,6 +26,9 @@ final class UserNotificationController extends Controller
                 ->values()
                 ->all(),
             'unread_count' => $inbox['unread_count'],
+            'current_page' => $inbox['current_page'],
+            'last_page' => $inbox['last_page'],
+            'next_page' => $inbox['next_page'],
         ]);
     }
 
