@@ -222,6 +222,30 @@ export interface PushDeliveryLog {
   created_at?: string | null;
 }
 
+export interface AdminSystemLogFile {
+  name: string;
+  size_bytes: number;
+  modified_at: string | null;
+}
+
+export interface AdminSystemLogIndex {
+  logs: AdminSystemLogFile[];
+}
+
+export interface AdminSystemLogChunk {
+  name: string;
+  size_bytes: number;
+  modified_at: string | null;
+  cursor: number;
+  generation: string;
+  checkpoint: string;
+  reset: boolean;
+  reset_reason: 'rotated' | 'truncated' | 'replaced' | null;
+  truncated: boolean;
+  poll_after_ms: number;
+  lines: string[];
+}
+
 export interface Deployment {
   id: string;
   reference: string;

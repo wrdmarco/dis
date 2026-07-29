@@ -7,6 +7,7 @@ use App\Http\Controllers\AdminKnmiController;
 use App\Http\Controllers\AdminOsrmController;
 use App\Http\Controllers\AdminPushController;
 use App\Http\Controllers\AdminStoreReviewController;
+use App\Http\Controllers\AdminSystemLogController;
 use App\Http\Controllers\AdminWallboardController;
 use App\Http\Controllers\AdminWallboardMediaAssetController;
 use App\Http\Controllers\AdminWallboardMediaFolderController;
@@ -616,6 +617,13 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/admin/system/version', [AdminDeveloperController::class, 'version'])->middleware('permission:system.health.view');
         Route::get('/admin/system/metrics', [HealthController::class, 'metrics'])
             ->middleware(['permission:system.health.view', 'throttle:system-metrics']);
+        Route::get('/admin/system/logs', [AdminSystemLogController::class, 'index'])
+            ->middleware(['web.client', 'permission:system.logs.view', 'throttle:system-logs']);
+        Route::get('/admin/system/logs/latest', [AdminSystemLogController::class, 'latest'])
+            ->middleware(['web.client', 'permission:system.logs.view', 'throttle:system-logs']);
+        Route::get('/admin/system/logs/{filename}', [AdminSystemLogController::class, 'show'])
+            ->where('filename', 'laravel(?:-\d{4}-\d{2}-\d{2})?\.log')
+            ->middleware(['web.client', 'permission:system.logs.view', 'throttle:system-logs']);
         Route::post('/admin/system/update', [AdminDeveloperController::class, 'runUpdate'])->middleware('permission:system.update.execute');
         Route::post('/admin/system/reboot', [AdminDeveloperController::class, 'reboot'])->middleware('permission:system.reboot.execute');
         Route::get('/admin/routing/osrm', [AdminOsrmController::class, 'show'])

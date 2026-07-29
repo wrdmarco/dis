@@ -31,6 +31,10 @@ const DeploymentRequestWorkflowStudio = dynamic(
   () => import('./DeploymentRequestWorkflowStudio').then((module) => module.DeploymentRequestWorkflowStudio),
 );
 
+const AdminLogFilesPanel = dynamic(
+  () => import('./AdminLogFilesPanel').then((module) => module.AdminLogFilesPanel),
+);
+
 interface MobileSettingsForm {
   publicUrl: string;
   apiBaseUrl: string;
@@ -101,7 +105,7 @@ const deploymentTimelineVisibilityOptions = [
   { value: 'audit', label: 'Auditacties' },
 ] as const;
 
-type AdminTab = 'firebase' | 'mail' | 'api' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'deploymentForm' | 'deploymentRequest' | 'settings';
+type AdminTab = 'firebase' | 'mail' | 'api' | 'system' | 'passwords' | 'developer' | 'version' | 'logs' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'deploymentForm' | 'deploymentRequest' | 'settings';
 type AdminPageMode = 'admin' | 'forms';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
@@ -112,6 +116,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'passwords', label: 'Wachtwoorden' },
   { id: 'developer', label: 'Ontwikkel' },
   { id: 'version', label: 'Versie' },
+  { id: 'logs', label: 'Logbestanden' },
   { id: 'tokens', label: 'Tokens' },
   { id: 'apps', label: 'Apps' },
   { id: 'store', label: 'Store' },
@@ -147,6 +152,7 @@ function adminTabAllowed(
     canManagePushTokens: boolean;
     canViewSystemHealth: boolean;
     canManageDeveloperAccess: boolean;
+    canViewSystemLogs: boolean;
   },
 ): boolean {
   if (tab === 'pilotReport' || tab === 'deploymentForm' || tab === 'deploymentRequest') {
@@ -165,6 +171,10 @@ function adminTabAllowed(
     return permissions.canManageDeveloperAccess;
   }
 
+  if (tab === 'logs') {
+    return permissions.canViewSystemLogs;
+  }
+
   return permissions.canManageSettings;
 }
 
@@ -176,6 +186,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const canManagePushTokens = hasPermission('settings.push.tokens.manage');
   const canViewSystemHealth = hasPermission('system.health.view');
   const canManageDeveloperAccess = hasPermission('system.developer-access.manage');
+  const canViewSystemLogs = hasPermission('system.logs.view');
   const canExecuteSystemUpdate = hasPermission('system.update.execute');
   const canExecuteSystemReboot = hasPermission('system.reboot.execute');
   const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, {
@@ -184,6 +195,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     canManagePushTokens,
     canViewSystemHealth,
     canManageDeveloperAccess,
+    canViewSystemLogs,
   }));
   const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings && mode === 'admin');
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePushTokens && mode === 'admin');
@@ -209,7 +221,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
   const [deploymentFormFields, setDeploymentFormFields] = useState<ConfigurableFormField[]>([]);
   const [deploymentFormLayout, setDeploymentFormLayout] = useState<DeploymentFormLayoutItem[]>(defaultDeploymentFormLayout());
-  const [activeTab, setActiveTab] = useState<AdminTab>(mode === 'forms' ? 'pilotReport' : 'firebase');
+  const [activeTab, setActiveTab] = useState<AdminTab>(
+    visibleAdminTabs[0]?.id ?? (mode === 'forms' ? 'pilotReport' : 'firebase'),
+  );
   const [deploymentRequestWorkflowDirty, setDeploymentRequestWorkflowDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -1560,6 +1574,8 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
           ) : null}
         </>
       ) : null}
+
+      {activeTab === 'logs' && canViewSystemLogs ? <AdminLogFilesPanel /> : null}
 
       {activeTab === 'tokens' ? (
         <Panel title="Actieve Firebase tokens">

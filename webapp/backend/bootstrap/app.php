@@ -8,6 +8,7 @@ use App\Http\Middleware\AuthenticateWallboardSession;
 use App\Http\Middleware\EnsureFirstPartyRequestsAreStateful;
 use App\Http\Middleware\EnsureOperationalAccess;
 use App\Http\Middleware\EnsureTwoFactorComplete;
+use App\Http\Middleware\EnsureWebClient;
 use App\Http\Middleware\EnsureWebSessionIsValid;
 use App\Http\Middleware\RequestId;
 use App\Http\Middleware\RequirePermission;
@@ -60,6 +61,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'store.review' => RestrictStoreReviewAccess::class,
             'two_factor.challenge' => AuthenticateTwoFactorChallenge::class,
             'two_factor.complete' => EnsureTwoFactorComplete::class,
+            'web.client' => EnsureWebClient::class,
             'web.session' => EnsureWebSessionIsValid::class,
             'wallboard.auth' => AuthenticateWallboardSession::class,
             'permission' => RequirePermission::class,

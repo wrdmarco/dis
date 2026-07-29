@@ -133,6 +133,24 @@ and managing agenda groups use the dedicated `calendar.registrations.view`,
 group and participant endpoints require a stateful web session and produce audit records. Frontend permission
 checks control navigation and route UX only; Laravel middleware and validated requests remain authoritative.
 
+### Admin application log viewer
+
+The **Logbestanden** tab under `/admin` requires the dedicated `system.logs.view` permission. New and
+upgraded installations grant it only to the system-administrator role by default; an authorised role
+manager may assign it deliberately to another web-administration role. Every list and read request still
+passes the normal authenticated web-session, completed-2FA, operational and server-side permission
+middleware.
+
+The viewer exposes only the allowlisted Laravel daily files in the canonical backend log directory. It
+never accepts a server path, follows a symlink or reads journald, Nginx, PostgreSQL, Redis or arbitrary
+`/var/log` content. Log chunks are byte-, line- and rate-limited, re-redacted when read, returned with
+`Cache-Control: no-store` and followed by bounded two-second cursor polling while the browser tab is
+visible. The active daily file follows rotation automatically, while an explicitly selected archive
+stays selected. Actor-bound HMAC checkpoints detect rotation, truncation and rewritten cursor context.
+Starting or resetting a view is audit logged without storing log content or cursor data. Raw log lines
+are not broadcast through Reverb. Server recovery during web or maintenance outages therefore remains
+an SSH/system-console responsibility.
+
 ### Deployment location enrichment
 
 For non-test deployments, the isolated `deployment-enrichment` queue classifies an already stored deployment

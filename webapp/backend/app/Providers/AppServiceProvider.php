@@ -286,6 +286,12 @@ final class AppServiceProvider extends ServiceProvider
             perClient: 60,
             perUser: 120,
         ));
+        RateLimiter::for('system-logs', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'system-logs',
+            perClient: 60,
+            perUser: 120,
+        ));
         RateLimiter::for('osrm-admin-write', fn (Request $request): array => [
             Limit::perMinute(2)->by('osrm-admin-write:client:'.$this->rateLimitClientKey($request)),
             Limit::perHour(4)->by('osrm-admin-write:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),

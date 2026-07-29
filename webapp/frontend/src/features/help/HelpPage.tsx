@@ -552,7 +552,7 @@ const helpTopics: readonly HelpTopic[] = [
     summary: 'Beheer alleen de systeemonderdelen waarvoor jouw account toestemming heeft.',
     icon: Settings,
     href: '/admin',
-    permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health.view', 'system.developer-access.manage'],
+    permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health.view', 'system.developer-access.manage', 'system.logs.view'],
     anyPermission: true,
     actions: [
       { title: 'Push en mail instellen', description: 'Controleer de verbinding voor pushmeldingen en de e-mailinstellingen. Sla mailinstellingen eerst op; de testmail gaat daarna naar je eigen e-mailadres.', permissions: ['settings.manage'] },
@@ -563,6 +563,7 @@ const helpTopics: readonly HelpTopic[] = [
       { title: 'Systeemversie bekijken', description: 'Bekijk de huidige versie en de laatste bekende updategegevens.', permissions: ['system.health.view'] },
       { title: 'Systeem bijwerken', description: 'Start alleen een update op een gepland moment. Er kan maar één update tegelijk lopen; Applicatie bijwerken slaat systeemupdates over.', permissions: ['system.health.view', 'system.update.execute'] },
       { title: 'Server herstarten', description: 'De knop is alleen beschikbaar wanneer een herstart nodig is en geen update loopt. Gebruik hem alleen op een operationeel verantwoord moment.', permissions: ['system.health.view', 'system.reboot.execute'] },
+      { title: 'Logbestanden live bekijken', description: 'Kies een beschikbaar systeemlog en volg nieuwe regels zolang het tabblad zichtbaar is.', permissions: ['system.logs.view'] },
       { title: 'Tijdelijke ontwikkeltoegang beheren', description: 'Een nieuwe sleutel wordt één keer getoond en vervangt de vorige. Kies zo weinig mogelijk toegang, een einddatum en zo nodig toegestane IP-adressen.', permissions: ['system.developer-access.manage'] },
     ],
   },

@@ -79,6 +79,11 @@ return [
     'system_metrics' => [
         'disk_path' => env('DIS_DATA_PATH', '/opt/dis-data'),
     ],
+    'system_logs' => [
+        // Keep the browser log viewer on the canonical Laravel log directory.
+        // This path may itself be the deployment-managed storage symlink.
+        'directory' => storage_path('logs'),
+    ],
     'knmi_forecast' => [
         'api_base_url' => 'https://api.dataplatform.knmi.nl/open-data/v1',
         'download_host' => 'knmi-kdp-datasets-eu-west-1.s3.eu-west-1.amazonaws.com',

@@ -58,6 +58,7 @@ export const webRouteAccess = {
       'settings.push.tokens.manage',
       'system.health.view',
       'system.developer-access.manage',
+      'system.logs.view',
     ],
     anyPermission: true,
   },
