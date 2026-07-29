@@ -652,7 +652,7 @@ final class WallboardWeatherRadarProviderStub implements OperationalRadarProvide
                 'image_url' => '/api/operational-weather/radar/'.$kind.'/'.$snapshot.'.png',
             ]],
             'source' => [
-                'name' => $kind === 'precipitation' ? 'DWD RV neerslagradar' : 'EUMETSAT lightning',
+                'name' => $kind === 'precipitation' ? 'KNMI RTCOR + radar forecast 2.0' : 'EUMETSAT lightning',
                 'url' => 'https://example.test/'.$kind,
                 'license' => 'Test license',
             ],

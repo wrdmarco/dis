@@ -57,14 +57,15 @@ export interface WeatherRadarSectionProps {
 }
 
 const PRECIPITATION_LEGEND = [
-  { label: '0,1–0,5', color: '#53d3ff' },
-  { label: '0,5–1', color: '#2f8bff' },
-  { label: '1–2', color: '#2650d6' },
-  { label: '2–5', color: '#2abe5c' },
-  { label: '5–10', color: '#ebda34' },
-  { label: '10–20', color: '#ff9a2b' },
-  { label: '20–40', color: '#e73e37' },
-  { label: '≥ 40', color: '#aa31ae' },
+  { label: '0–0,2', color: '#b8f1ff' },
+  { label: '0,2–0,5', color: '#63d5ff' },
+  { label: '0,5–1', color: '#2786ee' },
+  { label: '1–2', color: '#2449c7' },
+  { label: '2–5', color: '#35b85a' },
+  { label: '5–10', color: '#ebd62f' },
+  { label: '10–20', color: '#f7942c' },
+  { label: '20–40', color: '#df3b35' },
+  { label: '>40', color: '#9c2f9f' },
 ] as const;
 
 export function WeatherRadarSection({
@@ -206,6 +207,7 @@ function RadarLayerPanel({
   rangeId: string;
 }) {
   const playback = useWeatherRadarPlayback(layer, active, autoPlay);
+  const status = radarLayerStatus(layer, playback);
 
   return (
     <div
@@ -214,6 +216,22 @@ function RadarLayerPanel({
       aria-labelledby={labelledBy}
       className={styles.radarPanel}
     >
+      {!readOnly ? (
+        <div className={styles.radarToolbar} aria-label="Weerkaartbediening">
+          {layerSwitcher ? (
+            <div className={styles.radarToolbarLayers} data-radar-layers>{layerSwitcher}</div>
+          ) : null}
+          {locationControl ? (
+            <div className={styles.radarToolbarLocation}>{locationControl}</div>
+          ) : null}
+          <span
+            className={`${styles.radarStatusBadge} ${styles[`radarStatus_${status.tone}`]}`}
+            data-radar-status
+          >
+            {status.label}
+          </span>
+        </div>
+      ) : null}
       <RadarViewport
         kind={kind}
         layer={layer}
@@ -221,8 +239,6 @@ function RadarLayerPanel({
         readOnly={readOnly}
         wallboard={wallboard}
         location={location ?? null}
-        locationControl={locationControl}
-        layerSwitcher={layerSwitcher}
       />
       <RadarTimeline
         kind={kind}
@@ -242,8 +258,6 @@ function RadarViewport({
   readOnly,
   wallboard,
   location,
-  locationControl,
-  layerSwitcher,
 }: {
   kind: RadarKind;
   layer: OperationalWeatherRadarLayer | null;
@@ -251,8 +265,6 @@ function RadarViewport({
   readOnly: boolean;
   wallboard: boolean;
   location: NonNullable<WeatherRadarSectionProps['location']> | null;
-  locationControl: ReactNode;
-  layerSwitcher: ReactNode;
 }) {
   const { displayLayer, frame } = playback;
   const liveFrame = displayLayer?.render_mode === 'image_frames'
@@ -297,7 +309,6 @@ function RadarViewport({
             </div>
           )}
 
-          {locationControl ? <div className={styles.radarMapSearch}>{locationControl}</div> : null}
           <div
             className={styles.radarMapMoment}
             data-radar-map-moment
@@ -306,13 +317,14 @@ function RadarViewport({
             <span>{radarFrameMomentLabel(kind, frame.lead_minutes)}</span>
             <strong>{formatRadarFrameClock(kind, frame.valid_at)}</strong>
           </div>
-          <span
-            className={`${styles.radarStatusBadge} ${styles.radarStatusFloat} ${styles[`radarStatus_${status.tone}`]}`}
-            data-radar-status
-          >
-            {status.label}
-          </span>
-          {layerSwitcher ? <div className={styles.radarMapLayers} data-radar-layers>{layerSwitcher}</div> : null}
+          {readOnly ? (
+            <span
+              className={`${styles.radarStatusBadge} ${styles.radarStatusFloat} ${styles[`radarStatus_${status.tone}`]}`}
+              data-radar-status
+            >
+              {status.label}
+            </span>
+          ) : null}
           <details className={styles.radarLegendPopover} data-radar-legend open={wallboard}>
             <summary><Layers3 aria-hidden size={17} /> Legenda</summary>
             {kind === 'precipitation' ? <PrecipitationLegend /> : <LightningLegend />}
@@ -398,7 +410,9 @@ function RadarTimeline({
 }) {
   const displayLayer = playback.displayLayer;
   const frameCount = displayLayer?.frames.length ?? 0;
-  const controlsDisabled = frameCount === 0 || !radarFrameIsRenderable(displayLayer, playback.framePosition, playback.atlasRenderUrl);
+  const controlsDisabled = !playback.seriesReady
+    || frameCount === 0
+    || !radarFrameIsRenderable(displayLayer, playback.framePosition, playback.atlasRenderUrl);
   const atReference = frameCount === 0 || playback.framePosition === playback.referenceFramePosition;
   const playbackStatus = radarPlaybackStatus(layer, playback);
   const nowPosition = frameCount <= 1 ? 0 : playback.referenceFramePosition / (frameCount - 1) * 100;
@@ -502,6 +516,23 @@ function RadarTimeline({
 
       {playback.reducedMotion && !readOnly ? (
         <p className={styles.radarMotionNote}>Automatisch afspelen is uitgeschakeld vanwege de instelling voor minder beweging.</p>
+      ) : null}
+
+      {playback.seriesLoading ? (
+        <p className={styles.radarSeriesStatus} role="status" aria-live={readOnly ? 'off' : 'polite'}>
+          <span className={styles.stateSpinner} aria-hidden />
+          Animatie voorbereiden · {playback.loadedFrameCount} van {playback.totalFrameCount} beelden
+        </p>
+      ) : playback.seriesFailed ? (
+        <div className={`${styles.radarSeriesStatus} ${styles.radarSeriesStatusWarning}`} role="status">
+          <AlertTriangle aria-hidden size={17} />
+          <span>Actueel beeld beschikbaar; animatie is niet compleet.</span>
+          {readOnly ? null : (
+            <button type="button" onClick={playback.retryAtlas}>
+              <RefreshCw aria-hidden size={16} /> Opnieuw laden
+            </button>
+          )}
+        </div>
       ) : null}
 
       <dl className={styles.radarFacts}>
@@ -641,6 +672,8 @@ function radarPlaybackStatus(
   if (playback.atlasFailed && playback.showingPreviousAtlas) return { label: 'Vorige geldige reeks', tone: 'stale' };
   if (playback.atlasFailed) return { label: 'Kaartbeeld niet geladen', tone: 'unavailable' };
   if (playback.loadingAtlas) return { label: 'Nieuwe beeldreeks laden', tone: 'stale' };
+  if (playback.seriesLoading) return { label: 'Animatie wordt voorbereid', tone: 'stale' };
+  if (playback.seriesFailed) return { label: 'Actueel beeld; animatie onvolledig', tone: 'stale' };
   if (layer?.status === 'stale') return { label: 'Verouderde reeks staat stil', tone: 'stale' };
   if (playback.reducedMotion) return { label: 'Stilstaand actueel beeld', tone: 'available' };
   if (playback.playing) return { label: 'Beeldreeks speelt automatisch', tone: 'available' };

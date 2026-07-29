@@ -1168,6 +1168,17 @@ export interface OperationalWeatherRadarState {
   lightning: OperationalWeatherRadarLayer | null;
 }
 
+export interface OperationalWeatherRadarPageState {
+  location: {
+    mode: WallboardForecastLocationMode;
+    label: string;
+    latitude: number;
+    longitude: number;
+  };
+  generated_at: string;
+  radar: OperationalWeatherRadarState;
+}
+
 export interface OperationalWeatherPageState {
   location: {
     mode: WallboardForecastLocationMode;

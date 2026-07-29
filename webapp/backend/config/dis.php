@@ -84,15 +84,17 @@ return [
         // This path may itself be the deployment-managed storage symlink.
         'directory' => storage_path('logs'),
     ],
-    'dwd_radar' => [
-        // These fixed WMS endpoints provide the same RV product from DWD's
-        // production and officially documented disaster-recovery sites.
-        'endpoints' => [
-            'https://maps.dwd.de/geoserver/dwd/Radar_rv_product_1x1km_ger/wms',
-            'https://brz-maps.dwd.de/geoserver/dwd/Radar_rv_product_1x1km_ger/wms',
-        ],
-        'layer' => 'Radar_rv_product_1x1km_ger',
-        'style' => 'radar_rv_product_1x1km_ger',
+    'knmi_radar' => [
+        // KNMI documents this anonymous ADAGUC WMS endpoint for browser and
+        // server use without an API key. Dataset, layer, style and map bounds
+        // stay fixed so this cannot become a generic outbound request proxy.
+        'endpoint' => 'https://anonymous.api.dataplatform.knmi.nl/wms/adaguc-server',
+        'observation_dataset' => 'nl_rdr_data_rtcor_5m',
+        'observation_layer' => 'precipitation_real_time',
+        'forecast_dataset' => 'radar_forecast_2.0',
+        'forecast_layer' => 'precipitation_nowcast',
+        'style' => 'rainrate-blue-to-purple/shaded',
+        'srs' => 'EPSG:4326',
         'bbox' => [2.5, 50.5, 7.8, 53.7],
         'frame_width' => 960,
         'frame_height' => 580,
@@ -103,9 +105,15 @@ return [
         'capabilities_timeout_seconds' => 15,
         'frame_timeout_seconds' => 20,
         'maximum_capabilities_bytes' => 262_144,
-        'maximum_frame_bytes' => 262_144,
+        'maximum_frame_bytes' => 1_048_576,
         'timeline_cache_seconds' => 240,
-        // HMAC frame tokens, a 256 KiB payload ceiling and this two-hour TTL
+        // Anonymous WMS access is limited to one request per second per IP.
+        // Every PHP process shares this Redis-backed gate; a small positive
+        // jitter prevents request starts from accumulating on the boundary.
+        'upstream_throttle_wait_seconds' => 5,
+        'upstream_minimum_interval_milliseconds' => 1050,
+        'upstream_jitter_milliseconds' => 50,
+        // HMAC frame tokens, a 1 MiB payload ceiling and this two-hour TTL
         // bound Redis use while retaining the full one-hour history plus the
         // complete one-hour stale-fallback window.
         'frame_cache_seconds' => 7200,

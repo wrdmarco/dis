@@ -377,11 +377,13 @@ resolved position and the planetary Kp index comes from the fixed
 GRIB/HDF5 file or immutable weather snapshot is stored on the application filesystem.
 
 The `/weather` page presents a map-first, Buienradar-style timeline. The server reads the open
-[DWD RV radar WMS](https://www.dwd.de/DE/leistungen/radarprodukte/radarlayer.html), which supplies five-minute
-observations plus a two-hour nowcast, and exposes 37 validated same-origin frames from -60 through +120 minutes.
-The current model boundary is shown as a fixed `NU` seam between observations and forecast. The DWD production
-geoservice has its official disaster-recovery endpoint as a fallback; DWD open geodata is reused under
-[CC BY 4.0](https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html).
+[anonymous KNMI WMS](https://developer.dataplatform.knmi.nl/wms). It combines the
+[`nl_rdr_data_rtcor_5m`](https://dataplatform.knmi.nl/dataset/access/nl-rdr-data-rtcor-5m-1-0)
+real-time corrected observations with the
+[`radar_forecast_2.0`](https://dataplatform.knmi.nl/dataset/radar-forecast-2-0) two-hour nowcast and exposes
+37 validated same-origin frames from -60 through +120 minutes. The current model boundary is shown as a fixed
+`NU` seam between observations and forecast. Both KNMI datasets are reused under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 The selectable lightning layer reads the fixed EUMETView `mtg_fd:li_afa` WMS layer live and exposes the latest
 seven five-minute Accumulated Flash Area frames. It represents total lightning and does not distinguish
@@ -391,12 +393,15 @@ DIS does not embed or scrape Buienradar.nl, LightningMaps or Blitzortung.
 
 Weather-provider images are validated, size-bounded and cached only through the configured Laravel cache
 (Redis in production); they are never written to local or shared snapshot directories. Browsers receive
-immutable, HMAC-protected same-origin frame URLs. A 256 KiB per-frame ceiling and bounded Redis retention of
-two hours for DWD and ninety minutes for EUMETSAT preserve the full history plus stale-fallback window; the
-browser cache prevents repeat downloads. Browsers contact only PDOK directly for the interactive grey WMTS
-background.
+immutable, HMAC-protected same-origin frame URLs. A 1 MiB per-frame ceiling and bounded Redis retention of
+two hours for KNMI and ninety minutes for EUMETSAT preserve the full history plus stale-fallback window; the
+browser cache prevents repeat downloads. KNMI anonymous WMS traffic is serialized through one Redis-backed,
+installation-wide gate with at least one second between upstream requests. Capabilities use the same gate and
+a separate four-minute timeline cache, so concurrent frame loads cannot bypass the provider limit or turn a
+cache outage into an unbounded outbound request storm. Browsers contact only PDOK directly for the interactive
+pastel WMTS background.
 The map supports pan, zoom, fullscreen, location centring and reduced motion, with visible attribution for
-PDOK/Kadaster, DWD, DMI and EUMETSAT. Wallboards use the same live frame contract and preload the bounded active
+PDOK/Kadaster, KNMI and EUMETSAT. Wallboards use the same live frame contract and preload the bounded active
 series through their existing browser cache.
 
 Deployment retires the former `dis-knmi` and `dis-knmi-realtime` workers, clears only their two Redis queues,

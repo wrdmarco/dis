@@ -1,6 +1,7 @@
 import type {
   OperationalWeatherPageState,
   OperationalWeatherRadarFrame,
+  OperationalWeatherRadarPageState,
   OperationalWeatherRadarSource,
   OperationalWeatherRadarState,
   WallboardForecastBlockKey,
@@ -43,6 +44,10 @@ const OPERATIONAL_RADAR_FRAME_PATH = /^\/api\/(?:operational-weather\/radar|wall
 
 export function normalizeUavForecastPage(value: unknown): WallboardForecastPageState | null {
   return normalizeWallboardForecastState({ pages: { forecast: value } }).pages.forecast ?? null;
+}
+
+export function uavForecastIsDegraded(forecast: WallboardForecastPageState): boolean {
+  return !forecast.aggregation.complete || !forecast.aggregation.fresh;
 }
 
 export function normalizeWallboardForecastState(value: unknown): WallboardForecastState {
@@ -180,6 +185,46 @@ export function markOperationalWeatherStale(
       precipitation: markOperationalRadarLayerStale(weather.radar.precipitation),
       lightning: markOperationalRadarLayerStale(weather.radar.lightning),
     },
+  };
+}
+
+export function markOperationalWeatherRadarPageStale(
+  weather: OperationalWeatherRadarPageState,
+): OperationalWeatherRadarPageState {
+  return {
+    ...weather,
+    radar: {
+      precipitation: markOperationalRadarLayerStale(weather.radar.precipitation),
+      lightning: markOperationalRadarLayerStale(weather.radar.lightning),
+    },
+  };
+}
+
+export function normalizeOperationalWeatherRadarPage(
+  value: unknown,
+): OperationalWeatherRadarPageState | null {
+  if (!isRecord(value) || !isRecord(value.location) || typeof value.location.label !== 'string') {
+    return null;
+  }
+
+  const locationMode = value.location.mode === 'address' ? 'address' : 'netherlands';
+  if (value.location.mode !== 'address' && value.location.mode !== 'netherlands') return null;
+
+  const latitude = normalizeForecastCoordinate(value.location.latitude, -90, 90);
+  const longitude = normalizeForecastCoordinate(value.location.longitude, -180, 180);
+  const generatedAt = requiredIsoTimestamp(value.generated_at);
+  const label = value.location.label.trim();
+  if (latitude === null || longitude === null || generatedAt === null || label === '') return null;
+
+  return {
+    location: {
+      mode: locationMode,
+      label: label.slice(0, 120),
+      latitude,
+      longitude,
+    },
+    generated_at: generatedAt,
+    radar: normalizeOperationalWeatherRadarState(value.radar),
   };
 }
 

@@ -26,7 +26,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { OperationalWeatherRadarBounds, OperationalWeatherRadarKind } from '../../types/api';
 import styles from './OperationalForecast.module.css';
 
-const PDOK_GRAY_TILE_URL = 'https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/{z}/{x}/{y}.png';
+const PDOK_PASTEL_TILE_URL = 'https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/pastel/EPSG:3857/{z}/{x}/{y}.png';
 const PDOK_ATTRIBUTION = 'Kaart: CC-BY Kadaster 2026';
 const PDOK_ATTRIBUTION_URL = 'https://www.kadaster.nl/zakelijk/registraties/basisregistraties/brt';
 const NETHERLANDS_CENTER: [number, number] = [5.35, 52.15];
@@ -67,7 +67,7 @@ export default function LiveRadarMap({
   useEffect(() => {
     if (targetRef.current === null) return;
     const target = targetRef.current;
-    const radarLayer = new ImageLayer<ImageStatic>({ opacity: kind === 'precipitation' ? 0.82 : 0.92 });
+    const radarLayer = new ImageLayer<ImageStatic>({ opacity: kind === 'precipitation' ? 0.9 : 0.94 });
     const markerFeature = new Feature<Point>();
     markerFeature.setStyle(new Style({
       image: new CircleStyle({
@@ -87,7 +87,7 @@ export default function LiveRadarMap({
         crossOrigin: 'anonymous',
         maxZoom: 19,
         transition: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180,
-        url: PDOK_GRAY_TILE_URL,
+        url: PDOK_PASTEL_TILE_URL,
       }),
     });
     const map = new Map({
@@ -99,7 +99,7 @@ export default function LiveRadarMap({
         center: fromLonLat(NETHERLANDS_CENTER),
         zoom: 7.2,
         minZoom: 5,
-        maxZoom: 17,
+        maxZoom: 11,
       }),
     });
 

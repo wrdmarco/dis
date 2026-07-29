@@ -36,6 +36,7 @@ import {
 import {
   markWallboardForecastStale,
   normalizeUavForecastPage,
+  uavForecastIsDegraded,
 } from './forecastNormalization';
 import styles from './OperationalForecast.module.css';
 import {
@@ -71,12 +72,16 @@ export function UavForecastPage() {
     '/uav-forecast',
     location,
     normalizeUavForecastPage,
+    undefined,
+    uavForecastIsDegraded,
   );
   const forecast = resource.data === null
     ? null
     : resource.stale
       ? markWallboardForecastStale(resource.data)
       : resource.data;
+  const degraded = resource.degraded
+    || (resource.data !== null && uavForecastIsDegraded(resource.data));
 
   function applyLocation(next: ForecastLocationQuery) {
     if (next.mode === location.mode && next.label === location.label) {
@@ -104,12 +109,14 @@ export function UavForecastPage() {
         onRefresh={() => void resource.refresh()}
       />
 
-      {resource.stale && forecast ? (
+      {(resource.stale || degraded) && forecast ? (
         <div className={styles.inlineWarning} role="alert">
           <AlertTriangle aria-hidden size={18} />
           <span>
-            De laatst opgehaalde forecast is verlopen en daarom als onbekend gemarkeerd.
-            {resource.refreshing ? ' Er wordt een nieuwe forecast opgehaald.' : ''}
+            {degraded
+              ? 'De live DMI-forecast is tijdelijk niet volledig beschikbaar. Ontbrekende waarden blijven onbekend; binnen een minuut volgt automatisch een nieuwe poging.'
+              : 'De laatst opgehaalde forecast is verlopen en daarom als onbekend gemarkeerd.'}
+            {resource.refreshing ? ' De nieuwe poging loopt nu.' : ''}
             {resource.error ? ` ${resource.error}` : ''}
           </span>
         </div>

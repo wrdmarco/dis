@@ -100,7 +100,7 @@ test('normalizes first-party legacy atlases and live image frames for both authe
   });
   expect(live.precipitation?.frames).toMatchObject([
     { phase: 'observation', lead_minutes: -5 },
-    { phase: 'forecast', lead_minutes: 0 },
+    { phase: 'observation', lead_minutes: 0 },
   ]);
 });
 
@@ -190,7 +190,7 @@ for (const scenario of [
               <div><dt>Actualiteit</dt><dd>2 minuten oud</dd></div>
               <div><dt>Referentietijd</dt><dd>23 juli 2026 14:00</dd></div>
               <div><dt>Bronvertraging</dt><dd>minder dan 1 minuut</dd></div>
-              <div><dt>Bron</dt><dd>${scenario.kind === 'precipitation' ? 'DWD RV' : 'EUMETSAT'}</dd></div>
+              <div><dt>Bron</dt><dd>${scenario.kind === 'precipitation' ? 'KNMI RTCOR + radar forecast 2.0' : 'EUMETSAT'}</dd></div>
               <div><dt>Licentie</dt><dd>Open data</dd></div>
             </dl>
           </aside>
@@ -253,7 +253,7 @@ function livePrecipitationLayer(): Record<string, unknown> {
     atlas_columns: 0,
     atlas_rows: 0,
     frame_width: 960,
-    frame_height: 720,
+    frame_height: 580,
     frames: [
       {
         index: 0,
@@ -266,15 +266,15 @@ function livePrecipitationLayer(): Record<string, unknown> {
         index: 1,
         valid_at: '2026-07-23T12:00:00Z',
         lead_minutes: 0,
-        phase: 'forecast',
-        image_url: '/api/wallboard/weather-radar/precipitation/20260723T120000Z-f20260723T120000Z-fedcba9876543210.png',
+        phase: 'observation',
+        image_url: '/api/wallboard/weather-radar/precipitation/20260723T120000Z-o-fedcba9876543210.png',
       },
     ],
     source: {
-      name: 'DWD RV',
-      url: 'https://www.dwd.de/',
+      name: 'KNMI RTCOR + radar forecast 2.0',
+      url: 'https://dataplatform.knmi.nl/dataset/radar-forecast-2-0',
       license: 'CC BY 4.0',
-      license_url: 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
+      license_url: 'https://creativecommons.org/licenses/by/4.0/',
     },
     availability_note: null,
   };
@@ -300,10 +300,10 @@ function precipitationLayer(atlasUrl: string): OperationalWeatherRadarLayer {
       lead_minutes: index * 5,
     })),
     source: {
-      name: 'DWD RV',
-      url: 'https://www.dwd.de/DE/leistungen/radarprodukte/radarlayer.html',
+      name: 'KNMI RTCOR + radar forecast 2.0',
+      url: 'https://dataplatform.knmi.nl/dataset/radar-forecast-2-0',
       license: 'CC BY 4.0',
-      license_url: 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
+      license_url: 'https://creativecommons.org/licenses/by/4.0/',
     },
     availability_note: null,
   };

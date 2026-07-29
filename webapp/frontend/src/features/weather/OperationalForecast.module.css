@@ -805,6 +805,36 @@
   flex-direction: column;
 }
 
+.radarToolbar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(320px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--dis-border);
+  background: color-mix(in srgb, var(--dis-field) 72%, var(--dis-surface));
+  padding: 9px 12px;
+}
+
+.radarToolbarLayers,
+.radarToolbarLocation {
+  min-width: 0;
+}
+
+.radarToolbarLayers .radarTabs,
+.radarToolbarLocation .locationControlCompact {
+  box-shadow: none;
+}
+
+.radarToolbarLocation .locationControlCompact {
+  border-color: var(--dis-border);
+  background: var(--dis-surface);
+}
+
+.radarToolbar > .radarStatusBadge {
+  justify-self: end;
+}
+
 .radarVisualColumn {
   min-width: 0;
 }
@@ -829,17 +859,19 @@
 .radarLiveMap {
   position: relative;
   overflow: hidden;
-  background: color-mix(in srgb, var(--dis-field) 88%, var(--weather-blue-soft));
+  background: #dcebf1;
+  color-scheme: light;
 }
 
 .radarLiveMap:fullscreen {
-  background: var(--dis-field);
+  background: #dcebf1;
 }
 
 .radarMapCanvas {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--dis-field) 88%, var(--weather-blue-soft));
+  background: #dcebf1;
+  color-scheme: light;
 }
 
 .radarMapCanvas:focus-visible {
@@ -986,18 +1018,10 @@
   text-underline-offset: 2px;
 }
 
-.radarMapSearch {
-  position: absolute;
-  z-index: 15;
-  top: 14px;
-  left: 14px;
-  width: min(640px, calc(100% - 156px));
-}
-
 .radarMapMoment {
   position: absolute;
   z-index: 13;
-  top: 92px;
+  top: 14px;
   left: 14px;
   display: grid;
   gap: 1px;
@@ -1057,13 +1081,6 @@
 .radarStatus_unavailable {
   background: color-mix(in srgb, var(--dis-surface) 90%, var(--dis-critical-soft));
   color: var(--dis-critical);
-}
-
-.radarMapLayers {
-  position: absolute;
-  z-index: 13;
-  left: 14px;
-  bottom: 14px;
 }
 
 .radarTabs {
@@ -1520,6 +1537,52 @@
   line-height: 1.5;
 }
 
+.radarSeriesStatus {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  border-left: 3px solid var(--dis-blue);
+  border-radius: 0 7px 7px 0;
+  background: var(--weather-blue-soft);
+  color: var(--dis-muted-strong);
+  padding: 7px 10px;
+  font-size: 0.73rem;
+  font-weight: 720;
+}
+
+.radarSeriesStatusWarning {
+  border-left-color: var(--dis-warning);
+  background: var(--dis-warning-soft);
+}
+
+.radarSeriesStatusWarning > svg {
+  flex: 0 0 auto;
+  color: var(--dis-warning);
+}
+
+.radarSeriesStatus button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--dis-warning) 40%, var(--dis-border));
+  border-radius: 7px;
+  background: var(--dis-surface);
+  color: var(--dis-text-strong);
+  cursor: pointer;
+  padding: 7px 11px;
+  font: inherit;
+}
+
+.radarSeriesStatus button:focus-visible {
+  outline: 3px solid var(--dis-blue);
+  outline-offset: 2px;
+}
+
 .radarFacts {
   display: flex;
   flex-wrap: wrap;
@@ -1909,6 +1972,15 @@
     grid-template-columns: auto minmax(180px, 1fr) auto;
   }
 
+  .radarToolbar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .radarToolbarLocation {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
   .radarStage {
     height: clamp(440px, 58dvh, 680px);
   }
@@ -1995,12 +2067,6 @@
     padding: 0;
   }
 
-  .radarMapSearch {
-    top: 8px;
-    left: 8px;
-    width: calc(100% - 70px);
-  }
-
   .locationControlCompact {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 5px;
@@ -2028,7 +2094,7 @@
   }
 
   .radarMapMoment {
-    top: 126px;
+    top: 8px;
     left: 8px;
   }
 
@@ -2036,11 +2102,6 @@
     top: auto;
     right: 8px;
     bottom: 104px;
-  }
-
-  .radarMapLayers {
-    left: 8px;
-    bottom: 42px;
   }
 
   .radarTabs button {
@@ -2088,6 +2149,16 @@
 
   .radarFacts {
     gap: 5px 16px;
+  }
+
+  .radarSeriesStatus {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .radarSeriesStatus button {
+    width: 100%;
+    margin-left: 0;
   }
 
   .radarLegend {

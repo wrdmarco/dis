@@ -17,12 +17,14 @@ export interface ForecastResourceState<T> {
   loading: boolean;
   refreshing: boolean;
   busy: boolean;
+  degraded: boolean;
   stale: boolean;
   error: string | null;
   refresh: () => Promise<void>;
 }
 
 export type ForecastResourceNormalizer<T> = (value: unknown) => T | null;
+export type ForecastResourceDegradedCheck<T> = (value: T) => boolean;
 
 export const DEFAULT_FORECAST_LOCATION: ForecastLocationQuery = {
   mode: 'netherlands',
@@ -57,16 +59,18 @@ export function forecastRefreshDeadline(
 }
 
 export function useForecastResource<T>(
-  endpoint: '/operational-weather' | '/uav-forecast',
+  endpoint: '/operational-weather' | '/operational-weather/radar' | '/uav-forecast',
   location: ForecastLocationQuery,
   normalize?: ForecastResourceNormalizer<T>,
   refreshIntervalMs = FORECAST_REFRESH_INTERVAL_MS,
+  isDegraded?: ForecastResourceDegradedCheck<T>,
 ): ForecastResourceState<T> {
   const { api } = useAuth();
   const path = buildForecastResourcePath(endpoint, location);
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [degraded, setDegraded] = useState(false);
   const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [schedulerRevision, setSchedulerRevision] = useState(0);
@@ -90,7 +94,7 @@ export function useForecastResource<T>(
     if (initial) setLoading(true);
     else {
       setRefreshing(true);
-      if (endpoint !== '/operational-weather') setStale(true);
+      if (!endpoint.startsWith('/operational-weather')) setStale(true);
     }
 
     try {
@@ -103,8 +107,11 @@ export function useForecastResource<T>(
       }
 
       if (requestSequence.current === sequence && currentPath.current === path) {
+        const responseIsDegraded = isDegraded?.(normalized) ?? false;
         lastSuccessfulAt.current = Date.now();
+        lastAttemptFailed.current = responseIsDegraded;
         setData(normalized);
+        setDegraded(responseIsDegraded);
         setStale(false);
         setError(null);
       }
@@ -113,7 +120,7 @@ export function useForecastResource<T>(
         lastAttemptFailed.current = true;
         const successfulDataExpired = lastSuccessfulAt.current === 0
           || Date.now() >= lastSuccessfulAt.current + refreshIntervalMs;
-        setStale(endpoint !== '/operational-weather' || successfulDataExpired);
+        setStale(!endpoint.startsWith('/operational-weather') || successfulDataExpired);
         setError(reason instanceof ApiClientError
           ? reason.message
           : reason instanceof Error
@@ -128,7 +135,7 @@ export function useForecastResource<T>(
         setSchedulerRevision((revision) => revision + 1);
       }
     }
-  }, [api, endpoint, normalize, path, refreshIntervalMs]);
+  }, [api, endpoint, isDegraded, normalize, path, refreshIntervalMs]);
 
   useEffect(() => {
     if (initializedPath.current !== path) {
@@ -137,6 +144,7 @@ export function useForecastResource<T>(
       lastSuccessfulAt.current = 0;
       lastAttemptFailed.current = false;
       setData(null);
+      setDegraded(false);
       setError(null);
       setStale(false);
     }
@@ -180,5 +188,5 @@ export function useForecastResource<T>(
   const refresh = useCallback(() => load(data === null), [data, load]);
   const busy = loading || refreshing;
 
-  return { data, loading, refreshing, busy, stale, error, refresh };
+  return { data, loading, refreshing, busy, degraded, stale, error, refresh };
 }

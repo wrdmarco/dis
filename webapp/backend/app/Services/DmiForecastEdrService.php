@@ -25,6 +25,10 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
 
     private const CACHE_NAMESPACE = 'wallboard:uav-forecast:dmi:v3';
 
+    private const PROVIDER_CIRCUIT_KEY = self::CACHE_NAMESPACE.':provider-circuit-open';
+
+    private const PROVIDER_CIRCUIT_SECONDS = 60;
+
     private const MAX_RESPONSE_BYTES = 1_048_576;
 
     private const MAX_INSTANCES_RESPONSE_BYTES = 2_097_152;
@@ -89,6 +93,12 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
             if (is_array($fresh)) {
                 return $this->withCurrentStaleness($fresh);
             }
+            if ($this->providerCircuitIsOpen()) {
+                return $this->lastGoodOrUnavailable(
+                    $cacheKey,
+                    'DMI Forecast EDR is tijdelijk niet bereikbaar; een nieuwe live poging volgt binnen één minuut.',
+                );
+            }
 
             $lock = Cache::lock(
                 $cacheKey.':lock',
@@ -105,6 +115,12 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
                 $fresh = Cache::get($cacheKey.':fresh');
                 if (is_array($fresh)) {
                     return $this->withCurrentStaleness($fresh);
+                }
+                if ($this->providerCircuitIsOpen()) {
+                    return $this->lastGoodOrUnavailable(
+                        $cacheKey,
+                        'DMI Forecast EDR is tijdelijk niet bereikbaar; een nieuwe live poging volgt binnen één minuut.',
+                    );
                 }
 
                 $reading = $this->fetchResolution($locations, $expected);
@@ -123,7 +139,11 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
             } finally {
                 $lock->release();
             }
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            if ($this->isProviderFailure($exception)) {
+                $this->openProviderCircuit();
+            }
+
             return $this->lastGoodOrUnavailable(
                 $cacheKey,
                 'DMI Forecast EDR is niet bereikbaar of gaf ongeldige modeldata terug.',
@@ -188,6 +208,7 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
         }
 
         try {
+            $this->ensureProviderCircuitIsClosed();
             $response = $this->request()
                 ->get(self::BASE_URL.'/collections/'.self::COLLECTION.'/instances');
             $this->assertJsonResponse($response, self::MAX_INSTANCES_RESPONSE_BYTES);
@@ -242,6 +263,10 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
 
             return $candidates;
         } catch (Throwable $exception) {
+            if ($this->isProviderFailure($exception)) {
+                throw $exception;
+            }
+
             $lastGood = $this->modelRunCandidatesFromCache(
                 Cache::get($cacheKey.':last-good'),
                 $now,
@@ -271,43 +296,40 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
             .'/instances/'.$modelRun->format('Y-m-d\THis\Z')
             .'/position';
 
-        $responses = Http::pool(function (Pool $pool) use ($endpoint, $from, $locations, $until): void {
-            foreach ($locations as $index => $location) {
-                $pool->as('point-'.$index)
-                    ->accept('application/geo+json, application/json')
-                    ->withHeaders([
-                        'Accept-Encoding' => 'identity',
-                        'User-Agent' => 'DIS-UAV-Weather/1.0',
-                    ])
-                    ->connectTimeout($this->positiveConfig('connect_timeout_seconds', 2, 1, 2))
-                    ->timeout($this->positiveConfig('timeout_seconds', 5, 2, 5))
-                    ->withoutRedirecting()
-                    ->withOptions($this->boundedOptions(self::MAX_RESPONSE_BYTES))
-                    ->retry(
-                        self::REQUEST_ATTEMPTS,
-                        fn (int $attempt): int => $this->retryDelay($attempt),
-                        static fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                            || ($exception instanceof RequestException
-                                && ($exception->response->status() === 429
-                                    || $exception->response->serverError())),
-                        false,
-                    )
-                    ->get($endpoint, [
-                        'coords' => sprintf(
-                            'POINT(%.7F %.7F)',
-                            $location['longitude'],
-                            $location['latitude'],
-                        ),
-                        'crs' => 'crs84',
-                        'parameter-name' => implode(',', self::PARAMETERS),
-                        'datetime' => $from.'/'.$until,
-                        'f' => 'GeoJSON',
-                    ]);
-            }
-        }, min(self::POINT_POOL_CONCURRENCY, count($locations)));
+        $this->ensureProviderCircuitIsClosed();
+        $probeLocation = $locations[0];
+        $probeResponse = $this->pointRequest()->get(
+            $endpoint,
+            $this->pointQuery($probeLocation, $from, $until),
+        );
+        $points = [
+            $this->parsePointResponse(
+                $probeResponse,
+                $probeLocation,
+                $modelRun,
+                $anchor,
+                $now,
+            ),
+        ];
+        if (count($locations) === 1) {
+            return $points;
+        }
 
-        $points = [];
-        foreach ($locations as $index => $location) {
+        $this->ensureProviderCircuitIsClosed();
+        $remainingLocations = array_values(array_slice($locations, 1));
+        $responses = Http::pool(function (Pool $pool) use (
+            $endpoint,
+            $from,
+            $remainingLocations,
+            $until,
+        ): void {
+            foreach ($remainingLocations as $index => $location) {
+                $this->configurePointRequest($pool->as('point-'.$index))
+                    ->get($endpoint, $this->pointQuery($location, $from, $until));
+            }
+        }, min(self::POINT_POOL_CONCURRENCY, count($remainingLocations)));
+
+        foreach ($remainingLocations as $index => $location) {
             $response = $responses['point-'.$index] ?? null;
             if ($response instanceof Throwable) {
                 throw $response;
@@ -315,13 +337,8 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
             if (! $response instanceof Response) {
                 throw new ConnectionException('DMI point response is missing.');
             }
-            $this->assertJsonResponse($response, self::MAX_RESPONSE_BYTES);
-            $payload = $response->json();
-            if (! is_array($payload)) {
-                throw new \UnexpectedValueException('DMI point payload is invalid.');
-            }
-            $points[] = $this->parsePoint(
-                $payload,
+            $points[] = $this->parsePointResponse(
+                $response,
                 $location,
                 $modelRun,
                 $anchor,
@@ -330,6 +347,81 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
         }
 
         return $points;
+    }
+
+    /**
+     * @param  array{label: string, latitude: float, longitude: float}  $location
+     * @return array<string, mixed>
+     */
+    private function pointQuery(array $location, string $from, string $until): array
+    {
+        return [
+            'coords' => sprintf(
+                'POINT(%.7F %.7F)',
+                $location['longitude'],
+                $location['latitude'],
+            ),
+            'crs' => 'crs84',
+            'parameter-name' => implode(',', self::PARAMETERS),
+            'datetime' => $from.'/'.$until,
+            'f' => 'GeoJSON',
+        ];
+    }
+
+    private function pointRequest(): PendingRequest
+    {
+        return $this->configurePointRequest(
+            Http::accept('application/geo+json, application/json'),
+        );
+    }
+
+    private function configurePointRequest(PendingRequest $request): PendingRequest
+    {
+        return $request
+            ->accept('application/geo+json, application/json')
+            ->withHeaders([
+                'Accept-Encoding' => 'identity',
+                'User-Agent' => 'DIS-UAV-Weather/1.0',
+            ])
+            ->connectTimeout($this->positiveConfig('connect_timeout_seconds', 2, 1, 2))
+            ->timeout($this->positiveConfig('timeout_seconds', 5, 2, 5))
+            ->withoutRedirecting()
+            ->withOptions($this->boundedOptions(self::MAX_RESPONSE_BYTES))
+            ->retry(
+                self::REQUEST_ATTEMPTS,
+                fn (int $attempt): int => $this->retryDelay($attempt),
+                static fn (Throwable $exception): bool => $exception instanceof ConnectionException
+                    || ($exception instanceof RequestException
+                        && ($exception->response->status() === 429
+                            || $exception->response->serverError())),
+                false,
+            );
+    }
+
+    /**
+     * @param  array{label: string, latitude: float, longitude: float}  $location
+     * @return array<string, mixed>
+     */
+    private function parsePointResponse(
+        Response $response,
+        array $location,
+        CarbonImmutable $modelRun,
+        CarbonImmutable $anchor,
+        CarbonImmutable $now,
+    ): array {
+        $this->assertJsonResponse($response, self::MAX_RESPONSE_BYTES);
+        $payload = $response->json();
+        if (! is_array($payload)) {
+            throw new \UnexpectedValueException('DMI point payload is invalid.');
+        }
+
+        return $this->parsePoint(
+            $payload,
+            $location,
+            $modelRun,
+            $anchor,
+            $now,
+        );
     }
 
     /**
@@ -1394,6 +1486,51 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
         return max($minimum, min($maximum, $value));
     }
 
+    private function providerCircuitIsOpen(): bool
+    {
+        try {
+            return Cache::get(self::PROVIDER_CIRCUIT_KEY) === true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function ensureProviderCircuitIsClosed(): void
+    {
+        if ($this->providerCircuitIsOpen()) {
+            throw new \RuntimeException('DMI provider circuit is open.');
+        }
+    }
+
+    private function openProviderCircuit(): void
+    {
+        try {
+            Cache::put(
+                self::PROVIDER_CIRCUIT_KEY,
+                true,
+                self::PROVIDER_CIRCUIT_SECONDS,
+            );
+        } catch (Throwable) {
+            // The original provider failure remains authoritative when cache is unavailable.
+        }
+    }
+
+    private function isProviderFailure(Throwable $exception): bool
+    {
+        if ($exception instanceof ConnectionException) {
+            return true;
+        }
+        if (! $exception instanceof RequestException) {
+            return false;
+        }
+
+        $status = $exception->response->status();
+
+        return $status === 408
+            || $status === 429
+            || $exception->response->serverError();
+    }
+
     private function lockSeconds(int $locationCount): int
     {
         $timeoutSeconds = $this->positiveConfig('timeout_seconds', 5, 2, 5);
@@ -1408,10 +1545,11 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
 
         $singleRequestSeconds = (self::REQUEST_ATTEMPTS * $timeoutSeconds)
             + (int) ceil($retrySleepMilliseconds / 1000);
-        $pointWaves = (int) ceil(
-            max(1, min(self::MAX_LOCATIONS, $locationCount)) / self::POINT_POOL_CONCURRENCY,
+        $boundedLocationCount = max(1, min(self::MAX_LOCATIONS, $locationCount));
+        $pointWaves = 1 + (int) ceil(
+            max(0, $boundedLocationCount - 1) / self::POINT_POOL_CONCURRENCY,
         );
-        // One instance request is followed by at most two candidate point pools.
+        // One instance request is followed by at most two probe-plus-pool sequences.
         $requestWaves = 1 + (self::MAX_MODEL_RUN_CANDIDATES * $pointWaves);
         $worstCaseSeconds = ($requestWaves * $singleRequestSeconds)
             + self::LOCK_SAFETY_SECONDS;

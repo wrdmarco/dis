@@ -13,11 +13,11 @@ final class OperationalRadarService implements OperationalRadarProvider
 {
     private const FRAME_PATTERN = '/\A(?<valid>\d{8}T\d{6}Z)-(?<context>o|f\d{8}T\d{6}Z)-(?<digest>[a-f0-9]{16})\z/D';
 
-    private const CACHE_NAMESPACE = 'operational-radar:live:v1';
+    private const CACHE_NAMESPACE = 'operational-radar:live:v2';
 
     public function __construct(
-        private readonly DwdRadarConfiguration $dwdConfiguration,
-        private readonly DwdRadarWmsClient $dwd,
+        private readonly KnmiRadarConfiguration $knmiConfiguration,
+        private readonly KnmiRadarWmsClient $knmi,
         private readonly EumetsatLightningConfiguration $lightningConfiguration,
         private readonly EumetsatLightningWmsClient $lightning,
     ) {}
@@ -51,34 +51,34 @@ final class OperationalRadarService implements OperationalRadarProvider
     /** @return array<string, mixed> */
     private function precipitationMetadata(): array
     {
-        $source = $this->dwdConfiguration->source();
+        $source = $this->knmiConfiguration->source();
         try {
-            $timeline = $this->dwdTimeline();
+            $timeline = $this->knmiTimeline();
             if ($timeline === null) {
                 return $this->unavailableLayer(
                     'precipitation',
-                    $this->dwdConfiguration->frameWidth(),
-                    $this->dwdConfiguration->frameHeight(),
+                    $this->knmiConfiguration->frameWidth(),
+                    $this->knmiConfiguration->frameHeight(),
                     $source,
-                    'De live DWD-neerslagradar is tijdelijk niet bereikbaar.',
+                    'De live KNMI-neerslagradar is tijdelijk niet bereikbaar.',
                 );
             }
             $reference = $this->timestamp($timeline['reference_time'] ?? null);
             $refreshedAt = $this->timestamp($timeline['fetched_at'] ?? null);
             $rawFrames = $timeline['frames'] ?? null;
             if ($reference === null || $refreshedAt === null || ! is_array($rawFrames)) {
-                throw new \UnexpectedValueException('The cached DWD radar timeline is invalid.');
+                throw new \UnexpectedValueException('The cached KNMI radar timeline is invalid.');
             }
 
             $now = CarbonImmutable::now()->utc();
             $ageSeconds = max(0, (int) $reference->diffInSeconds($now, false));
-            if ($ageSeconds > $this->dwdConfiguration->maximumFallbackAgeSeconds()) {
+            if ($ageSeconds > $this->knmiConfiguration->maximumFallbackAgeSeconds()) {
                 return $this->unavailableLayer(
                     'precipitation',
-                    $this->dwdConfiguration->frameWidth(),
-                    $this->dwdConfiguration->frameHeight(),
+                    $this->knmiConfiguration->frameWidth(),
+                    $this->knmiConfiguration->frameHeight(),
                     $source,
-                    'De laatste DWD-radarreferentie is ouder dan één uur en wordt niet meer getoond.',
+                    'De laatste KNMI-radarreferentie is ouder dan één uur en wordt niet meer getoond.',
                     $reference,
                     $refreshedAt,
                 );
@@ -87,17 +87,17 @@ final class OperationalRadarService implements OperationalRadarProvider
             $frames = [];
             foreach (array_values($rawFrames) as $index => $frame) {
                 if (! is_array($frame)) {
-                    throw new \UnexpectedValueException('A DWD radar frame is invalid.');
+                    throw new \UnexpectedValueException('A KNMI radar frame is invalid.');
                 }
                 $validAt = $this->timestamp($frame['valid_at'] ?? null);
                 $phase = $frame['phase'] ?? null;
                 if ($validAt === null || ! in_array($phase, ['observation', 'forecast'], true)) {
-                    throw new \UnexpectedValueException('A DWD radar frame timestamp is invalid.');
+                    throw new \UnexpectedValueException('A KNMI radar frame timestamp is invalid.');
                 }
                 $leadMinutes = (int) ($reference->diffInSeconds($validAt, false) / 60);
                 if (($phase === 'observation' && $leadMinutes > 0)
                     || ($phase === 'forecast' && $leadMinutes <= 0)) {
-                    throw new \UnexpectedValueException('A DWD radar frame phase is inconsistent.');
+                    throw new \UnexpectedValueException('A KNMI radar frame phase is inconsistent.');
                 }
                 $token = $this->frameToken(
                     'precipitation',
@@ -117,14 +117,14 @@ final class OperationalRadarService implements OperationalRadarProvider
                 ];
             }
             $expected = intdiv(
-                $this->dwdConfiguration->historyMinutes() + $this->dwdConfiguration->forecastMinutes(),
-                $this->dwdConfiguration->intervalMinutes(),
+                $this->knmiConfiguration->historyMinutes() + $this->knmiConfiguration->forecastMinutes(),
+                $this->knmiConfiguration->intervalMinutes(),
             ) + 1;
             if (count($frames) !== $expected) {
-                throw new \UnexpectedValueException('The DWD radar timeline is incomplete.');
+                throw new \UnexpectedValueException('The KNMI radar timeline is incomplete.');
             }
 
-            $stale = $ageSeconds > $this->dwdConfiguration->maximumAgeSeconds();
+            $stale = $ageSeconds > $this->knmiConfiguration->maximumAgeSeconds();
 
             return $this->publicLayer(
                 kind: 'precipitation',
@@ -132,21 +132,21 @@ final class OperationalRadarService implements OperationalRadarProvider
                 referenceTime: $reference,
                 observedPeriodEnd: $reference,
                 refreshedAt: $refreshedAt,
-                frameWidth: $this->dwdConfiguration->frameWidth(),
-                frameHeight: $this->dwdConfiguration->frameHeight(),
+                frameWidth: $this->knmiConfiguration->frameWidth(),
+                frameHeight: $this->knmiConfiguration->frameHeight(),
                 frames: $frames,
                 source: $source,
                 availabilityNote: $stale
-                    ? 'De live DWD-radar is ouder dan twintig minuten; het laatste beeld blijft tijdelijk zichtbaar.'
+                    ? 'De live KNMI-radar is ouder dan twintig minuten; het laatste beeld blijft tijdelijk zichtbaar.'
                     : null,
             );
         } catch (Throwable) {
             return $this->unavailableLayer(
                 'precipitation',
-                $this->dwdConfiguration->frameWidth(),
-                $this->dwdConfiguration->frameHeight(),
+                $this->knmiConfiguration->frameWidth(),
+                $this->knmiConfiguration->frameHeight(),
                 $source,
-                'De live DWD-neerslagradar kon niet veilig worden gelezen.',
+                'De live KNMI-neerslagradar kon niet veilig worden gelezen.',
             );
         }
     }
@@ -259,9 +259,9 @@ final class OperationalRadarService implements OperationalRadarProvider
         return $this->cachedFrame(
             'precipitation',
             $token,
-            $this->dwdConfiguration->frameCacheSeconds(),
-            $this->dwdConfiguration->frameLockSeconds(),
-            fn (): string => $this->dwd->frame(
+            $this->knmiConfiguration->frameCacheSeconds(),
+            $this->knmiConfiguration->frameLockSeconds(),
+            fn (): string => $this->knmi->frame(
                 $descriptor['valid_at'],
                 $descriptor['reference_time'],
                 $descriptor['phase'],
@@ -286,14 +286,14 @@ final class OperationalRadarService implements OperationalRadarProvider
     }
 
     /** @return array<string, mixed>|null */
-    private function dwdTimeline(): ?array
+    private function knmiTimeline(): ?array
     {
         return $this->cachedTimeline(
             'precipitation',
-            $this->dwdConfiguration->timelineCacheSeconds(),
-            $this->dwdConfiguration->maximumFallbackAgeSeconds(),
-            $this->dwdConfiguration->timelineLockSeconds(),
-            fn (): array => $this->dwd->timeline(),
+            $this->knmiConfiguration->timelineCacheSeconds(),
+            $this->knmiConfiguration->maximumFallbackAgeSeconds(),
+            $this->knmiConfiguration->timelineLockSeconds(),
+            fn (): array => $this->knmi->timeline(),
         );
     }
 
@@ -563,7 +563,7 @@ final class OperationalRadarService implements OperationalRadarProvider
     /** @return array{crs: string, west: float, south: float, east: float, north: float} */
     private function bounds(): array
     {
-        [$west, $south, $east, $north] = $this->dwdConfiguration->bbox();
+        [$west, $south, $east, $north] = $this->knmiConfiguration->bbox();
 
         return [
             'crs' => 'EPSG:4326',
@@ -591,7 +591,7 @@ final class OperationalRadarService implements OperationalRadarProvider
         $hash = substr(hash_hmac(
             'sha256',
             implode('|', [
-                'live-radar-v2',
+                'live-radar-v3-knmi',
                 $kind,
                 $validAt->toIso8601String(),
                 $context,
@@ -679,18 +679,18 @@ final class OperationalRadarService implements OperationalRadarProvider
         } elseif ($phase === 'observation') {
             if ($validAt->greaterThan($now->addMinutes(10))
                 || $validAt->lessThan(
-                    $now->subSeconds($this->dwdConfiguration->frameCacheSeconds()),
+                    $now->subSeconds($this->knmiConfiguration->frameCacheSeconds()),
                 )) {
                 return null;
             }
         } else {
             $leadSeconds = $referenceTime->diffInSeconds($validAt, false);
             if ($referenceTime->lessThan(
-                $now->subSeconds($this->dwdConfiguration->maximumFallbackAgeSeconds()),
+                $now->subSeconds($this->knmiConfiguration->maximumFallbackAgeSeconds()),
             )
                 || $leadSeconds <= 0
-                || $leadSeconds > $this->dwdConfiguration->forecastMinutes() * 60
-                || $leadSeconds % ($this->dwdConfiguration->intervalMinutes() * 60) !== 0) {
+                || $leadSeconds > $this->knmiConfiguration->forecastMinutes() * 60
+                || $leadSeconds % ($this->knmiConfiguration->intervalMinutes() * 60) !== 0) {
                 return null;
             }
         }

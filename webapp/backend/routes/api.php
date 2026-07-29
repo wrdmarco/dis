@@ -403,6 +403,9 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/operational-weather', [OperationalForecastController::class, 'weather'])
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:operational-weather.view', 'throttle:operational-forecast-read']);
+        Route::get('/operational-weather/radar', [OperationalForecastController::class, 'radarMetadata'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:operational-weather.view', 'throttle:operational-forecast-read']);
         Route::get('/operational-weather/radar/{kind}/{snapshot}.png', [OperationalForecastController::class, 'radarAtlas'])
             ->where('kind', 'precipitation|lightning')
             ->where('snapshot', '\\d{8}T\\d{6}Z-(?:o|f\\d{8}T\\d{6}Z)-[a-f0-9]{16}')

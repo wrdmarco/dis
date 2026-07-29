@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Services\DwdRadarConfiguration;
 use App\Services\EumetsatLightningConfiguration;
+use App\Services\KnmiRadarConfiguration;
 use App\Services\OperationalRadarService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
@@ -63,8 +63,12 @@ final class LiveOperationalRadarServiceTest extends TestCase
             '#\A/api/operational-weather/radar/precipitation/\d{8}T\d{6}Z-f\d{8}T\d{6}Z-[a-f0-9]{16}\.png\z#D',
             $precipitation['frames'][13]['image_url'],
         );
-        $this->assertSame('DWD RV neerslagradar', $precipitation['source']['name']);
+        $this->assertSame('KNMI RTCOR + radar forecast 2.0', $precipitation['source']['name']);
         $this->assertSame('CC BY 4.0', $precipitation['source']['license']);
+        $this->assertSame(
+            'KNMI nl_rdr_data_rtcor_5m en radar_forecast_2.0',
+            $precipitation['source']['attribution'],
+        );
 
         $this->assertSame('available', $lightning['status']);
         $this->assertSame('image_frames', $lightning['render_mode']);
@@ -87,97 +91,92 @@ final class LiveOperationalRadarServiceTest extends TestCase
             $lightning['frames'][6]['image_url'],
         );
 
-        Http::assertSentCount(2);
-        Http::assertSent(fn (Request $request): bool => $request->data()['request'] === 'GetCapabilities'
-            && str_contains($request->url(), 'maps.dwd.de'));
-        Http::assertSent(fn (Request $request): bool => $request->data()['request'] === 'GetCapabilities'
+        Http::assertSentCount(3);
+        Http::assertSent(fn (Request $request): bool => ($request->data()['request'] ?? null) === 'GetCapabilities'
+            && ($request->data()['dataset'] ?? null) === 'nl_rdr_data_rtcor_5m');
+        Http::assertSent(fn (Request $request): bool => ($request->data()['request'] ?? null) === 'GetCapabilities'
+            && ($request->data()['dataset'] ?? null) === 'radar_forecast_2.0');
+        Http::assertSent(fn (Request $request): bool => ($request->data()['request'] ?? null) === 'GetCapabilities'
             && str_contains($request->url(), 'view.eumetsat.int'));
     }
 
     public function test_frames_are_fetched_via_fixed_sources_cached_in_memory_and_never_written_to_disk(): void
     {
-        $dwdPng = $this->png(960, 580);
+        $knmiPng = $this->png(960, 580);
         $lightningPng = $this->png(640, 384);
-        $dwdGetMapAttempts = 0;
+        $knmiGetMapAttempts = 0;
         $lightningGetMapAttempts = 0;
         Http::fake(function (Request $request) use (
-            $dwdPng,
+            $knmiPng,
             $lightningPng,
-            &$dwdGetMapAttempts,
+            &$knmiGetMapAttempts,
             &$lightningGetMapAttempts,
         ) {
             $query = $request->data();
             if (($query['request'] ?? null) === 'GetCapabilities') {
-                return str_contains($request->url(), 'view.eumetsat.int')
-                    ? Http::response($this->eumetsatCapabilities(), 200, ['Content-Type' => 'application/xml'])
-                    : Http::response($this->dwdCapabilities(), 200, ['Content-Type' => 'application/xml']);
+                return $this->capabilitiesResponse($request);
             }
             if (str_contains($request->url(), 'view.eumetsat.int')) {
                 $lightningGetMapAttempts++;
 
                 return Http::response($lightningPng, 200, ['Content-Type' => 'image/png']);
             }
-            $dwdGetMapAttempts++;
-            if (str_contains($request->url(), '://maps.dwd.de/')) {
-                return Http::response('temporarily unavailable', 503, ['Content-Type' => 'text/plain']);
-            }
+            $knmiGetMapAttempts++;
 
-            return Http::response($dwdPng, 200, ['Content-Type' => 'image/png']);
+            return Http::response($knmiPng, 200, ['Content-Type' => 'image/png']);
         });
 
         $service = app(OperationalRadarService::class);
         $metadata = $service->metadata();
-        $dwdToken = $this->tokenFromUrl($metadata['precipitation']['frames'][13]['image_url']);
+        $knmiToken = $this->tokenFromUrl($metadata['precipitation']['frames'][13]['image_url']);
         $lightningToken = $this->tokenFromUrl($metadata['lightning']['frames'][6]['image_url']);
         Cache::flush();
 
-        $firstDwd = $service->file('precipitation', $dwdToken);
-        $secondDwd = $service->file('precipitation', $dwdToken);
+        $firstKnmi = $service->file('precipitation', $knmiToken);
+        $secondKnmi = $service->file('precipitation', $knmiToken);
         $firstLightning = $service->file('lightning', $lightningToken);
         $secondLightning = $service->file('lightning', $lightningToken);
 
-        $this->assertNotNull($firstDwd);
-        $this->assertSame($dwdPng, $firstDwd->body);
-        $this->assertSame(strlen($dwdPng), $firstDwd->byteSize);
-        $this->assertSame($firstDwd->sha256, $secondDwd?->sha256);
+        $this->assertNotNull($firstKnmi);
+        $this->assertSame($knmiPng, $firstKnmi->body);
+        $this->assertSame(strlen($knmiPng), $firstKnmi->byteSize);
+        $this->assertSame($firstKnmi->sha256, $secondKnmi?->sha256);
         $this->assertNotNull($firstLightning);
         $this->assertSame($lightningPng, $firstLightning->body);
         $this->assertSame(strlen($lightningPng), $firstLightning->byteSize);
         $this->assertSame($firstLightning->sha256, $secondLightning?->sha256);
-        $this->assertSame(2, $dwdGetMapAttempts);
+        $this->assertSame(1, $knmiGetMapAttempts);
         $this->assertSame(1, $lightningGetMapAttempts);
         Http::assertSentCount(5);
     }
 
     public function test_earliest_observations_remain_resolvable_for_the_complete_stale_fallback_window(): void
     {
-        $dwdPng = $this->png(960, 580);
+        $knmiPng = $this->png(960, 580);
         $lightningPng = $this->png(640, 384);
-        Http::fake(function (Request $request) use ($dwdPng, $lightningPng) {
+        Http::fake(function (Request $request) use ($knmiPng, $lightningPng) {
             $query = $request->data();
             if (($query['request'] ?? null) === 'GetCapabilities') {
-                return str_contains($request->url(), 'view.eumetsat.int')
-                    ? Http::response($this->eumetsatCapabilities(), 200, ['Content-Type' => 'application/xml'])
-                    : Http::response($this->dwdCapabilities(), 200, ['Content-Type' => 'application/xml']);
+                return $this->capabilitiesResponse($request);
             }
 
             return str_contains($request->url(), 'view.eumetsat.int')
                 ? Http::response($lightningPng, 200, ['Content-Type' => 'image/png'])
-                : Http::response($dwdPng, 200, ['Content-Type' => 'image/png']);
+                : Http::response($knmiPng, 200, ['Content-Type' => 'image/png']);
         });
 
         $service = app(OperationalRadarService::class);
         $metadata = $service->metadata();
-        $dwdToken = $this->tokenFromUrl($metadata['precipitation']['frames'][0]['image_url']);
+        $knmiToken = $this->tokenFromUrl($metadata['precipitation']['frames'][0]['image_url']);
         $lightningToken = $this->tokenFromUrl($metadata['lightning']['frames'][0]['image_url']);
 
-        $this->assertNotNull($service->file('precipitation', $dwdToken));
+        $this->assertNotNull($service->file('precipitation', $knmiToken));
         $this->assertNotNull($service->file('lightning', $lightningToken));
 
         Cache::flush();
         CarbonImmutable::setTestNow('2026-07-29T17:35:00Z');
 
-        $this->assertNotNull($service->file('precipitation', $dwdToken));
+        $this->assertNotNull($service->file('precipitation', $knmiToken));
 
         Cache::flush();
         CarbonImmutable::setTestNow('2026-07-29T17:40:00Z');
@@ -202,7 +201,10 @@ final class LiveOperationalRadarServiceTest extends TestCase
                 return Http::response($capabilities, 200, ['Content-Type' => 'application/xml']);
             }
 
-            $capabilities = $this->dwdCapabilities();
+            $dataset = $request->data()['dataset'] ?? null;
+            $capabilities = $dataset === 'nl_rdr_data_rtcor_5m'
+                ? $this->knmiObservationCapabilities()
+                : $this->knmiForecastCapabilities();
             if ($advanced) {
                 $capabilities = str_replace(
                     ['16:35:00.000Z', '18:35:00.000Z'],
@@ -240,14 +242,18 @@ final class LiveOperationalRadarServiceTest extends TestCase
 
     public function test_shared_frame_cache_has_a_small_bounded_retention_and_payload_budget(): void
     {
-        $dwd = app(DwdRadarConfiguration::class);
+        $knmi = app(KnmiRadarConfiguration::class);
         $lightning = app(EumetsatLightningConfiguration::class);
 
-        $this->assertSame(7200, $dwd->frameCacheSeconds());
-        $this->assertSame(3600, $dwd->maximumFallbackAgeSeconds());
-        $this->assertSame(40, $dwd->timelineLockSeconds());
-        $this->assertSame(50, $dwd->frameLockSeconds());
-        $this->assertSame(262_144, $dwd->maximumFrameBytes());
+        $this->assertSame(7200, $knmi->frameCacheSeconds());
+        $this->assertSame(3600, $knmi->maximumFallbackAgeSeconds());
+        $this->assertSame(45, $knmi->timelineLockSeconds());
+        $this->assertSame(35, $knmi->frameLockSeconds());
+        $this->assertSame(35, $knmi->upstreamThrottleLockSeconds());
+        $this->assertSame(5, $knmi->upstreamThrottleWaitSeconds());
+        $this->assertSame(1050, $knmi->upstreamMinimumIntervalMilliseconds());
+        $this->assertSame(50, $knmi->upstreamJitterMilliseconds());
+        $this->assertSame(1_048_576, $knmi->maximumFrameBytes());
         $this->assertSame(3600, $lightning->maximumFallbackAgeSeconds());
         $this->assertSame(5400, $lightning->frameCacheSeconds());
         $this->assertSame(25, $lightning->timelineLockSeconds());
@@ -258,8 +264,7 @@ final class LiveOperationalRadarServiceTest extends TestCase
     public function test_invalid_or_incomplete_remote_metadata_fails_closed_without_frame_urls(): void
     {
         Http::fake([
-            'https://maps.dwd.de/*' => Http::response('<invalid/>', 200, ['Content-Type' => 'application/xml']),
-            'https://brz-maps.dwd.de/*' => Http::response('<invalid/>', 200, ['Content-Type' => 'application/xml']),
+            'https://anonymous.api.dataplatform.knmi.nl/*' => Http::response('<invalid/>', 200, ['Content-Type' => 'application/xml']),
             'https://view.eumetsat.int/*' => Http::response('<invalid/>', 200, ['Content-Type' => 'application/xml']),
         ]);
 
@@ -277,22 +282,59 @@ final class LiveOperationalRadarServiceTest extends TestCase
     private function fakeCapabilities(): void
     {
         Http::fake(function (Request $request) {
-            return str_contains($request->url(), 'view.eumetsat.int')
-                ? Http::response($this->eumetsatCapabilities(), 200, ['Content-Type' => 'application/xml'])
-                : Http::response($this->dwdCapabilities(), 200, ['Content-Type' => 'application/xml']);
+            return $this->capabilitiesResponse($request);
         });
     }
 
-    private function dwdCapabilities(): string
+    private function capabilitiesResponse(Request $request): mixed
+    {
+        if (str_contains($request->url(), 'view.eumetsat.int')) {
+            return Http::response($this->eumetsatCapabilities(), 200, ['Content-Type' => 'application/xml']);
+        }
+
+        return match ($request->data()['dataset'] ?? null) {
+            'nl_rdr_data_rtcor_5m' => Http::response(
+                $this->knmiObservationCapabilities(),
+                200,
+                ['Content-Type' => 'text/xml'],
+            ),
+            'radar_forecast_2.0' => Http::response(
+                $this->knmiForecastCapabilities(),
+                200,
+                ['Content-Type' => 'text/xml'],
+            ),
+            default => Http::response('not found', 404, ['Content-Type' => 'text/plain']),
+        };
+    }
+
+    private function knmiObservationCapabilities(): string
     {
         return <<<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <WMS_Capabilities version="1.3.0" xmlns="http://www.opengis.net/wms">
-  <Service><Name>WMS</Name><Title>DWD GeoServer WMS</Title></Service>
+  <Service><Name>WMS</Name><Title>KNMI ADAGUC WMS</Title></Service>
   <Capability><Layer><Layer>
-    <Name>Radar_rv_product_1x1km_ger</Name>
-    <Dimension name="time" units="ISO8601">2026-07-29T13:00:00.000Z/2026-07-29T18:35:00.000Z/PT5M</Dimension>
-    <Dimension name="REFERENCE_TIME" default="2026-07-29T16:35:00.000Z" units="ISO8601">2026-07-29T16:35:00.000Z</Dimension>
+    <Name>precipitation_real_time</Name>
+    <Dimension name="time" default="2026-07-29T16:35:00.000Z" units="ISO8601">2026-07-22T16:40:00.000Z/2026-07-29T16:35:00.000Z/PT5M</Dimension>
+    <Style><Name>radar/nearest</Name></Style>
+    <Style><Name>rainrate-blue-to-purple/shaded</Name></Style>
+  </Layer></Layer></Capability>
+</WMS_Capabilities>
+XML;
+    }
+
+    private function knmiForecastCapabilities(): string
+    {
+        return <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<WMS_Capabilities version="1.3.0" xmlns="http://www.opengis.net/wms">
+  <Service><Name>WMS</Name><Title>KNMI ADAGUC WMS</Title></Service>
+  <Capability><Layer><Layer>
+    <Name>precipitation_nowcast</Name>
+    <Dimension name="time" default="2026-07-29T18:35:00.000Z" units="ISO8601">2026-07-22T16:40:00.000Z/2026-07-29T18:35:00.000Z/PT5M</Dimension>
+    <Dimension name="reference_time" default="2026-07-29T16:35:00.000Z" units="ISO8601">2026-07-22T16:40:00.000Z/2026-07-29T16:35:00.000Z/PT5M</Dimension>
+    <Style><Name>radar/nearest</Name></Style>
+    <Style><Name>rainrate-blue-to-purple/shaded</Name></Style>
   </Layer></Layer></Capability>
 </WMS_Capabilities>
 XML;

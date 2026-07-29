@@ -684,7 +684,11 @@ function radarLayer(
       phase: forecast ? 'forecast' : 'observation',
       image_url: imageUrl,
     }],
-    source: { name: kind === 'precipitation' ? 'DWD RV' : 'EUMETSAT', url: null, license: 'Open data' },
+    source: {
+      name: kind === 'precipitation' ? 'KNMI RTCOR + radar forecast 2.0' : 'EUMETSAT',
+      url: null,
+      license: 'Open data',
+    },
     availability_note: null,
   };
 }

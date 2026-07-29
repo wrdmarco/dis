@@ -118,6 +118,72 @@ final class DmiForecastEdrServiceTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_national_busy_provider_is_bounded_by_a_probe_and_opens_the_circuit(): void
+    {
+        $positionRequests = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use (&$positionRequests) {
+            if (str_ends_with($request->url(), '/collections/harmonie_dini_sf/instances')) {
+                return Http::response($this->instancesPayload());
+            }
+
+            $positionRequests++;
+
+            return Http::response(['message' => 'busy'], 429);
+        });
+
+        $service = app(DmiForecastEdrService::class);
+        $first = $service->forResolution($this->provinceResolution());
+
+        $this->assertFalse($first['complete']);
+        $this->assertFalse($first['stale']);
+        $this->assertSame(2, $positionRequests);
+        Http::assertSentCount(3);
+
+        $second = $service->forResolution($this->provinceResolution());
+
+        $this->assertFalse($second['complete']);
+        $this->assertFalse($second['stale']);
+        $this->assertStringContainsString('nieuwe live poging', $second['availability_note']);
+        $this->assertSame(2, $positionRequests);
+        Http::assertSentCount(3);
+    }
+
+    public function test_provider_is_retried_after_the_sixty_second_circuit_expires(): void
+    {
+        $busy = true;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use (&$busy) {
+            if (str_ends_with($request->url(), '/collections/harmonie_dini_sf/instances')) {
+                return Http::response($this->instancesPayload());
+            }
+            if ($busy) {
+                return Http::response(['message' => 'busy'], 429);
+            }
+
+            [$longitude, $latitude] = $this->requestCoordinates($request);
+
+            return Http::response($this->positionPayload($longitude, $latitude));
+        });
+
+        $service = app(DmiForecastEdrService::class);
+        $first = $service->forResolution($this->resolution());
+        $this->assertFalse($first['complete']);
+        Http::assertSentCount(3);
+
+        $busy = false;
+        $blocked = $service->forResolution($this->resolution());
+        $this->assertFalse($blocked['complete']);
+        Http::assertSentCount(3);
+
+        CarbonImmutable::setTestNow('2026-07-20T12:16:01Z');
+        $recovered = $service->forResolution($this->resolution());
+
+        $this->assertTrue($recovered['complete']);
+        $this->assertFalse($recovered['stale']);
+        Http::assertSentCount(5);
+    }
+
     public function test_failed_refresh_exposes_last_good_only_as_stale(): void
     {
         $fail = false;
@@ -149,6 +215,16 @@ final class DmiForecastEdrServiceTest extends TestCase
         $this->assertSame(0, $fallback['cloud_base_sample_count']);
         $this->assertFalse($fallback['cloud_base_complete']);
         $this->assertStringContainsString('niet bereikbaar', $fallback['availability_note']);
+        Http::assertSentCount(4);
+
+        $blockedFallback = $service->forResolution($this->resolution());
+
+        $this->assertTrue($blockedFallback['complete']);
+        $this->assertTrue($blockedFallback['stale']);
+        $this->assertSame($first['valid_at'], $blockedFallback['valid_at']);
+        $this->assertNull($blockedFallback['cloud_base_m']);
+        $this->assertStringContainsString('nieuwe live poging', $blockedFallback['availability_note']);
+        Http::assertSentCount(4);
     }
 
     public function test_invalid_or_incomplete_dmi_values_never_become_a_complete_reading(): void
@@ -204,10 +280,7 @@ final class DmiForecastEdrServiceTest extends TestCase
         $method = new \ReflectionMethod(DmiForecastEdrService::class, 'lockSeconds');
         $method->setAccessible(true);
 
-        $this->assertSame(
-            87,
-            $method->invoke(app(DmiForecastEdrService::class), 12),
-        );
+        $this->assertSame(90, $method->invoke(app(DmiForecastEdrService::class), 12));
 
         config(['dis.wallboards.uav_forecast.dmi_lock_seconds' => 900]);
         $this->assertSame(

@@ -285,19 +285,17 @@ export const operationManualGuides = {
   weather: [
     {
       id: 'weather-read-live-map',
-      title: 'De live weer- en radarkaart controleren',
-      intro: 'Controleer live DWD-radar, DMI-weerdata en EUMETSAT-bliksemdetectie voor Nederland of één gezocht adres.',
+      title: 'De live radarkaart controleren',
+      intro: 'Controleer live KNMI-neerslagradar en EUMETSAT-bliksemdetectie voor Nederland of één gezocht adres.',
       permissions: ['operational-weather.view'],
       steps: [
         { label: 'Open Weer', description: 'Kies Weer in het menu onder Operatie.' },
         { label: 'Kies het gebied', description: 'Laat UAV Nederland staan of kies Adres, vul een adres of plaatsnaam in en kies Toepassen.' },
-        { label: 'Controleer Datastatus', description: 'Actueel betekent dat de benodigde live bronnen bruikbaar zijn. Gedeeltelijk of niet beschikbaar vraagt om controle via een andere goedgekeurde bron.' },
-        { label: 'Lees de wolkenlagen', description: 'Vergelijk hoge, middelbare en lage modelbewolking, totale bedekking en de modelwolkenbasis. De hoogtereferentie van die modelwolkenbasis is niet gespecificeerd.' },
         { label: 'Gebruik de kaart', description: 'Sleep of zoom op de PDOK-achtergrondkaart. Gebruik de locatieknop om op het gekozen adres te centreren.' },
         { label: 'Lees de tijdlijn', description: 'De verticale NU-markering scheidt gemeten beelden van de verwachting. Gebruik de schuifregelaar, Vorige, Volgende of Afspelen.' },
         { label: 'Bekijk de bliksemradar', description: 'Kies Bliksem. EUMETSAT LI toont total lightning als geaccumuleerd bliksemflitsgebied en onderscheidt wolk-grond en wolk-wolk niet.' },
-        { label: 'Controleer bron en tijd', description: 'Lees per laag de bronnaam, geldige of gemeten tijd, actualiteit en eventuele beschikbaarheidsmelding.' },
-        { label: 'Laat de actualiteit bewaken', description: 'De zichtbare pagina controleert iedere vijf minuten op nieuwe weer- en radardata. Kies Verversen voor een directe controle.' },
+        { label: 'Controleer bron en tijd', description: 'Lees per laag de bronnaam, geldige of gemeten tijd en eventuele beschikbaarheidsmelding.' },
+        { label: 'Laat de actualiteit bewaken', description: 'De zichtbare pagina controleert iedere vijf minuten op nieuwe radardata. Kies Verversen voor een directe controle.' },
       ],
       result: 'Je hebt een transparant live weerbeeld met zichtbare bron en actualiteit.',
       warning: 'De pagina Weer geeft geen vliegadvies. Onbekende of verouderde data mag niet als gunstige situatie worden geïnterpreteerd.',

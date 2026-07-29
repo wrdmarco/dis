@@ -47,6 +47,7 @@ final class OperationalForecastApiTest extends TestCase
     public function test_forecast_endpoints_require_authentication_completed_two_factor_and_explicit_permissions(): void
     {
         $this->getJson('/api/operational-weather')->assertUnauthorized();
+        $this->getJson('/api/operational-weather/radar')->assertUnauthorized();
         $this->getJson('/api/uav-forecast')->assertUnauthorized();
 
         $user = $this->user('operational-forecast@example.test');
@@ -66,6 +67,10 @@ final class OperationalForecastApiTest extends TestCase
             ->assertForbidden()
             ->assertJsonPath('error.code', 'forbidden');
         $this->asWebClient($user, grantForecastPermissions: false)
+            ->getJson('/api/operational-weather/radar')
+            ->assertForbidden()
+            ->assertJsonPath('error.code', 'forbidden');
+        $this->asWebClient($user, grantForecastPermissions: false)
             ->getJson('/api/uav-forecast')
             ->assertForbidden()
             ->assertJsonPath('error.code', 'forbidden');
@@ -80,6 +85,28 @@ final class OperationalForecastApiTest extends TestCase
             ->getJson('/api/uav-forecast')
             ->assertForbidden()
             ->assertJsonPath('error.code', 'forbidden');
+        Http::assertNothingSent();
+    }
+
+    public function test_radar_metadata_fast_path_does_not_load_the_dmi_forecast(): void
+    {
+        Http::preventStrayRequests();
+
+        $this->asWebClient($this->user('radar-fast-path@example.test'))
+            ->getJson('/api/operational-weather/radar')
+            ->assertOk()
+            ->assertJsonPath('data.location.mode', 'netherlands')
+            ->assertJsonPath('data.location.label', 'UAV Nederland')
+            ->assertJsonPath('data.generated_at', '2026-07-21T10:30:00+00:00')
+            ->assertJsonPath('data.radar.precipitation.status', 'unavailable')
+            ->assertJsonPath('data.radar.lightning.status', 'unavailable')
+            ->assertJsonStructure(['data' => [
+                'location' => ['mode', 'label', 'latitude', 'longitude'],
+                'generated_at',
+                'radar' => ['precipitation', 'lightning'],
+            ]]);
+
+        $this->assertSame([], $this->weather->lastResolution);
         Http::assertNothingSent();
     }
 
@@ -658,12 +685,13 @@ final class OperationalRadarProviderStub implements OperationalRadarProvider
             'frame_height' => 0,
             'frames' => [],
             'source' => [
-                'name' => 'DWD RV neerslagradar',
-                'url' => 'https://www.dwd.de/DE/leistungen/radarprodukte/radarlayer.html',
+                'name' => 'KNMI RTCOR + radar forecast 2.0',
+                'url' => 'https://dataplatform.knmi.nl/dataset/radar-forecast-2-0',
                 'license' => 'CC BY 4.0',
-                'license_url' => 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
+                'license_url' => 'https://creativecommons.org/licenses/by/4.0/',
+                'attribution' => 'KNMI nl_rdr_data_rtcor_5m en radar_forecast_2.0',
             ],
-            'availability_note' => 'Geen actuele live DWD-radarframes beschikbaar.',
+            'availability_note' => 'Geen actuele live KNMI-radarframes beschikbaar.',
         ],
         'lightning' => [
             'status' => 'unavailable',

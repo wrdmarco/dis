@@ -39,6 +39,7 @@ final class WebNavigationPermissionTest extends TestCase
             ['PATCH', 'api/calendar-events/{calendarEvent}', 'permission:calendar.manage'],
             ['DELETE', 'api/calendar-events/{calendarEvent}', 'permission:calendar.manage'],
             ['GET', 'api/operational-weather', 'permission:operational-weather.view'],
+            ['GET', 'api/operational-weather/radar', 'permission:operational-weather.view'],
             ['GET', 'api/operational-weather/radar/{kind}/{snapshot}.png', 'permission:operational-weather.view'],
             ['GET', 'api/uav-forecast', 'permission:uav-forecast.view'],
             ['GET', 'api/vacations', 'permission:vacations.view,vacations.manage'],
