@@ -5,13 +5,12 @@ namespace App\Http\Responses;
 use App\Support\OperationalRadarContent;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 final class OperationalRadarResponse
 {
     private const MAX_AGE_SECONDS = 31_536_000;
 
-    public static function make(Request $request, OperationalRadarContent $content): Response|StreamedResponse
+    public static function make(Request $request, OperationalRadarContent $content): Response
     {
         $etag = $content->etag();
         $headers = [
@@ -28,16 +27,9 @@ final class OperationalRadarResponse
             return response('', 304, $headers);
         }
 
-        $stream = @fopen($content->path, 'rb');
-        abort_if(! is_resource($stream), 404);
+        abort_if(strlen($content->body) !== $content->byteSize, 404);
 
-        return response()->stream(static function () use ($stream): void {
-            try {
-                fpassthru($stream);
-            } finally {
-                fclose($stream);
-            }
-        }, 200, $headers);
+        return response($content->body, 200, $headers);
     }
 
     private static function matchesEtag(string $header, string $etag): bool

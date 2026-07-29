@@ -11,7 +11,6 @@ use App\Models\PushQueueWorkItem;
 use App\Models\SystemSetting;
 use App\Models\WallboardPairingRequest;
 use App\Models\WallboardSession;
-use App\Models\WeatherDatasetOperation;
 use DateTimeInterface;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -28,9 +27,6 @@ final class PruneOperationalData extends Command
         $locationCutoff = now()->subDays(SystemSetting::integer('retention.location_days', (int) config('dis.location.default_retention_days', 30)));
         $pushCutoff = now()->subDays(SystemSetting::integer('retention.push_logs_days', (int) config('dis.retention.push_logs_days', 90)));
         $auditCutoff = now()->subDays(SystemSetting::integer('retention.audit_logs_days', (int) config('dis.retention.audit_logs_days', 3650)));
-        $weatherDatasetOperationCutoff = now()->subDays(
-            max(1, (int) config('dis.retention.weather_dataset_operations_days', 14)),
-        );
         $pushQueueWorkCutoff = now()->subDays(
             max(1, (int) config('dis.retention.push_queue_work_items_days', 7)),
         );
@@ -62,9 +58,6 @@ final class PruneOperationalData extends Command
             'completed_dispatch_push_outbox' => $this->completedOutboxBefore($pushCutoff)->count(),
             'terminal_push_queue_work_items' => $this->terminalPushQueueWorkBefore($pushQueueWorkCutoff)->count(),
             'audit_logs' => AuditLog::query()->where('created_at', '<', $auditCutoff)->count(),
-            'weather_dataset_operations' => $this->terminalWeatherDatasetOperationsBefore(
-                $weatherDatasetOperationCutoff,
-            )->count(),
             'wallboard_sessions' => (clone $expiredWallboardSessions)->count(),
             'wallboard_pairing_requests' => (clone $expiredWallboardPairings)->count(),
         ];
@@ -76,7 +69,6 @@ final class PruneOperationalData extends Command
             $this->completedOutboxBefore($pushCutoff)->delete();
             $this->terminalPushQueueWorkBefore($pushQueueWorkCutoff)->delete();
             AuditLog::query()->where('created_at', '<', $auditCutoff)->delete();
-            $this->terminalWeatherDatasetOperationsBefore($weatherDatasetOperationCutoff)->delete();
             $expiredWallboardSessions->delete();
             $expiredWallboardPairings->delete();
         }
@@ -103,16 +95,5 @@ final class PruneOperationalData extends Command
                 PushQueueWorkItem::STATUS_FAILED,
             ])
             ->where('finished_at', '<', $cutoff);
-    }
-
-    private function terminalWeatherDatasetOperationsBefore(DateTimeInterface $cutoff): Builder
-    {
-        return WeatherDatasetOperation::query()
-            ->whereNull('active_key')
-            ->whereIn('state', [
-                WeatherDatasetOperation::STATE_SUCCEEDED,
-                WeatherDatasetOperation::STATE_FAILED,
-            ])
-            ->where('created_at', '<', $cutoff);
     }
 }

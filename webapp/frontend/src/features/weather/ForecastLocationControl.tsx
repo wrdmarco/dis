@@ -7,6 +7,7 @@ import { normalizeForecastAddress } from './useForecastResource';
 
 interface ForecastLocationControlProps {
   busy: boolean;
+  compact?: boolean;
   location: ForecastLocationQuery;
   onApply: (location: ForecastLocationQuery) => void;
   onRefresh: () => void;
@@ -14,6 +15,7 @@ interface ForecastLocationControlProps {
 
 export function ForecastLocationControl({
   busy,
+  compact = false,
   location,
   onApply,
   onRefresh,
@@ -40,7 +42,11 @@ export function ForecastLocationControl({
   }
 
   return (
-    <form className={styles.locationControl} onSubmit={submit} aria-label="Forecastgebied kiezen">
+    <form
+      className={`${styles.locationControl}${compact ? ` ${styles.locationControlCompact}` : ''}`}
+      onSubmit={submit}
+      aria-label="Forecastgebied kiezen"
+    >
       <div className={styles.locationHeading}>
         <span className={styles.locationIcon} aria-hidden><MapPin size={20} /></span>
         <div>

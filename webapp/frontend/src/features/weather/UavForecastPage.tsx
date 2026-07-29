@@ -209,13 +209,35 @@ function ForecastMetricCard({
       ) : null}
       <p>{block.explanation}</p>
       <footer>
-        <span>{source?.source.name || 'Bron niet beschikbaar'}</span>
+        <span className={styles.sourceLinks}>
+          {source?.source.url ? (
+            <a href={source.source.url} rel="noreferrer noopener" target="_blank">
+              {source.source.name || 'Bron niet beschikbaar'}
+            </a>
+          ) : source?.source.name || 'Bron niet beschikbaar'}
+          {source?.source.license ? (
+            source.source.license_url
+              ? <a href={source.source.license_url} rel="noreferrer noopener" target="_blank">{source.source.license}</a>
+              : <span>{source.source.license}</span>
+          ) : null}
+        </span>
+        {source !== null && forecastSourceProcessingLabel(source.source) ? (
+          <small className={styles.sourceProcessing}>{forecastSourceProcessingLabel(source.source)}</small>
+        ) : null}
         <time dateTime={source?.measuredAt ?? undefined}>
           {block.stale ? 'Verouderd · ' : ''}{source?.timeLabel ?? 'Bronmoment'} · {formatDateTime(source?.measuredAt)}
         </time>
       </footer>
     </article>
   );
+}
+
+function forecastSourceProcessingLabel(source: WallboardForecastSource): string | null {
+  const processing = source.processing_note ?? source.attribution ?? null;
+  const processor = source.modified && source.processed_by
+    ? `Verwerkt door ${source.processed_by}`
+    : null;
+  return [processing, processor].filter((part): part is string => part !== null).join(' · ') || null;
 }
 
 export function forecastSourceForBlock(

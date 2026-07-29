@@ -20,16 +20,16 @@ final class FirstPartyMediaRequestTest extends TestCase
             'admin asset' => ['/api/admin/wallboard-media/assets/'.$ulid.'/content'],
             'admin thumbnail' => ['/api/admin/wallboard-media/assets/'.$ulid.'/thumbnail'],
             'operational precipitation radar atlas' => [
-                '/api/operational-weather/radar/precipitation/20260724T120000Z-0123456789abcdef.png',
+                '/api/operational-weather/radar/precipitation/20260724T120000Z-o-0123456789abcdef.png',
             ],
             'operational lightning radar atlas' => [
-                '/api/operational-weather/radar/lightning/20260724T120000Z-fedcba9876543210.png',
+                '/api/operational-weather/radar/lightning/20260724T120000Z-o-fedcba9876543210.png',
             ],
             'wallboard precipitation radar atlas' => [
-                '/api/wallboard/weather-radar/precipitation/20260724T120000Z-0123456789abcdef.png',
+                '/api/wallboard/weather-radar/precipitation/20260724T120000Z-o-0123456789abcdef.png',
             ],
             'wallboard lightning radar atlas' => [
-                '/api/wallboard/weather-radar/lightning/20260724T120000Z-fedcba9876543210.png',
+                '/api/wallboard/weather-radar/lightning/20260724T120000Z-o-fedcba9876543210.png',
             ],
         ];
     }
@@ -74,16 +74,16 @@ final class FirstPartyMediaRequestTest extends TestCase
     {
         return [
             'unknown radar kind' => [
-                '/api/operational-weather/radar/unknown/20260724T120000Z-0123456789abcdef.png',
+                '/api/operational-weather/radar/unknown/20260724T120000Z-o-0123456789abcdef.png',
             ],
             'invalid snapshot' => [
                 '/api/operational-weather/radar/precipitation/latest.png',
             ],
             'nested suffix' => [
-                '/api/wallboard/weather-radar/lightning/20260724T120000Z-fedcba9876543210/atlas.png',
+                '/api/wallboard/weather-radar/lightning/20260724T120000Z-o-fedcba9876543210/atlas.png',
             ],
             'unrelated png route' => [
-                '/api/admin/weather-radar/precipitation/20260724T120000Z-0123456789abcdef.png',
+                '/api/admin/weather-radar/precipitation/20260724T120000Z-o-0123456789abcdef.png',
             ],
         ];
     }

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, ClipboardList, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, GitBranch, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MessageSquareText, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, ClipboardList, CloudRain, DatabaseBackup, FileText, Gauge, GitBranch, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MessageSquareText, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -84,7 +84,6 @@ const navGroups: NavGroup[] = [
       { to: '/forms', label: 'Formulieren', icon: FileText, ...webRouteAccess.forms },
       { to: '/prioriteitsbesluiten', label: 'Prioriteitsbesluiten', icon: GitBranch, ...webRouteAccess.priorityDecisions },
       { to: '/admin', label: 'Admin', icon: Shield, ...webRouteAccess.admin },
-      { to: '/knmi', label: 'KNMI', icon: CloudSun, ...webRouteAccess.knmi },
       { to: '/branding', label: 'Branding', icon: Palette, ...webRouteAccess.branding },
       { to: '/audit', label: 'Audit', icon: ScrollText, ...webRouteAccess.audit },
       { to: '/backups', label: 'Backups', icon: DatabaseBackup, ...webRouteAccess.backups },
@@ -130,7 +129,6 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/calendar': () => import('../features/calendar/CalendarPage'),
   '/calendar/groups': () => import('../features/calendar/CalendarGroupsPage'),
   '/admin': () => import('../features/admin/AdminPage'),
-  '/knmi': () => import('../features/admin/KnmiAdminPage'),
   '/branding': () => import('../features/branding/BrandingPage'),
   '/audit': () => import('../features/audit/AuditLogPage'),
   '/backups': () => import('../features/backups/BackupPage'),

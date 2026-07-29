@@ -3,21 +3,18 @@
 namespace App\Providers;
 
 use App\Contracts\DispatchNotificationQueue;
-use App\Contracts\KnmiCloudForecastProvider;
-use App\Contracts\KnmiPrecipitationOutlookProvider;
 use App\Contracts\OperationalRadarProvider;
 use App\Contracts\PushProvider;
 use App\Contracts\QueueTransportMetrics;
 use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
+use App\Contracts\UavWeatherForecastProvider;
 use App\Contracts\WallboardContentProvider;
 use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
-use App\Repositories\KnmiPrecipitationSnapshotRepository;
 use App\Repositories\LaravelQueueTransportMetrics;
-use App\Services\KnmiHarmonieCloudService;
-use App\Services\KnmiPrecipitationOutlookService;
+use App\Services\DmiForecastEdrService;
 use App\Services\OperationalRadarService;
 use App\Services\PushProviderClient;
 use App\Services\QueuedDispatchNotificationQueue;
@@ -45,9 +42,7 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(PushProvider::class, PushProviderClient::class);
         $this->app->bind(QueueTransportMetrics::class, LaravelQueueTransportMetrics::class);
         $this->app->bind(WallboardContentProvider::class, SecureWallboardContentProvider::class);
-        $this->app->singleton(KnmiCloudForecastProvider::class, KnmiHarmonieCloudService::class);
-        $this->app->singleton(KnmiPrecipitationSnapshotRepository::class);
-        $this->app->singleton(KnmiPrecipitationOutlookProvider::class, KnmiPrecipitationOutlookService::class);
+        $this->app->singleton(UavWeatherForecastProvider::class, DmiForecastEdrService::class);
         $this->app->singleton(OperationalRadarProvider::class, OperationalRadarService::class);
 
         $this->app->singleton(RoutingProvider::class, fn ($app): RoutingProvider => new OsrmRoutingProvider(
@@ -295,16 +290,6 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('osrm-admin-write', fn (Request $request): array => [
             Limit::perMinute(2)->by('osrm-admin-write:client:'.$this->rateLimitClientKey($request)),
             Limit::perHour(4)->by('osrm-admin-write:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
-        ]);
-        RateLimiter::for('knmi-admin-read', fn (Request $request): array => $this->authenticatedClientLimits(
-            request: $request,
-            scope: 'knmi-admin-read',
-            perClient: 120,
-            perUser: 240,
-        ));
-        RateLimiter::for('knmi-admin-write', fn (Request $request): array => [
-            Limit::perMinute(4)->by('knmi-admin-write:client:'.$this->rateLimitClientKey($request)),
-            Limit::perHour(12)->by('knmi-admin-write:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
         ]);
     }
 

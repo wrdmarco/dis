@@ -116,6 +116,7 @@ run_cmd tar -C "${DIS_DATA_PATH}" -czf "${STAGING}/storage.tar.gz" \
   --exclude='webapp/backend/storage/framework/sessions' \
   --exclude='webapp/backend/storage/framework/views' \
   --exclude='webapp/backend/storage/app/knmi-forecast' \
+  --exclude='webapp/backend/storage/app/eumetsat-lightning' \
   storage \
   webapp/backend/storage \
   secrets

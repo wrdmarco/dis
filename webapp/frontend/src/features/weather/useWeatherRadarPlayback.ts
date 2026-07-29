@@ -37,12 +37,13 @@ export function useWeatherRadarPlayback(
 ): WeatherRadarPlayback {
   const [displayLayer, setDisplayLayer] = useState<OperationalWeatherRadarLayer | null>(null);
   const [atlasRenderUrl, setAtlasRenderUrl] = useState<string | null>(null);
+  const [imageFrameRenderUrls, setImageFrameRenderUrls] = useState<string[] | null>(null);
   const [framePosition, setFramePosition] = useState(0);
   const [loadingAtlas, setLoadingAtlas] = useState(false);
   const [atlasFailed, setAtlasFailed] = useState(false);
   const [playbackRequested, setPlaybackRequested] = useState(autoPlay);
-  const [retryRequest, setRetryRequest] = useState<{ atlasUrl: string | null; attempt: number }>({
-    atlasUrl: null,
+  const [retryRequest, setRetryRequest] = useState<{ renderKey: string | null; attempt: number }>({
+    renderKey: null,
     attempt: 0,
   });
   const [pageVisible, setPageVisible] = useState(
@@ -52,17 +53,69 @@ export function useWeatherRadarPlayback(
     () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   );
 
-  const requestedAtlasUrl = layer?.atlas_url ?? null;
-  const retryAttempt = retryRequest.atlasUrl === requestedAtlasUrl ? retryRequest.attempt : 0;
+  const requestedRenderKey = radarLayerRenderKey(layer);
+  const retryAttempt = retryRequest.renderKey === requestedRenderKey ? retryRequest.attempt : 0;
 
   useEffect(() => {
-    if (layer === null || layer.status === 'unavailable' || layer.atlas_url === null || layer.frames.length === 0) {
+    if (layer === null || layer.status === 'unavailable' || !radarLayerHasRenderableFrames(layer)) {
       setDisplayLayer(null);
       setAtlasRenderUrl(null);
+      setImageFrameRenderUrls(null);
       setFramePosition(0);
       setLoadingAtlas(false);
       setAtlasFailed(false);
       return;
+    }
+
+    if (layer.render_mode === 'image_frames') {
+      const sameSeries = radarLayerRenderKey(displayLayer) === radarLayerRenderKey(layer);
+      if (sameSeries) {
+        setDisplayLayer(layer);
+        setFramePosition((position) => Math.min(position, layer.frames.length - 1));
+        setLoadingAtlas(false);
+        setAtlasFailed(false);
+        return;
+      }
+
+      let cancelled = false;
+      let settled = false;
+      const images: HTMLImageElement[] = [];
+      const renderUrls = layer.frames.map((frame) => radarRenderAttemptUrl(frame.image_url ?? '', retryAttempt));
+      setLoadingAtlas(true);
+      setAtlasFailed(false);
+
+      const commitDecodedFrames = () => {
+        if (cancelled || settled) return;
+        settled = true;
+        window.clearTimeout(loadTimeout);
+        releaseRadarImages(images);
+        setDisplayLayer(layer);
+        setAtlasRenderUrl(null);
+        setImageFrameRenderUrls(renderUrls);
+        setFramePosition(initialRadarFramePosition(layer, autoPlay && !reducedMotion));
+        setLoadingAtlas(false);
+        setAtlasFailed(false);
+        setRetryRequest({ renderKey: null, attempt: 0 });
+      };
+
+      const failFrames = () => {
+        if (cancelled || settled) return;
+        settled = true;
+        window.clearTimeout(loadTimeout);
+        releaseRadarImages(images);
+        setLoadingAtlas(false);
+        setAtlasFailed(true);
+      };
+
+      const loadTimeout = window.setTimeout(failFrames, RADAR_ATLAS_LOAD_TIMEOUT_MS);
+      void Promise.all(renderUrls.map((renderUrl) => preloadRadarFrame(renderUrl, images)))
+        .then(commitDecodedFrames, failFrames);
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(loadTimeout);
+        releaseRadarImages(images);
+      };
     }
 
     if (displayLayer?.atlas_url === layer.atlas_url && retryAttempt === 0) {
@@ -76,7 +129,9 @@ export function useWeatherRadarPlayback(
     let cancelled = false;
     let settled = false;
     const image = new Image();
-    const renderUrl = radarAtlasAttemptUrl(layer.atlas_url, retryAttempt);
+    const atlasUrl = layer.atlas_url;
+    if (atlasUrl === null) return;
+    const renderUrl = radarAtlasAttemptUrl(atlasUrl, retryAttempt);
     setLoadingAtlas(true);
     setAtlasFailed(false);
 
@@ -86,10 +141,11 @@ export function useWeatherRadarPlayback(
       window.clearTimeout(loadTimeout);
       setDisplayLayer(layer);
       setAtlasRenderUrl(renderUrl);
+      setImageFrameRenderUrls(null);
       setFramePosition(initialRadarFramePosition(layer, autoPlay && !reducedMotion));
       setLoadingAtlas(false);
       setAtlasFailed(false);
-      setRetryRequest({ atlasUrl: null, attempt: 0 });
+      setRetryRequest({ renderKey: null, attempt: 0 });
     };
 
     const failAtlas = () => {
@@ -118,7 +174,7 @@ export function useWeatherRadarPlayback(
       image.onload = null;
       image.onerror = null;
     };
-  }, [autoPlay, displayLayer?.atlas_url, layer, reducedMotion, retryAttempt]);
+  }, [autoPlay, displayLayer, layer, reducedMotion, retryAttempt]);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -139,22 +195,22 @@ export function useWeatherRadarPlayback(
   }, []);
 
   useEffect(() => {
-    if (!autoPlay || !active || !pageVisible || !atlasFailed || requestedAtlasUrl === null) return;
+    if (!autoPlay || !active || !pageVisible || !atlasFailed || requestedRenderKey === null) return;
     const timeout = window.setTimeout(() => {
       setRetryRequest((current) => ({
-        atlasUrl: requestedAtlasUrl,
-        attempt: current.atlasUrl === requestedAtlasUrl ? current.attempt + 1 : 1,
+        renderKey: requestedRenderKey,
+        attempt: current.renderKey === requestedRenderKey ? current.attempt + 1 : 1,
       }));
     }, RADAR_WALLBOARD_RETRY_MS);
     return () => window.clearTimeout(timeout);
-  }, [active, atlasFailed, autoPlay, pageVisible, requestedAtlasUrl]);
+  }, [active, atlasFailed, autoPlay, pageVisible, requestedRenderKey]);
 
   const decodedCurrentAtlas = displayLayer !== null
     && layer !== null
-    && displayLayer.atlas_url === layer.atlas_url;
+    && radarLayerRenderKey(displayLayer) === radarLayerRenderKey(layer);
   const showingPreviousAtlas = displayLayer !== null
     && layer !== null
-    && displayLayer.atlas_url !== layer.atlas_url;
+    && radarLayerRenderKey(displayLayer) !== radarLayerRenderKey(layer);
   const canPlay = active
     && !reducedMotion
     && !loadingAtlas
@@ -227,17 +283,19 @@ export function useWeatherRadarPlayback(
     setFramePosition(displayLayer === null ? 0 : radarReferenceFramePosition(displayLayer));
   }, [displayLayer]);
   const retryAtlas = useCallback(() => {
-    if (requestedAtlasUrl === null) return;
+    if (requestedRenderKey === null) return;
     setRetryRequest((current) => ({
-      atlasUrl: requestedAtlasUrl,
-      attempt: current.atlasUrl === requestedAtlasUrl ? current.attempt + 1 : 1,
+      renderKey: requestedRenderKey,
+      attempt: current.renderKey === requestedRenderKey ? current.attempt + 1 : 1,
     }));
-  }, [requestedAtlasUrl]);
+  }, [requestedRenderKey]);
 
-  const frame = useMemo(
-    () => displayLayer?.frames[framePosition] ?? null,
-    [displayLayer, framePosition],
-  );
+  const frame = useMemo(() => {
+    const selectedFrame = displayLayer?.frames[framePosition] ?? null;
+    if (selectedFrame === null || displayLayer?.render_mode !== 'image_frames') return selectedFrame;
+    const renderUrl = imageFrameRenderUrls?.[framePosition];
+    return renderUrl === undefined ? selectedFrame : { ...selectedFrame, image_url: renderUrl };
+  }, [displayLayer, framePosition, imageFrameRenderUrls]);
   const referenceFramePosition = useMemo(
     () => displayLayer === null ? 0 : radarReferenceFramePosition(displayLayer),
     [displayLayer],
@@ -295,7 +353,53 @@ function radarReferenceFramePosition(layer: OperationalWeatherRadarLayer): numbe
 }
 
 function radarAtlasAttemptUrl(atlasUrl: string, attempt: number): string {
-  if (attempt === 0) return atlasUrl;
-  const separator = atlasUrl.includes('?') ? '&' : '?';
-  return `${atlasUrl}${separator}retry=${attempt}`;
+  return radarRenderAttemptUrl(atlasUrl, attempt);
+}
+
+function radarRenderAttemptUrl(renderUrl: string, attempt: number): string {
+  if (attempt === 0) return renderUrl;
+  const separator = renderUrl.includes('?') ? '&' : '?';
+  return `${renderUrl}${separator}retry=${attempt}`;
+}
+
+function preloadRadarFrame(renderUrl: string, images: HTMLImageElement[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    images.push(image);
+    image.decoding = 'async';
+    image.onload = () => {
+      if (typeof image.decode !== 'function') {
+        resolve();
+        return;
+      }
+      void image.decode().then(resolve, reject);
+    };
+    image.onerror = () => reject(new Error('Radarframe kon niet worden geladen.'));
+    image.src = renderUrl;
+  });
+}
+
+function releaseRadarImages(images: HTMLImageElement[]): void {
+  for (const image of images) {
+    image.onload = null;
+    image.onerror = null;
+  }
+}
+
+function radarLayerHasRenderableFrames(layer: OperationalWeatherRadarLayer): boolean {
+  if (layer.frames.length === 0) return false;
+  if (layer.render_mode === 'image_frames') {
+    return layer.bounds !== null
+      && layer.bounds !== undefined
+      && layer.frames.every((frame) => typeof frame.image_url === 'string' && frame.image_url !== '');
+  }
+  return layer.atlas_url !== null;
+}
+
+function radarLayerRenderKey(layer: OperationalWeatherRadarLayer | null): string | null {
+  if (layer === null) return null;
+  if (layer.render_mode === 'image_frames') {
+    return `image_frames:${layer.reference_time ?? ''}:${layer.frames.map((frame) => frame.image_url ?? '').join('|')}`;
+  }
+  return layer.atlas_url;
 }

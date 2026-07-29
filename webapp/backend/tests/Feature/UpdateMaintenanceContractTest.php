@@ -206,17 +206,6 @@ final class UpdateMaintenanceContractTest extends TestCase
         self::assertTrue($deployDependency < $deployMaintenance);
     }
 
-    public function test_deploy_update_and_restore_invoke_the_server_tts_retirement_path(): void
-    {
-        $deploy = $this->read('scripts/deploy.sh');
-        $update = $this->read('scripts/update.sh');
-        $restore = $this->read('scripts/restore.sh');
-
-        self::assertStringContainsString('bash "${SCRIPT_DIR}/retire-server-tts.sh"', $deploy);
-        self::assertStringContainsString('DIS_LEGACY_TTS_COMPAT_REQUIRED=0', $update);
-        self::assertStringContainsString('bash "${SCRIPT_DIR}/retire-server-tts.sh"', $restore);
-    }
-
     public function test_deploy_mutates_the_resolved_persistent_environment_atomically(): void
     {
         $common = $this->read('scripts/lib/common.sh');
@@ -456,89 +445,55 @@ final class UpdateMaintenanceContractTest extends TestCase
         );
     }
 
-    public function test_knmi_imports_have_independent_hardened_workers_and_fixed_data_tools(): void
+    public function test_retired_weather_snapshot_workers_are_removed_with_hardened_cleanup(): void
     {
-        $service = $this->read('infrastructure/systemd/dis-knmi.service');
-        $realtimeService = $this->read('infrastructure/systemd/dis-knmi-realtime.service');
-        $queue = $this->read('infrastructure/systemd/dis-queue.service');
+        $retirement = $this->read('scripts/retire-weather-snapshots.sh');
+        $compatibilityService = $this->read('infrastructure/systemd/dis-weather-snapshot-compat.service');
+        $queue = $this->read('webapp/backend/config/queue.php');
         $common = $this->read('scripts/lib/common.sh');
         $deploy = $this->read('scripts/deploy.sh');
         $install = $this->read('scripts/install.sh');
         $update = $this->read('scripts/update.sh');
         $restore = $this->read('scripts/restore.sh');
-        $selfHeal = $this->read('scripts/self-heal-permissions.sh');
-        $uninstall = $this->read('scripts/uninstall.sh');
+
+        self::assertFileDoesNotExist($this->repositoryRoot.'/infrastructure/systemd/dis-knmi.service');
+        self::assertFileDoesNotExist($this->repositoryRoot.'/infrastructure/systemd/dis-knmi-realtime.service');
+        self::assertStringContainsString('Type=oneshot', $compatibilityService);
+        self::assertStringContainsString('ExecStart=/usr/bin/true', $compatibilityService);
+        self::assertStringNotContainsString('[Install]', $compatibilityService);
 
         foreach ([
-            'Type=exec',
-            'ExecStartPre=/usr/bin/test -x /usr/bin/grib_count',
-            'ExecStartPre=/usr/bin/test -x /usr/bin/grib_get',
-            'queue:work knmi --queue=knmi',
-            '--queue=knmi',
-            '--tries=1',
-            '--timeout=7200',
-            'zend.exception_ignore_args=1',
-            'Wants=network-online.target',
-            'dis-knmi-realtime.service',
-            'After=network-online.target redis-server.service postgresql.service',
-            'NoNewPrivileges=true',
-            'PrivateDevices=true',
-            'ProtectSystem=strict',
-            'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
-            'MemoryMax=1G',
-            'CPUQuota=150%',
-            'Nice=10',
-            'ReadWritePaths=/opt/dis-data',
+            '[ "${DIS_INSTALL_PATH}" = "/opt/dis" ]',
+            '[ "${DIS_DATA_PATH}" = "/opt/dis-data" ]',
+            'queue:clear redis --queue=knmi --force',
+            'queue:clear redis --queue=knmi-realtime --force',
+            'refusing to continue without clearing legacy weather queues',
+            'clear_legacy_weather_queues 1',
+            'secure_path_operation remove-tree "${path}"',
+            'remove_exact_managed_tree "${LEGACY_KNMI_STORAGE}"',
+            'remove_exact_managed_tree "${LEGACY_EUMETSAT_STORAGE}"',
+            'KNMI_OPEN_DATA_API_KEY',
+            'KNMI_FORECAST_[A-Za-z0-9_]*',
+            'KNMI_PRECIPITATION_[A-Za-z0-9_]*',
+            'KNMI_QUEUE_RETRY_AFTER',
+            'KNMI_REALTIME_QUEUE_RETRY_AFTER',
         ] as $contract) {
-            self::assertStringContainsString($contract, $service);
+            self::assertStringContainsString($contract, $retirement);
         }
-        self::assertStringNotContainsString('ExecStartPre=/usr/bin/test -x /usr/bin/h5dump', $service);
-        foreach ([
-            'Type=exec',
-            'ExecStartPre=/usr/bin/test -x /usr/bin/h5dump',
-            'queue:work knmi_realtime --queue=knmi-realtime',
-            '--tries=1',
-            '--timeout=1200',
-            'zend.exception_ignore_args=1',
-            'Wants=network-online.target',
-            'After=network-online.target redis-server.service postgresql.service',
-            'NoNewPrivileges=true',
-            'PrivateDevices=true',
-            'ProtectSystem=strict',
-            'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
-            'MemoryMax=512M',
-            'CPUQuota=100%',
-            'ReadWritePaths=/opt/dis-data',
-        ] as $contract) {
-            self::assertStringContainsString($contract, $realtimeService);
-        }
-        self::assertStringNotContainsString('--queue=knmi', $queue);
-        self::assertStringNotContainsString('--queue=knmi-realtime', $queue);
-        self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies()', $common);
-        self::assertStringContainsString('libeccodes-tools', $install);
-        self::assertStringContainsString('hdf5-tools', $install);
-        self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies', $deploy);
-        self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies', $update);
-        self::assertStringContainsString('infrastructure/systemd/dis-knmi.service', $deploy);
-        self::assertStringContainsString('infrastructure/systemd/dis-knmi-realtime.service', $deploy);
-        self::assertStringContainsString('dis-knmi', $common);
-        self::assertStringContainsString('dis-knmi-realtime', $common);
-        self::assertStringContainsString('dis-knmi', $restore);
-        self::assertStringContainsString('dis-knmi-realtime', $restore);
-        self::assertStringContainsString('dis-knmi', $selfHeal);
-        self::assertStringContainsString('dis-knmi-realtime', $selfHeal);
-        self::assertStringContainsString('/etc/systemd/system/dis-knmi.service', $uninstall);
-        self::assertStringContainsString('/etc/systemd/system/dis-knmi-realtime.service', $uninstall);
-        self::assertStringContainsString('smbclient hdf5-tools libeccodes-tools', $uninstall);
+        self::assertStringNotContainsString('KNMI_EDR_API_KEY', $retirement);
+        self::assertStringNotContainsString('rm -rf', $retirement);
+        self::assertStringNotContainsString('redis-cli FLUSH', $retirement);
 
-        $dependency = $this->shellFunction($common, 'ensure_knmi_forecast_runtime_dependencies');
-        self::assertStringContainsString('/usr/bin/dpkg-query', $dependency);
-        self::assertStringContainsString('/usr/bin/apt-get install -y --no-install-recommends', $dependency);
-        self::assertStringContainsString('libeccodes-tools', $dependency);
-        self::assertStringContainsString('hdf5-tools', $dependency);
-        self::assertStringContainsString('/usr/bin/h5dump:hdf5-tools', $common);
-        self::assertStringNotContainsString('curl ', $dependency);
-        self::assertStringNotContainsString('wget ', $dependency);
+        self::assertStringContainsString('bash "${SCRIPT_DIR}/retire-weather-snapshots.sh"', $deploy);
+        self::assertStringContainsString('DIS_LEGACY_WEATHER_COMPAT_REQUIRED=0', $update);
+        self::assertStringContainsString('bash "${SCRIPT_DIR}/retire-weather-snapshots.sh"', $restore);
+        self::assertStringNotContainsString('ensure_knmi_forecast_runtime_dependencies', $common);
+        self::assertStringNotContainsString('ensure_knmi_forecast_runtime_dependencies', $deploy);
+        self::assertStringNotContainsString('ensure_knmi_forecast_runtime_dependencies', $update);
+        self::assertStringNotContainsString('hdf5-tools', $install);
+        self::assertStringNotContainsString('libeccodes-tools', $install);
+        self::assertStringNotContainsString("'knmi' =>", $queue);
+        self::assertStringNotContainsString("'knmi_realtime' =>", $queue);
     }
 
     public function test_deploy_stops_runtime_before_migrations_and_only_opens_after_verification(): void
@@ -1166,7 +1121,7 @@ final class UpdateMaintenanceContractTest extends TestCase
         self::assertTrue($prepare < $install);
     }
 
-    public function test_browser_microphone_is_disabled_after_server_tts_retirement(): void
+    public function test_browser_microphone_is_disabled_by_default(): void
     {
         $nginxHeaders = $this->read('infrastructure/nginx/security-headers.conf');
         $frontendMiddleware = $this->read('webapp/frontend/middleware.ts');

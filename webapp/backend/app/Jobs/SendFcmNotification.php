@@ -30,14 +30,6 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
 
     private const DELIVERY_ORDER_WAIT_SECONDS = 30;
 
-    private const RETIRED_SERVER_TTS_DATA_KEYS = [
-        'speech_manifest_id',
-        'speech_phase',
-        'speech_manifest_url',
-        'speech_manifest_version',
-        'speech_locale',
-    ];
-
     /**
      * The queue, outbox and delivery log use these canonical event types. Only
      * the provider payload is adapted for mobile builds from before the
@@ -487,9 +479,6 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
     {
         $data = $this->canonicalData();
         unset($data['session_token_id']);
-        foreach (self::RETIRED_SERVER_TTS_DATA_KEYS as $key) {
-            unset($data[$key]);
-        }
         $data = $this->deploymentCompatibleWireData($data);
 
         $sessionTokenId = trim((string) $token->personal_access_token_id);

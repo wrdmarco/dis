@@ -678,9 +678,6 @@ run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/storage/app/backup-config.e
 
 log "Ensuring wallboard media runtime dependencies"
 ensure_wallboard_media_runtime_dependencies
-log "Ensuring KNMI forecast runtime dependencies"
-ensure_knmi_forecast_runtime_dependencies
-
 log "Preflighting the current frontend release before deployment maintenance"
 if root_controlled_bundle_source_is_safe "${DIS_INSTALL_PATH}/maintenance/frontend.lock"; then
   log "A trusted deployment maintenance lock is already active; allowing recovery without previous frontend artifacts."
@@ -781,7 +778,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
       SKIP_DEPLOY_CACHE_CLEAR=1 \
       DIS_DEPLOYMENT_OWNER=update \
       DIS_DEFER_OPERATIONAL_SERVICES=1 \
-      DIS_LEGACY_TTS_COMPAT_REQUIRED=0 \
+      DIS_LEGACY_WEATHER_COMPAT_REQUIRED=0 \
       DIS_LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED=0 \
       bash "${SCRIPT_DIR}/deploy.sh"
     UPDATE_PHASE="stopping services after nested deployment"

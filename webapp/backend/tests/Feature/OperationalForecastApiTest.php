@@ -2,9 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Contracts\KnmiCloudForecastProvider;
-use App\Contracts\KnmiPrecipitationOutlookProvider;
 use App\Contracts\OperationalRadarProvider;
+use App\Contracts\UavWeatherForecastProvider;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -14,7 +13,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -23,13 +21,9 @@ final class OperationalForecastApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    private OperationalWeatherCloudProviderStub $cloud;
-
-    private OperationalWeatherPrecipitationProviderStub $precipitation;
+    private OperationalWeatherForecastProviderStub $weather;
 
     private OperationalRadarProviderStub $radar;
-
-    private ?string $radarFixturePath = null;
 
     protected function setUp(): void
     {
@@ -37,11 +31,9 @@ final class OperationalForecastApiTest extends TestCase
 
         CarbonImmutable::setTestNow('2026-07-21T10:30:00Z');
         Cache::flush();
-        $this->cloud = new OperationalWeatherCloudProviderStub;
-        $this->precipitation = new OperationalWeatherPrecipitationProviderStub;
+        $this->weather = new OperationalWeatherForecastProviderStub;
         $this->radar = new OperationalRadarProviderStub;
-        $this->app->instance(KnmiCloudForecastProvider::class, $this->cloud);
-        $this->app->instance(KnmiPrecipitationOutlookProvider::class, $this->precipitation);
+        $this->app->instance(UavWeatherForecastProvider::class, $this->weather);
         $this->app->instance(OperationalRadarProvider::class, $this->radar);
     }
 
@@ -49,10 +41,6 @@ final class OperationalForecastApiTest extends TestCase
     {
         CarbonImmutable::setTestNow();
         Cache::flush();
-        if ($this->radarFixturePath !== null) {
-            File::delete($this->radarFixturePath);
-        }
-
         parent::tearDown();
     }
 
@@ -95,7 +83,7 @@ final class OperationalForecastApiTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_operational_weather_defaults_to_a_complete_national_local_knmi_contract(): void
+    public function test_operational_weather_defaults_to_a_complete_national_live_dmi_contract(): void
     {
         Http::preventStrayRequests();
 
@@ -109,15 +97,27 @@ final class OperationalForecastApiTest extends TestCase
             ->assertJsonPath('data.aggregation.expected_sample_count', 12)
             ->assertJsonPath('data.aggregation.complete', true)
             ->assertJsonPath('data.aggregation.fresh', true)
-            ->assertJsonPath('data.generated_at', '2026-07-21T10:30:00+00:00')
+            ->assertJsonPath('data.generated_at', '2026-07-21T10:28:00+00:00')
             ->assertJsonPath('data.data_status', 'current')
             ->assertJsonPath('data.cloud.cloud_cover_pct', 70)
             ->assertJsonPath('data.cloud.cloud_cover_low_pct', 25)
             ->assertJsonPath('data.cloud.cloud_base_m', 820)
-            ->assertJsonPath('data.cloud.source.name', 'KNMI HARMONIE P1 (12 provincies)')
+            ->assertJsonPath('data.cloud.cloud_base_complete', true)
+            ->assertJsonPath('data.cloud.cloud_base_sample_count', 12)
+            ->assertJsonPath('data.cloud.cloud_base_expected_sample_count', 12)
+            ->assertJsonPath('data.cloud.source.name', 'DMI HARMONIE DINI (12 provincies)')
+            ->assertJsonPath('data.cloud.source.license', 'CC BY 4.0')
+            ->assertJsonPath(
+                'data.cloud.source.license_url',
+                'https://www.dmi.dk/friedata/dokumentation/terms-of-use',
+            )
+            ->assertJsonPath('data.cloud.source.attribution', 'Contains modified DMI data')
+            ->assertJsonPath('data.cloud.source.modified', true)
+            ->assertJsonPath('data.cloud.source.processed_by', 'DIS')
             ->assertJsonPath('data.precipitation.radar_peak_mm_h', 0.4)
-            ->assertJsonPath('data.precipitation.third_hour_probability_pct', 35)
-            ->assertJsonPath('data.precipitation.source.name', 'KNMI lokale radar + ensemblekans (12 locaties)')
+            ->assertJsonPath('data.precipitation.probability_complete', false)
+            ->assertJsonPath('data.precipitation.third_hour_probability_pct', null)
+            ->assertJsonPath('data.precipitation.source.name', 'DMI HARMONIE DINI (12 provincies)')
             ->assertJsonPath('data.radar.precipitation.status', 'unavailable')
             ->assertJsonPath('data.radar.lightning.status', 'unavailable')
             ->assertJsonStructure(['data' => [
@@ -128,6 +128,7 @@ final class OperationalForecastApiTest extends TestCase
                 'cloud' => [
                     'complete', 'stale', 'cloud_cover_pct', 'cloud_cover_low_pct',
                     'cloud_cover_mid_pct', 'cloud_cover_high_pct', 'cloud_base_m',
+                    'cloud_base_complete', 'cloud_base_sample_count', 'cloud_base_expected_sample_count',
                     'model_run_at', 'valid_at', 'measured_at', 'refreshed_at',
                     'sample_count', 'expected_sample_count', 'source', 'availability_note',
                 ],
@@ -160,35 +161,67 @@ final class OperationalForecastApiTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_operational_weather_keeps_radar_current_when_third_hour_probability_is_unavailable(): void
+    public function test_operational_weather_is_partial_when_one_national_cloud_base_sample_is_missing(): void
     {
-        $this->precipitation->overrides = [
-            'third_hour_probability_pct' => null,
-            'third_hour_from' => null,
-            'forecast_until' => null,
-            'third_hour_sample_count' => 0,
-            'source' => [
-                'name' => 'KNMI lokale radar (12 locaties)',
-                'url' => 'https://dataplatform.knmi.nl/',
-            ],
-            'availability_note' => 'De lokale KNMI-radar is beschikbaar; de ensemblekans voor uur 3 ontbreekt.',
+        $this->weather->overrides = [
+            'cloud_base_m' => null,
+            'cloud_base_sample_count' => 11,
+            'cloud_base_expected_sample_count' => 12,
+            'cloud_base_complete' => false,
         ];
         Http::preventStrayRequests();
 
-        $this->asWebClient($this->user('radar-only-weather@example.test'))
+        $this->asWebClient($this->user('partial-cloud-base-weather@example.test'))
             ->getJson('/api/operational-weather')
             ->assertOk()
             ->assertJsonPath('data.data_status', 'partial')
             ->assertJsonPath('data.aggregation.complete', false)
             ->assertJsonPath('data.aggregation.fresh', false)
+            ->assertJsonPath('data.cloud.complete', false)
+            ->assertJsonPath('data.cloud.cloud_base_m', null)
+            ->assertJsonPath('data.cloud.cloud_base_complete', false)
+            ->assertJsonPath('data.cloud.cloud_base_sample_count', 11)
+            ->assertJsonPath('data.cloud.cloud_base_expected_sample_count', 12)
+            ->assertJsonPath('data.precipitation.complete', true);
+    }
+
+    public function test_operational_weather_rejects_a_claimed_complete_cloud_base_without_valid_height(): void
+    {
+        $this->weather->overrides = [
+            'cloud_base_m' => 'invalid',
+            'cloud_base_sample_count' => 12,
+            'cloud_base_expected_sample_count' => 12,
+            'cloud_base_complete' => true,
+        ];
+        Http::preventStrayRequests();
+
+        $this->asWebClient($this->user('invalid-cloud-base-weather@example.test'))
+            ->getJson('/api/operational-weather')
+            ->assertOk()
+            ->assertJsonPath('data.data_status', 'partial')
+            ->assertJsonPath('data.cloud.complete', false)
+            ->assertJsonPath('data.cloud.cloud_base_m', null)
+            ->assertJsonPath('data.cloud.cloud_base_complete', false);
+    }
+
+    public function test_operational_weather_keeps_dmi_model_precipitation_current_without_fabricating_probability(): void
+    {
+        Http::preventStrayRequests();
+
+        $this->asWebClient($this->user('radar-only-weather@example.test'))
+            ->getJson('/api/operational-weather')
+            ->assertOk()
+            ->assertJsonPath('data.data_status', 'current')
+            ->assertJsonPath('data.aggregation.complete', true)
+            ->assertJsonPath('data.aggregation.fresh', true)
             ->assertJsonPath('data.precipitation.complete', true)
             ->assertJsonPath('data.precipitation.probability_complete', false)
             ->assertJsonPath('data.precipitation.radar_peak_mm_h', 0.4)
-            ->assertJsonPath('data.precipitation.radar_until', '2026-07-21T12:30:00+00:00')
+            ->assertJsonPath('data.precipitation.radar_until', '2026-07-21T13:00:00+00:00')
             ->assertJsonPath('data.precipitation.third_hour_probability_pct', null)
             ->assertJsonPath('data.precipitation.third_hour_from', null)
             ->assertJsonPath('data.precipitation.forecast_until', null)
-            ->assertJsonPath('data.precipitation.source.name', 'KNMI lokale radar (12 locaties)');
+            ->assertJsonPath('data.precipitation.source.name', 'DMI HARMONIE DINI (12 provincies)');
 
         Http::assertNothingSent();
     }
@@ -196,11 +229,8 @@ final class OperationalForecastApiTest extends TestCase
     public function test_weather_exposes_same_origin_radar_metadata_and_atlas_is_immutable_and_conditional(): void
     {
         Http::preventStrayRequests();
-        $snapshot = '20260721T103000Z-0123456789abcdef';
+        $snapshot = '20260721T103000Z-o-0123456789abcdef';
         $png = "\x89PNG\r\n\x1a\nradar-fixture";
-        $this->radarFixturePath = storage_path('framework/testing/operational-radar-fixture.png');
-        File::ensureDirectoryExists(dirname($this->radarFixturePath));
-        File::put($this->radarFixturePath, $png);
         $sha256 = hash('sha256', $png);
         $frames = [];
         for ($index = 0; $index < 25; $index++) {
@@ -224,11 +254,7 @@ final class OperationalForecastApiTest extends TestCase
             ],
             'lightning' => $this->radar->metadata['lightning'],
         ];
-        $this->radar->files['precipitation|'.$snapshot] = new OperationalRadarContent(
-            $this->radarFixturePath,
-            strlen($png),
-            $sha256,
-        );
+        $this->radar->files['precipitation|'.$snapshot] = OperationalRadarContent::fromBody($png);
         $client = $this->asWebClient($this->user('radar-content@example.test'));
 
         $client->getJson('/api/operational-weather')
@@ -247,7 +273,7 @@ final class OperationalForecastApiTest extends TestCase
             ->assertHeader('ETag', '"'.$sha256.'"')
             ->assertHeader('Cache-Control', 'immutable, max-age=31536000, private')
             ->assertHeader('X-Content-Type-Options', 'nosniff');
-        $this->assertSame($png, $response->streamedContent());
+        $this->assertSame($png, $response->getContent());
 
         $client->withHeader('If-None-Match', 'W/"'.$sha256.'"')
             ->get($url)
@@ -259,7 +285,7 @@ final class OperationalForecastApiTest extends TestCase
 
     public function test_radar_atlas_requires_authentication_completed_two_factor_and_valid_identifiers(): void
     {
-        $snapshot = '20260721T103000Z-0123456789abcdef';
+        $snapshot = '20260721T103000Z-o-0123456789abcdef';
         $url = '/api/operational-weather/radar/precipitation/'.$snapshot.'.png';
 
         $this->get($url)->assertUnauthorized();
@@ -292,7 +318,7 @@ final class OperationalForecastApiTest extends TestCase
             ->assertHeader('Cache-Control', 'no-store, private');
     }
 
-    public function test_address_is_resolved_server_side_before_local_knmi_providers_are_called(): void
+    public function test_address_is_resolved_server_side_before_live_dmi_provider_is_called(): void
     {
         config()->set('dis.geocoding.enabled', true);
         config()->set('dis.geocoding.provider', 'nominatim');
@@ -315,9 +341,8 @@ final class OperationalForecastApiTest extends TestCase
             ->assertJsonPath('data.aggregation.sample_count', 1)
             ->assertJsonPath('data.data_status', 'current');
 
-        $this->assertSame(1, $this->cloud->lastResolution['expected_locations']);
-        $this->assertSame(52.0907, $this->cloud->lastResolution['locations'][0]['latitude']);
-        $this->assertSame($this->cloud->lastResolution, $this->precipitation->lastResolution);
+        $this->assertSame(1, $this->weather->lastResolution['expected_locations']);
+        $this->assertSame(52.0907, $this->weather->lastResolution['locations'][0]['latitude']);
         Http::assertSentCount(1);
         Http::assertSent(fn ($request): bool => str_starts_with($request->url(), 'https://nominatim.openstreetmap.org/search'));
     }
@@ -340,14 +365,13 @@ final class OperationalForecastApiTest extends TestCase
             ->assertJsonStructure(['error' => ['details' => ['latitude', 'longitude']]]);
     }
 
-    public function test_missing_or_stale_local_sources_never_report_current(): void
+    public function test_missing_or_stale_live_dmi_values_never_report_current(): void
     {
         Http::preventStrayRequests();
         $client = $this->asWebClient($this->user('fail-closed-weather@example.test'));
-        $this->precipitation->overrides = [
-            'complete' => false,
-            'radar_peak_mm_h' => null,
-            'availability_note' => 'Geen complete lokale neerslagsnapshot.',
+        $this->weather->overrides = [
+            'forecast_precipitation_peak_mm_h' => null,
+            'availability_note' => 'Geen complete DMI-modelneerslag.',
         ];
 
         $client->getJson('/api/operational-weather')
@@ -358,9 +382,9 @@ final class OperationalForecastApiTest extends TestCase
             ->assertJsonPath('data.aggregation.fresh', false)
             ->assertJsonPath('data.precipitation.complete', false);
 
-        $this->cloud->overrides = [
+        $this->weather->overrides = [
             'stale' => true,
-            'availability_note' => 'De lokale KNMI-modelrun is verouderd.',
+            'availability_note' => 'De live DMI-modelrun is verouderd.',
         ];
 
         $client->getJson('/api/operational-weather')
@@ -374,15 +398,9 @@ final class OperationalForecastApiTest extends TestCase
     public function test_provider_counts_and_sample_windows_cannot_weaken_national_coverage(): void
     {
         Http::preventStrayRequests();
-        $this->cloud->overrides = [
+        $this->weather->overrides = [
             'sample_count' => 1,
             'expected_sample_count' => 1,
-        ];
-        $this->precipitation->overrides = [
-            'sample_count' => 1,
-            'expected_sample_count' => 1,
-            'radar_sample_count' => 1,
-            'third_hour_sample_count' => 1,
         ];
 
         $this->asWebClient($this->user('coverage-weather@example.test'))
@@ -402,17 +420,12 @@ final class OperationalForecastApiTest extends TestCase
     public function test_old_provider_timestamps_are_reclassified_as_stale_even_when_provider_flags_are_green(): void
     {
         Http::preventStrayRequests();
-        $this->cloud->overrides = [
+        $this->weather->overrides = [
             'model_run_at' => '2026-07-19T09:00:00+00:00',
-            'stale' => false,
-        ];
-        $this->precipitation->overrides = [
-            'reference_time' => '2026-07-20T10:30:00+00:00',
-            'measured_at' => '2026-07-20T10:30:00+00:00',
-            'radar_first_precipitation_at' => null,
-            'radar_until' => '2026-07-20T12:30:00+00:00',
-            'third_hour_from' => '2026-07-20T12:30:00+00:00',
-            'forecast_until' => '2026-07-20T13:30:00+00:00',
+            'valid_at' => '2026-07-20T10:00:00+00:00',
+            'measured_at' => '2026-07-20T10:00:00+00:00',
+            'forecast_precipitation_first_at' => null,
+            'forecast_precipitation_until' => '2026-07-20T13:00:00+00:00',
             'stale' => false,
         ];
 
@@ -431,12 +444,8 @@ final class OperationalForecastApiTest extends TestCase
     public function test_refresh_timestamps_must_follow_their_source_times(): void
     {
         Http::preventStrayRequests();
-        $this->cloud->overrides = [
+        $this->weather->overrides = [
             'refreshed_at' => '2026-07-21T08:59:00+00:00',
-            'stale' => false,
-        ];
-        $this->precipitation->overrides = [
-            'refreshed_at' => '2026-07-21T10:29:00+00:00',
             'stale' => false,
         ];
 
@@ -455,7 +464,7 @@ final class OperationalForecastApiTest extends TestCase
     public function test_rejected_future_refresh_timestamp_cannot_poison_generated_at(): void
     {
         Http::preventStrayRequests();
-        $this->precipitation->overrides = [
+        $this->weather->overrides = [
             'refreshed_at' => '2026-07-21T11:00:00+00:00',
             'stale' => false,
         ];
@@ -463,9 +472,10 @@ final class OperationalForecastApiTest extends TestCase
         $this->asWebClient($this->user('future-timestamp-weather@example.test'))
             ->getJson('/api/operational-weather')
             ->assertOk()
-            ->assertJsonPath('data.generated_at', '2026-07-21T10:28:00+00:00')
-            ->assertJsonPath('data.data_status', 'partial')
-            ->assertJsonPath('data.cloud.complete', true)
+            ->assertJsonPath('data.generated_at', '2026-07-21T10:30:00+00:00')
+            ->assertJsonPath('data.data_status', 'unavailable')
+            ->assertJsonPath('data.cloud.complete', false)
+            ->assertJsonPath('data.cloud.stale', true)
             ->assertJsonPath('data.precipitation.complete', false)
             ->assertJsonPath('data.precipitation.stale', true);
         Http::assertNothingSent();
@@ -571,7 +581,7 @@ final class OperationalForecastApiTest extends TestCase
     }
 }
 
-final class OperationalWeatherCloudProviderStub implements KnmiCloudForecastProvider
+final class OperationalWeatherForecastProviderStub implements UavWeatherForecastProvider
 {
     /** @var array<string, mixed> */
     public array $overrides = [];
@@ -588,7 +598,7 @@ final class OperationalWeatherCloudProviderStub implements KnmiCloudForecastProv
                 'stale' => false,
                 'sample_count' => 0,
                 'expected_sample_count' => (int) ($resolution['expected_locations'] ?? 0),
-                'source' => ['name' => 'KNMI HARMONIE P1', 'url' => 'https://dataplatform.knmi.nl/'],
+                'source' => ['name' => 'DMI HARMONIE DINI', 'url' => null],
                 'availability_note' => 'Testlocatie onvolledig.',
             ];
         }
@@ -603,6 +613,12 @@ final class OperationalWeatherCloudProviderStub implements KnmiCloudForecastProv
             'cloud_cover_mid_pct' => 50.0,
             'cloud_cover_high_pct' => 65.0,
             'cloud_base_m' => 820.0,
+            'cloud_base_sample_count' => $sampleCount,
+            'cloud_base_expected_sample_count' => $sampleCount,
+            'cloud_base_complete' => true,
+            'forecast_precipitation_peak_mm_h' => 0.4,
+            'forecast_precipitation_first_at' => '2026-07-21T10:55:00+00:00',
+            'forecast_precipitation_until' => '2026-07-21T13:00:00+00:00',
             'model_run_at' => '2026-07-21T09:00:00+00:00',
             'valid_at' => '2026-07-21T10:00:00+00:00',
             'measured_at' => '2026-07-21T10:00:00+00:00',
@@ -610,60 +626,13 @@ final class OperationalWeatherCloudProviderStub implements KnmiCloudForecastProv
             'sample_count' => $sampleCount,
             'expected_sample_count' => $sampleCount,
             'source' => [
-                'name' => $sampleCount === 12 ? 'KNMI HARMONIE P1 (12 provincies)' : 'KNMI HARMONIE P1',
-                'url' => 'https://dataplatform.knmi.nl/',
-            ],
-            'availability_note' => null,
-            ...$this->overrides,
-        ];
-    }
-}
-
-final class OperationalWeatherPrecipitationProviderStub implements KnmiPrecipitationOutlookProvider
-{
-    /** @var array<string, mixed> */
-    public array $overrides = [];
-
-    /** @var array<string, mixed> */
-    public array $lastResolution = [];
-
-    public function forResolution(array $resolution): array
-    {
-        $this->lastResolution = $resolution;
-        if (($resolution['complete'] ?? false) !== true) {
-            return [
-                'complete' => false,
-                'stale' => false,
-                'sample_count' => 0,
-                'expected_sample_count' => (int) ($resolution['expected_locations'] ?? 0),
-                'source' => ['name' => 'KNMI lokale radar + ensemblekans', 'url' => 'https://dataplatform.knmi.nl/'],
-                'availability_note' => 'Testlocatie onvolledig.',
-            ];
-        }
-
-        $sampleCount = (int) $resolution['expected_locations'];
-
-        return [
-            'complete' => true,
-            'stale' => false,
-            'radar_peak_mm_h' => 0.4,
-            'radar_first_precipitation_at' => '2026-07-21T10:55:00+00:00',
-            'radar_until' => '2026-07-21T12:30:00+00:00',
-            'third_hour_probability_pct' => 35.0,
-            'third_hour_from' => '2026-07-21T12:30:00+00:00',
-            'forecast_until' => '2026-07-21T13:30:00+00:00',
-            'reference_time' => '2026-07-21T10:30:00+00:00',
-            'measured_at' => '2026-07-21T10:30:00+00:00',
-            'refreshed_at' => '2026-07-21T10:30:00+00:00',
-            'radar_sample_count' => 25 * $sampleCount,
-            'third_hour_sample_count' => 13 * $sampleCount,
-            'sample_count' => $sampleCount,
-            'expected_sample_count' => $sampleCount,
-            'source' => [
-                'name' => $sampleCount === 12
-                    ? 'KNMI lokale radar + ensemblekans (12 locaties)'
-                    : 'KNMI lokale radar + ensemblekans',
-                'url' => 'https://dataplatform.knmi.nl/',
+                'name' => $sampleCount === 12 ? 'DMI HARMONIE DINI (12 provincies)' : 'DMI HARMONIE DINI',
+                'url' => 'https://www.dmi.dk/friedata/dokumentation/forecast-data-edr-api',
+                'license' => 'CC BY 4.0',
+                'license_url' => 'https://www.dmi.dk/friedata/dokumentation/terms-of-use',
+                'attribution' => 'Contains modified DMI data',
+                'modified' => true,
+                'processed_by' => 'DIS',
             ],
             'availability_note' => null,
             ...$this->overrides,
@@ -689,11 +658,12 @@ final class OperationalRadarProviderStub implements OperationalRadarProvider
             'frame_height' => 0,
             'frames' => [],
             'source' => [
-                'name' => 'KNMI radar_forecast 2.0',
-                'url' => 'https://dataplatform.knmi.nl/dataset/radar-forecast-2-0',
+                'name' => 'DWD RV neerslagradar',
+                'url' => 'https://www.dwd.de/DE/leistungen/radarprodukte/radarlayer.html',
                 'license' => 'CC BY 4.0',
+                'license_url' => 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
             ],
-            'availability_note' => 'Geen actuele lokale KNMI-radaratlas beschikbaar.',
+            'availability_note' => 'Geen actuele live DWD-radarframes beschikbaar.',
         ],
         'lightning' => [
             'status' => 'unavailable',
@@ -711,7 +681,11 @@ final class OperationalRadarProviderStub implements OperationalRadarProvider
             'source' => [
                 'name' => 'EUMETSAT MTG Lightning Imager',
                 'url' => 'https://view.eumetsat.int/',
-                'license' => 'EUMETSAT Data Policy - vrije EUMETView-toegang',
+                'license' => 'CC BY 4.0',
+                'license_url' => 'https://user.eumetsat.int/resources/user-guides/data-registration-and-licensing',
+                'attribution' => 'Contains modified EUMETSAT Meteosat data 2026',
+                'modified' => true,
+                'processed_by' => 'DIS',
             ],
             'availability_note' => 'Geen actuele bliksemradar beschikbaar.',
         ],

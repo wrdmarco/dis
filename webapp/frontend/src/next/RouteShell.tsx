@@ -32,7 +32,6 @@ const homeRedirectCandidates = [
   { to: '/forms', ...webRouteAccess.forms },
   { to: '/prioriteitsbesluiten', ...webRouteAccess.priorityDecisions },
   { to: '/admin', ...webRouteAccess.admin },
-  { to: '/knmi', ...webRouteAccess.knmi },
   { to: '/branding', ...webRouteAccess.branding },
   { to: '/audit', ...webRouteAccess.audit },
   { to: '/backups', ...webRouteAccess.backups },

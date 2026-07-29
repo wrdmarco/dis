@@ -94,10 +94,15 @@ final class CalendarEventAuthorizationTest extends TestCase
             Permission::query()->where('name', 'settings.manage')->sole()->id,
             ['created_at' => now()],
         );
-        $weatherManagerRole->permissions()->attach(
-            Permission::query()->where('name', 'knmi.manage')->sole()->id,
-            ['created_at' => now()],
+        $legacyWeatherPermission = Permission::query()->firstOrCreate(
+            ['name' => 'knmi.manage'],
+            [
+                'display_name' => 'Legacy KNMI management',
+                'category' => 'migration-test',
+                'description' => 'Compatibility input for the historical forecast permission migration.',
+            ],
         );
+        $weatherManagerRole->permissions()->attach($legacyWeatherPermission->id, ['created_at' => now()]);
 
         $migration = require database_path('migrations/2026_07_27_000011_add_calendar_and_forecast_permissions.php');
         $migration->up();

@@ -23,12 +23,15 @@ test('only a definitive authenticated-session 401 clears the active web login', 
 test('CSP allows only supported frames plus same-origin and local-blob media', () => {
   const policy = buildContentSecurityPolicy({ nonce: 'test-nonce', development: false });
   const frameDirective = policy.split(';').map((part) => part.trim()).find((part) => part.startsWith('frame-src '));
+  const imageDirective = policy.split(';').map((part) => part.trim()).find((part) => part.startsWith('img-src '));
   const mediaDirective = policy.split(';').map((part) => part.trim()).find((part) => part.startsWith('media-src '));
 
   expect(frameDirective).toContain('https://www.youtube.com');
   expect(frameDirective).toContain('https://player.vimeo.com');
   expect(frameDirective).not.toContain('*.youtube.com');
   expect(frameDirective).not.toContain('*.vimeo.com');
+  expect(imageDirective).toContain('https://service.pdok.nl');
+  expect(imageDirective).not.toContain('*.pdok.nl');
   expect(mediaDirective).toBe("media-src 'self' blob:");
   expect(mediaDirective).not.toContain('data:');
   expect(mediaDirective).not.toContain('https:');

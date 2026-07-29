@@ -367,64 +367,50 @@ details are never included in the KPI payload. A percentage without a valid deno
 rather than zero.
 
 The UAV Forecast page uses either an administrator-selected address, resolved server-side through the existing
-DIS address search, or the exact average of one reference point in each of the twelve Dutch provinces. Current
-weather, daylight, temperature, dew point, precipitation, visibility and wind come from
-[Open-Meteo](https://open-meteo.com/en/docs) and refresh at most once every fifteen minutes. Total, low, middle
-and high cloud cover plus the model cloud base come from the centrally installed
-[KNMI HARMONIE-AROME Cy43 P1 dataset](https://dataplatform.knmi.nl/dataset/harmonie-arome-cy43-p1-1-0); the
-planetary Kp index comes from the fixed
-[NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json).
+DIS address search, or the exact average of one reference point in each of the twelve Dutch provinces. Weather,
+temperature, dew point, precipitation, visibility, cloud layers, model cloud base and winds come directly from
+the tokenless [DMI Forecast Data EDR API](https://www.dmi.dk/friedata/dokumentation/forecast-data-edr-api) and
+are cached in Redis for at most fifteen minutes. DMI HARMONIE DINI data is licensed under
+[CC BY 4.0](https://www.dmi.dk/friedata/dokumentation/terms-of-use). Daylight is calculated server-side for the
+resolved position and the planetary Kp index comes from the fixed
+[NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json). No forecast archive,
+GRIB/HDF5 file or immutable weather snapshot is stored on the application filesystem.
 
-The `/weather` page and wallboard weather-radar pages render only locally validated, same-origin image
-atlases. The KNMI `radar_forecast` atlas contains 25 five-minute frames from the model reference time through
-+120 minutes. The EUMETSAT MTG Lightning Imager atlas contains the latest seven five-minute Accumulated Flash
-Area frames. Browsers never contact either provider directly; the server preloads new source data and atomically
-switches snapshots, while displays continue to use the preceding validated image during a bounded failure.
-The map includes a local simplified Netherlands outline derived from PDOK/Kadaster Bestuurlijke Gebieden 2026
-under CC BY 4.0, so wallboards do not depend on a remote basemap.
+The `/weather` page presents a map-first, Buienradar-style timeline. The server reads the open
+[DWD RV radar WMS](https://www.dwd.de/DE/leistungen/radarprodukte/radarlayer.html), which supplies five-minute
+observations plus a two-hour nowcast, and exposes 37 validated same-origin frames from -60 through +120 minutes.
+The current model boundary is shown as a fixed `NU` seam between observations and forecast. The DWD production
+geoservice has its official disaster-recovery endpoint as a fallback; DWD open geodata is reused under
+[CC BY 4.0](https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html).
 
-The three-hour shower card keeps two different KNMI products visibly separate: the
-[radar nowcast](https://dataplatform.knmi.nl/dataset/radar-forecast-2-0) covers the first 120 minutes and the
-[seamless ensemble product](https://dataplatform.knmi.nl/dataset/seamless-precipitation-ensemble-forecast-probabilities-1-0)
-supplies only the probability of at least 0.1 mm/hour for the third hour. Both products are attributed to KNMI
-under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and publish on a five-minute reference clock.
-KNMI still labels the seamless product as a pilot, so an absent or changed schema is treated as unknown.
-Four minutes after each reference time,
-a dedicated realtime worker downloads the newest radar file and, when available, its matching probability file
-as complete Open Data files with HTTP 200 (never byte ranges), validates their HDF5/NetCDF4 structure and
-forecast times, and atomically activates the local snapshot. A missing or invalid optional probability product
-therefore remains unknown without hiding a valid radar atlas. A failed, incomplete or mismatched radar import
-leaves the previous validated snapshot active. Normal KNMI source latency is accepted for 30 minutes; an older
-radar atlas is clearly marked stale and remains displayable only while its +120-minute timeline is still useful.
+The selectable lightning layer reads the fixed EUMETView `mtg_fd:li_afa` WMS layer live and exposes the latest
+seven five-minute Accumulated Flash Area frames. It represents total lightning and does not distinguish
+cloud-to-ground from cloud-to-cloud flashes. EUMETView imagery is shown with source and policy attribution under
+the [EUMETSAT data registration and licensing terms](https://user.eumetsat.int/resources/user-guides/data-registration-and-licensing).
+DIS does not embed or scrape Buienradar.nl, LightningMaps or Blitzortung.
 
-The realtime worker also downloads the fixed EUMETSAT `mtg_fd:li_afa` WMS layer every five minutes. Its
-five-minute observation end, source age and import lag are exposed separately. Normal source latency is accepted
-for 30 minutes. After that, the last validated atlas may remain visible for at most two hours and is always marked
-stale; beyond that bound no lightning image is served. The thunderstorm card uses the Open-Meteo
-15-minute WMO forecast for the next three hours and explicitly does not claim live lightning detection. DIS
-does not embed or scrape LightningMaps/Blitzortung.
+Weather-provider images are validated, size-bounded and cached only through the configured Laravel cache
+(Redis in production); they are never written to local or shared snapshot directories. Browsers receive
+immutable, HMAC-protected same-origin frame URLs. A 256 KiB per-frame ceiling and bounded Redis retention of
+two hours for DWD and ninety minutes for EUMETSAT preserve the full history plus stale-fallback window; the
+browser cache prevents repeat downloads. Browsers contact only PDOK directly for the interactive grey WMTS
+background.
+The map supports pan, zoom, fullscreen, location centring and reduced motion, with visible attribution for
+PDOK/Kadaster, DWD, DMI and EUMETSAT. Wallboards use the same live frame contract and preload the bounded active
+series through their existing browser cache.
 
-The dedicated `/knmi` management page stores the Open Data and EDR keys encrypted, shows import progress and
-lets a `settings.manage` administrator request an update. Its operational inventory lists only the seven sources
-that DIS actually consumes. A separate searchable, paginated catalogue reads the official KNMI catalogue through
-a fixed server-side endpoint, caches responses for fifteen minutes and can use an explicitly labelled
-seven-day stale cache if the catalogue is unavailable; browsing that catalogue never downloads dataset files.
-The scheduler checks HARMONIE every three hours. An update
-downloads the complete current TAR object with HTTP 200, never byte ranges, validates and indexes all 61 GRIB1
-members from forecast hour +00 through +60, then atomically switches the shared active snapshot. A failed or
-incomplete update leaves the preceding snapshot active. The raw archive is removed after extraction and only a
-bounded number of immutable releases is retained under persistent application storage.
-On a multi-server installation `KNMI_FORECAST_STORAGE_ROOT` must resolve to the same shared POSIX filesystem on
-every web and KNMI-worker node and that filesystem must provide atomic rename; node-local roots are supported
-only for the default single-server topology.
+Deployment retires the former `dis-knmi` and `dis-knmi-realtime` workers, clears only their two Redis queues,
+removes their unit files and obsolete environment settings, and securely removes exactly
+`/opt/dis-data/webapp/backend/storage/app/knmi-forecast` and
+`/opt/dis-data/webapp/backend/storage/app/eumetsat-lightning`. Restore applies the same retirement after
+installing an older backup, so retired snapshots cannot silently return.
 
-HARMONIE values are model expectations, not measurements. The model cloud-base field is displayed without
-claiming an AGL or MSL reference because that reference is not specified by this dataset contract. Recent KNMI
-EDR station cloud layers remain a separate measured value in metres above mean sea level, with station distance
-and observation time. Model percentages and station observations are never blended.
+DMI HARMONIE values are model expectations, not measurements. The model cloud-base field is displayed without
+claiming an AGL or MSL reference because that reference is not specified by this dataset contract. Missing,
+invalid, rate-limited or stale source data stays unknown and can never become green.
 
 Wind is reported at its source height in metres AGL. The service also derives the highest sampled height at
-10, 80 or 120 metres AGL whose wind classification has not reached red. Visibility changes from metres to
+10, 100 or 150 metres AGL whose wind classification has not reached red. Visibility changes from metres to
 kilometres with two decimals at 10 km. Administrators may hide individual information cards, but the mandatory
 flight advice always evaluates the complete server-side metric set. Each full metric card is classified green,
 orange, red or unknown, while the advice bar shows one stable data-refresh time in `Europe/Amsterdam`. Source,

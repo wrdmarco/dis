@@ -916,6 +916,12 @@ export type WallboardForecastMetricKey =
 export interface WallboardForecastSource {
   name: string;
   url: string | null;
+  license?: string;
+  license_url?: string;
+  attribution?: string;
+  modified?: boolean;
+  processed_by?: string;
+  processing_note?: string;
 }
 
 export interface WallboardForecastWindSample {
@@ -960,7 +966,7 @@ export interface WallboardForecastCloudBaseForecast {
   sample_count: number;
   model_run_at: string | null;
   valid_at: string | null;
-  attribution: 'KNMI_HARMONIE' | 'DIS_DEMO';
+  attribution: 'KNMI_HARMONIE' | 'DMI_HARMONIE' | 'DIS_DEMO';
 }
 
 export interface WallboardForecastPrecipitationOutlook {
@@ -975,7 +981,7 @@ export interface WallboardForecastPrecipitationOutlook {
   reference_time: string;
   sample_count: number;
   expected_sample_count: number;
-  attribution: 'KNMI' | 'DIS_DEMO';
+  attribution: 'KNMI' | 'DMI' | 'DIS_DEMO';
 }
 
 export interface WallboardForecastThunderstormOutlook {
@@ -984,7 +990,7 @@ export interface WallboardForecastThunderstormOutlook {
   forecast_until: string;
   sample_count: number;
   expected_sample_count: number;
-  attribution: 'OPEN_METEO' | 'DIS_DEMO';
+  attribution: 'OPEN_METEO' | 'DMI' | 'DIS_DEMO';
 }
 
 export interface WallboardForecastMetric {
@@ -1076,6 +1082,9 @@ export interface OperationalWeatherCloudState {
   cloud_cover_mid_pct: number | null;
   cloud_cover_high_pct: number | null;
   cloud_base_m: number | null;
+  cloud_base_complete: boolean;
+  cloud_base_sample_count: number | null;
+  cloud_base_expected_sample_count: number | null;
   model_run_at: string | null;
   valid_at: string | null;
   measured_at: string | null;
@@ -1106,21 +1115,39 @@ export interface OperationalWeatherPrecipitationState {
 }
 
 export type OperationalWeatherRadarLayerStatus = 'available' | 'stale' | 'unavailable';
+export type OperationalWeatherRadarRenderMode = 'atlas' | 'image_frames';
+export type OperationalWeatherRadarFramePhase = 'observation' | 'forecast';
+
+export interface OperationalWeatherRadarBounds {
+  crs: 'EPSG:4326';
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
 
 export interface OperationalWeatherRadarFrame {
   index: number;
   valid_at: string;
   lead_minutes: number;
+  phase?: OperationalWeatherRadarFramePhase;
+  image_url?: string | null;
 }
 
 export interface OperationalWeatherRadarSource {
   name: string;
   url: string | null;
   license: string;
+  license_url?: string;
+  attribution?: string;
+  modified?: boolean;
+  processed_by?: string;
 }
 
 export interface OperationalWeatherRadarLayer {
   status: OperationalWeatherRadarLayerStatus;
+  render_mode?: OperationalWeatherRadarRenderMode;
+  bounds?: OperationalWeatherRadarBounds | null;
   reference_time: string | null;
   observed_period_end: string | null;
   age_seconds: number | null;
@@ -1872,166 +1899,6 @@ export interface OsrmOperationStarted {
 
 export interface OsrmOperationRequest {
   action: OsrmManagementAction;
-}
-
-export type KnmiForecastOperationState = 'queued' | 'running' | 'succeeded' | 'failed';
-
-export interface KnmiForecastOperation {
-  id: string;
-  state: KnmiForecastOperationState;
-  stage: string;
-  message: string;
-  progress_percent: number | null;
-  downloaded_bytes: number | null;
-  total_bytes: number | null;
-  source_filename: string | null;
-  unchanged: boolean;
-  snapshot_id: string | null;
-  error_code: string | null;
-  requested_by: string | null;
-  started_at: string | null;
-  finished_at: string | null;
-  created_at: string;
-}
-
-export interface KnmiForecastSnapshot {
-  id: string;
-  source_filename: string;
-  source_size_bytes: number;
-  model_run_at: string;
-  forecast_start_at: string;
-  forecast_end_at: string;
-  member_count: number;
-  activated_at: string;
-}
-
-export type KnmiDatasetCategory = 'active' | 'on_demand' | 'available';
-export type KnmiDatasetStatus = 'current' | 'stale' | 'unavailable' | 'not_configured' | 'on_demand' | 'available';
-export type KnmiDatasetStorageMode = 'local_snapshot' | 'local_cache' | 'remote_on_demand' | 'catalog_only';
-
-export interface KnmiDatasetOperation {
-  id: string;
-  dataset_keys: string[];
-  state: KnmiForecastOperationState;
-  stage: string;
-  message: string;
-  progress_percent: number | null;
-  started_at: string | null;
-  finished_at: string | null;
-}
-
-export interface KnmiDatasetError {
-  code: string;
-  message: string;
-  at: string | null;
-}
-
-export interface KnmiAdminDatasetStatus {
-  key: string;
-  provider: string;
-  dataset: string | null;
-  version: string | null;
-  category: KnmiDatasetCategory;
-  consumers: string[];
-  storage_mode: KnmiDatasetStorageMode;
-  status: KnmiDatasetStatus;
-  configured: boolean;
-  source_url: string;
-  reference_at: string | null;
-  refreshed_at: string | null;
-  next_update_at: string | null;
-  availability_note: string | null;
-  latest_error: KnmiDatasetError | null;
-  refreshable: boolean;
-  operation: KnmiDatasetOperation | null;
-}
-
-export interface KnmiAdminConfiguration {
-  configured: boolean;
-  open_data_api_key_configured: boolean;
-  open_data_api_key_source: string | null;
-  open_data_endpoint: string;
-  edr_api_key_configured: boolean;
-  edr_api_key_source: string | null;
-  edr_collection_endpoint: string;
-  dataset: string;
-  dataset_version: string;
-  automatic_interval_hours: number;
-}
-
-export interface KnmiAdminStatus {
-  configuration: KnmiAdminConfiguration;
-  active_snapshot: KnmiForecastSnapshot | null;
-  active_operation: KnmiForecastOperation | null;
-  latest_operation: KnmiForecastOperation | null;
-  datasets?: KnmiAdminDatasetStatus[];
-}
-
-export interface KnmiCatalogItem {
-  key: string;
-  title: string;
-  dataset: string;
-  version: string | null;
-  description: string | null;
-  status: string | null;
-  license_id: string | null;
-  license_title: string | null;
-  is_open: boolean;
-  formats: string[];
-  topics: string[];
-  publication_at: string | null;
-  metadata_updated_at: string | null;
-  source_url: string;
-}
-
-export interface KnmiCatalogFilterOption {
-  value: string;
-  label: string;
-}
-
-export interface KnmiCatalogLicenseOption extends KnmiCatalogFilterOption {
-  count: number;
-}
-
-export interface KnmiCatalogResponse {
-  items: KnmiCatalogItem[];
-  pagination: {
-    page: number;
-    per_page: number;
-    total: number;
-    last_page: number;
-    from: number | null;
-    to: number | null;
-  };
-  filters: {
-    statuses: KnmiCatalogFilterOption[];
-    licenses: KnmiCatalogLicenseOption[];
-  };
-  catalog: {
-    available: boolean;
-    cache_state: 'fresh' | 'stale' | 'unavailable';
-    fetched_at: string | null;
-    source_url: string;
-    warning: string | null;
-  };
-}
-
-export interface KnmiAdminSettingsRequest {
-  open_data_api_key?: string;
-  edr_api_key?: string;
-}
-
-export interface KnmiForecastOperationStarted {
-  operation: KnmiForecastOperation;
-}
-
-export interface KnmiPrecipitationRefreshStarted {
-  requested: boolean;
-}
-
-export interface KnmiDatasetRefreshStarted {
-  dataset_key: string;
-  operation: KnmiDatasetOperation;
 }
 
 export interface FormFieldOption {

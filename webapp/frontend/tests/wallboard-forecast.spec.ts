@@ -287,8 +287,8 @@ test('keeps radar intensity and the third-hour probability visibly separate', ()
   const blocks = wallboardForecastDisplayBlocks(forecast);
 
   expect(blocks.find((block) => block.key === 'precipitation_outlook')).toMatchObject({
-    label: 'Buien +3 uur',
-    value: 'Bui vanaf 14:45',
+    label: 'Neerslag +3 uur',
+    value: 'Neerslag vanaf 14:45',
     status: 'orange',
     details: [
       '0–2 uur radar: piek 0,8 mm/u',

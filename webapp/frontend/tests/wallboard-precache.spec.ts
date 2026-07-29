@@ -19,9 +19,9 @@ const IMAGE_TWO = '01KXW0QZTP0000000000000001';
 const VIDEO = '01KXW0QZTP0000000000000002';
 const POSTER = '01KXW0QZTP0000000000000003';
 const NEWS_HASH = 'a'.repeat(64);
-const PRECIPITATION_ATLAS = '/api/wallboard/weather-radar/precipitation/20260723T120000Z-0123456789abcdef.png';
-const NEXT_PRECIPITATION_ATLAS = '/api/wallboard/weather-radar/precipitation/20260723T121500Z-fedcba9876543210.png';
-const LIGHTNING_ATLAS = '/api/wallboard/weather-radar/lightning/20260723T120000Z-abcdef0123456789.png';
+const PRECIPITATION_ATLAS = '/api/wallboard/weather-radar/precipitation/20260723T120000Z-o-0123456789abcdef.png';
+const NEXT_PRECIPITATION_ATLAS = '/api/wallboard/weather-radar/precipitation/20260723T121500Z-f20260723T120000Z-fedcba9876543210.png';
+const LIGHTNING_ATLAS = '/api/wallboard/weather-radar/lightning/20260723T120000Z-o-abcdef0123456789.png';
 
 test('builds one stable manifest across all configured cacheable wallboard pages', () => {
   const state = wallboardState();
@@ -122,7 +122,13 @@ test('allows only immutable wallboard media paths and never state feeds', () => 
   expect(wallboardAssetPathIsCacheable(PRECIPITATION_ATLAS)).toBe(true);
   expect(wallboardAssetPathIsCacheable(LIGHTNING_ATLAS)).toBe(true);
   expect(wallboardAssetPathIsCacheable(
-    '/api/operational-weather/radar/lightning/20260723T120000Z-abcdef0123456789.png',
+    '/api/wallboard/weather-radar/precipitation/20260723T121500Z-f20260723T120000Z-0011223344556677.png',
+  )).toBe(true);
+  expect(wallboardAssetPathIsCacheable(
+    '/api/wallboard/weather-radar/precipitation/20260723T121500Z-0011223344556677.png',
+  )).toBe(false);
+  expect(wallboardAssetPathIsCacheable(
+    '/api/operational-weather/radar/lightning/20260723T120000Z-o-abcdef0123456789.png',
   )).toBe(false);
   expect(wallboardAssetPathIsCacheable(
     '/api/wallboard/weather-radar/precipitation/latest.png',
@@ -654,18 +660,31 @@ function page(id: string, type: WallboardPage['type'], options: Record<string, u
 
 function radarLayer(
   kind: 'precipitation' | 'lightning',
-  atlasUrl: string,
+  imageUrl: string,
 ): NonNullable<NonNullable<WallboardState['weather_radar']>['precipitation']> {
+  const forecast = imageUrl.includes('-f');
   return {
     status: 'available',
+    render_mode: 'image_frames',
+    bounds: { crs: 'EPSG:4326', west: 2.5, south: 50.5, east: 7.8, north: 53.7 },
     reference_time: '2026-07-23T12:00:00Z',
-    atlas_url: atlasUrl,
-    atlas_columns: kind === 'precipitation' ? 5 : 4,
-    atlas_rows: kind === 'precipitation' ? 5 : 2,
+    observed_period_end: null,
+    age_seconds: 60,
+    lag_seconds: 20,
+    refreshed_at: '2026-07-23T12:01:00Z',
+    atlas_url: null,
+    atlas_columns: 0,
+    atlas_rows: 0,
     frame_width: kind === 'precipitation' ? 140 : 640,
     frame_height: kind === 'precipitation' ? 153 : 384,
-    frames: [{ index: 0, valid_at: '2026-07-23T12:00:00Z', lead_minutes: 0 }],
-    source: { name: kind === 'precipitation' ? 'KNMI' : 'EUMETSAT', url: null, license: 'Open data' },
+    frames: [{
+      index: 0,
+      valid_at: forecast ? '2026-07-23T12:15:00Z' : '2026-07-23T12:00:00Z',
+      lead_minutes: forecast ? 15 : 0,
+      phase: forecast ? 'forecast' : 'observation',
+      image_url: imageUrl,
+    }],
+    source: { name: kind === 'precipitation' ? 'DWD RV' : 'EUMETSAT', url: null, license: 'Open data' },
     availability_note: null,
   };
 }

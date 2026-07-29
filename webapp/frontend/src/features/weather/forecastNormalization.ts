@@ -38,7 +38,8 @@ const WALLBOARD_FORECAST_ADVICE_METRIC_KEYS = WALLBOARD_FORECAST_METRIC_KEYS.fil
   (key) => key !== 'cloud_cover_pct',
 );
 
-const OPERATIONAL_RADAR_ATLAS_PATH = /^\/api\/(?:operational-weather\/radar|wallboard\/weather-radar)\/(precipitation|lightning)\/(\d{8}T\d{6}Z-[a-f0-9]{16})\.png$/;
+const OPERATIONAL_RADAR_ATLAS_PATH = /^\/api\/(?:operational-weather\/radar|wallboard\/weather-radar)\/(precipitation|lightning)\/(\d{8}T\d{6}Z-(?:o|f\d{8}T\d{6}Z)-[a-f0-9]{16})\.png$/;
+const OPERATIONAL_RADAR_FRAME_PATH = /^\/api\/(?:operational-weather\/radar|wallboard\/weather-radar)\/(precipitation|lightning)\/\d{8}T\d{6}Z-(?:o|f\d{8}T\d{6}Z)-[a-f0-9]{16}\.png$/;
 
 export function normalizeUavForecastPage(value: unknown): WallboardForecastPageState | null {
   return normalizeWallboardForecastState({ pages: { forecast: value } }).pages.forecast ?? null;
@@ -216,14 +217,13 @@ export function normalizeOperationalWeatherPage(value: unknown): OperationalWeat
   const radar = normalizeOperationalWeatherRadarState(value.radar);
   const cloudCurrent = cloud.complete && !cloud.stale;
   const precipitationCurrent = precipitation.complete && !precipitation.stale;
-  const precipitationFullyCurrent = precipitationCurrent && precipitation.probability_complete;
   const precipitationRadarCurrent = radar.precipitation?.status === 'available';
   const lightningRadarCurrent = radar.lightning?.status === 'available';
   const aggregationCurrent = aggregation.complete && aggregation.fresh;
   const dataStatus = !locationIsValid || !aggregationContractValid
     ? 'unavailable'
     : cloudCurrent
-        && precipitationFullyCurrent
+        && precipitationCurrent
         && precipitationRadarCurrent
         && lightningRadarCurrent
         && aggregationCurrent
@@ -243,8 +243,7 @@ export function normalizeOperationalWeatherPage(value: unknown): OperationalWeat
       ...aggregation,
       complete: aggregation.complete
         && cloud.complete
-        && precipitation.complete
-        && precipitation.probability_complete,
+        && precipitation.complete,
       fresh: aggregation.fresh && dataStatus === 'current',
     },
     generated_at: generatedAt,
@@ -254,7 +253,7 @@ export function normalizeOperationalWeatherPage(value: unknown): OperationalWeat
     radar,
     scope_note: typeof value.scope_note === 'string' && value.scope_note.trim() !== ''
       ? value.scope_note.trim().slice(0, 600)
-      : 'Lokaal opgeslagen weer- en radardata voor het gekozen gebied.',
+      : 'Live open weer- en radardata voor het gekozen gebied.',
     disclaimer: typeof value.disclaimer === 'string' && value.disclaimer.trim() !== ''
       ? value.disclaimer.trim().slice(0, 600)
       : 'Indicatieve gegevens; operationele en wettelijke limieten gaan altijd voor.',
@@ -286,6 +285,8 @@ function normalizeOperationalWeatherRadarLayer(
   const availabilityNote = normalizeOptionalText(value.availability_note, 400);
   const unavailable = {
     status: 'unavailable' as const,
+    render_mode: 'atlas' as const,
+    bounds: null,
     reference_time: null,
     observed_period_end: null,
     age_seconds: null,
@@ -316,27 +317,42 @@ function normalizeOperationalWeatherRadarLayer(
   const refreshedAt = value.refreshed_at === null || value.refreshed_at === undefined
     ? null
     : requiredRadarIsoTimestamp(value.refreshed_at);
-  const atlasUrl = normalizeOperationalRadarAtlasUrl(value.atlas_url, kind);
+  const renderMode = value.render_mode === 'image_frames' ? 'image_frames' : 'atlas';
+  const bounds = renderMode === 'image_frames'
+    ? normalizeOperationalRadarBounds(value.bounds)
+    : null;
+  const atlasUrl = renderMode === 'atlas'
+    ? normalizeOperationalRadarAtlasUrl(value.atlas_url, kind)
+    : null;
   const expectedColumns = kind === 'precipitation' ? 5 : 4;
   const expectedRows = kind === 'precipitation' ? 5 : 2;
-  const columns = normalizeBoundedInteger(value.atlas_columns, expectedColumns, expectedColumns);
-  const rows = normalizeBoundedInteger(value.atlas_rows, expectedRows, expectedRows);
+  const columns = renderMode === 'atlas'
+    ? normalizeBoundedInteger(value.atlas_columns, expectedColumns, expectedColumns)
+    : normalizeBoundedInteger(value.atlas_columns, 0, 0);
+  const rows = renderMode === 'atlas'
+    ? normalizeBoundedInteger(value.atlas_rows, expectedRows, expectedRows)
+    : normalizeBoundedInteger(value.atlas_rows, 0, 0);
   const frameWidth = normalizeBoundedInteger(value.frame_width, 64, 4_096);
   const frameHeight = normalizeBoundedInteger(value.frame_height, 64, 4_096);
-  const frames = normalizeOperationalRadarFrames(value.frames, kind, referenceTime);
-  const expectedFrameCount = kind === 'precipitation' ? 25 : null;
+  const frames = normalizeOperationalRadarFrames(value.frames, kind, referenceTime, renderMode);
+  const expectedFrameCount = renderMode === 'atlas' && kind === 'precipitation' ? 25 : null;
   const observedPeriodValid = observedPeriodEnd === null
-    || (kind === 'lightning'
+    || (renderMode === 'image_frames'
+      && referenceTime !== null
+      && Date.parse(observedPeriodEnd) <= Date.parse(referenceTime) + 5 * 60_000
+      && Date.parse(observedPeriodEnd) >= Date.parse(referenceTime) - 180 * 60_000)
+    || (renderMode === 'atlas'
+      && kind === 'lightning'
       && referenceTime !== null
       && Date.parse(observedPeriodEnd) === Date.parse(referenceTime) + 5 * 60_000);
   const metadataValid = referenceTime !== null
-    && atlasUrl !== null
+    && (renderMode === 'atlas' ? atlasUrl !== null : bounds !== null)
     && columns !== null
     && rows !== null
     && frameWidth !== null
     && frameHeight !== null
     && frames.length > 0
-    && frames.length <= columns * rows
+    && (renderMode === 'image_frames' || frames.length <= columns * rows)
     && (expectedFrameCount === null || frames.length === expectedFrameCount)
     && (value.observed_period_end === null
       || value.observed_period_end === undefined
@@ -355,6 +371,8 @@ function normalizeOperationalWeatherRadarLayer(
 
   return {
     status: value.status,
+    render_mode: renderMode,
+    bounds,
     reference_time: referenceTime,
     observed_period_end: observedPeriodEnd,
     age_seconds: ageSeconds,
@@ -375,18 +393,43 @@ function normalizeOperationalRadarFrames(
   value: unknown,
   kind: 'precipitation' | 'lightning',
   referenceTime: string | null,
+  renderMode: 'atlas' | 'image_frames',
 ): OperationalWeatherRadarFrame[] {
   if (!Array.isArray(value) || referenceTime === null) return [];
   const referenceMillis = Date.parse(referenceTime);
-  const maximumFrames = kind === 'precipitation' ? 25 : 8;
+  const maximumFrames = renderMode === 'image_frames' ? 64 : kind === 'precipitation' ? 25 : 8;
   if (value.length === 0 || value.length > maximumFrames) return [];
 
   const frames = value.flatMap((frame, position) => {
     if (!isRecord(frame)) return [];
     const index = normalizeBoundedInteger(frame.index, 0, maximumFrames - 1);
     const validAt = requiredRadarIsoTimestamp(frame.valid_at);
-    const leadMinutes = normalizeBoundedInteger(frame.lead_minutes, kind === 'lightning' ? -120 : 0, 120);
+    const leadMinutes = normalizeBoundedInteger(
+      frame.lead_minutes,
+      renderMode === 'image_frames' || kind === 'lightning' ? -180 : 0,
+      180,
+    );
     if (index !== position || validAt === null || leadMinutes === null) return [];
+    if (renderMode === 'image_frames') {
+      const imageUrl = normalizeOperationalRadarFrameUrl(frame.image_url, kind);
+      const phase = frame.phase === 'observation' || frame.phase === 'forecast'
+        ? frame.phase
+        : null;
+      if (
+        imageUrl === null
+        || phase === null
+        || Date.parse(validAt) !== referenceMillis + leadMinutes * 60_000
+        || (phase === 'observation' && leadMinutes > 0)
+        || (phase === 'forecast' && leadMinutes < 0)
+      ) return [];
+      return [{
+        index,
+        valid_at: validAt,
+        lead_minutes: leadMinutes,
+        phase,
+        image_url: imageUrl,
+      }];
+    }
     if (kind === 'precipitation') {
       if (leadMinutes !== position * 5 || Date.parse(validAt) !== referenceMillis + leadMinutes * 60_000) return [];
       return [{ index, valid_at: validAt, lead_minutes: leadMinutes }];
@@ -400,6 +443,13 @@ function normalizeOperationalRadarFrames(
   });
 
   if (frames.length !== value.length) return [];
+  if (renderMode === 'image_frames') {
+    const ordered = frames.every((frame, position) => (
+      position === 0
+      || Date.parse(frame.valid_at) > Date.parse(frames[position - 1].valid_at)
+    ));
+    return ordered ? frames : [];
+  }
   if (kind === 'lightning') {
     const ordered = frames.every((frame, position) => (
       position === 0
@@ -414,10 +464,17 @@ function normalizeOperationalWeatherRadarSource(
   value: unknown,
 ): OperationalWeatherRadarSource {
   if (!isRecord(value)) return { name: 'Onbekend', url: null, license: 'Onbekend' };
+  const licenseUrl = normalizeHttpsUrl(value.license_url);
+  const attribution = normalizeOptionalText(value.attribution, 240);
+  const processedBy = normalizeOptionalText(value.processed_by, 80);
   return {
     name: normalizeOptionalText(value.name, 120) ?? 'Onbekend',
     url: normalizeHttpsUrl(value.url),
     license: normalizeOptionalText(value.license, 160) ?? 'Onbekend',
+    ...(licenseUrl === null ? {} : { license_url: licenseUrl }),
+    ...(attribution === null ? {} : { attribution }),
+    ...(typeof value.modified === 'boolean' ? { modified: value.modified } : {}),
+    ...(processedBy === null ? {} : { processed_by: processedBy }),
   };
 }
 
@@ -428,6 +485,29 @@ function normalizeOperationalRadarAtlasUrl(
   if (typeof value !== 'string') return null;
   const match = OPERATIONAL_RADAR_ATLAS_PATH.exec(value);
   return match?.[1] === kind ? value : null;
+}
+
+function normalizeOperationalRadarFrameUrl(
+  value: unknown,
+  kind: 'precipitation' | 'lightning',
+): string | null {
+  if (typeof value !== 'string') return null;
+  const match = OPERATIONAL_RADAR_FRAME_PATH.exec(value);
+  return match?.[1] === kind ? value : null;
+}
+
+function normalizeOperationalRadarBounds(
+  value: unknown,
+): NonNullable<OperationalWeatherPageState['radar']['precipitation']>['bounds'] {
+  if (!isRecord(value) || value.crs !== 'EPSG:4326') return null;
+  const west = boundedNumber(value.west, -180, 180);
+  const south = boundedNumber(value.south, -90, 90);
+  const east = boundedNumber(value.east, -180, 180);
+  const north = boundedNumber(value.north, -90, 90);
+  if (west === null || south === null || east === null || north === null || west >= east || south >= north) {
+    return null;
+  }
+  return { crs: 'EPSG:4326', west, south, east, north };
 }
 
 function requiredRadarIsoTimestamp(value: unknown): string | null {
@@ -457,6 +537,8 @@ function normalizeOperationalWeatherCloud(
   const midCloudCover = boundedNumber(value.cloud_cover_mid_pct, 0, 100);
   const highCloudCover = boundedNumber(value.cloud_cover_high_pct, 0, 100);
   const cloudBase = value.cloud_base_m === null ? null : boundedNumber(value.cloud_base_m, 0, 60_000);
+  const cloudBaseSampleCount = normalizeBoundedInteger(value.cloud_base_sample_count, 0, 12);
+  const cloudBaseExpectedSampleCount = normalizeBoundedInteger(value.cloud_base_expected_sample_count, 1, 12);
   const modelRunAt = requiredIsoTimestamp(value.model_run_at);
   const validAt = requiredIsoTimestamp(value.valid_at);
   const measuredAt = requiredIsoTimestamp(value.measured_at);
@@ -471,6 +553,11 @@ function normalizeOperationalWeatherCloud(
     && Date.parse(modelRunAt) <= Date.parse(validAt)
     && Date.parse(measuredAt) === Date.parse(validAt)
     && Date.parse(refreshedAt) >= Date.parse(modelRunAt);
+  const cloudBaseStructurallyComplete = value.cloud_base_complete === true
+    && cloudBase !== null
+    && cloudBaseSampleCount === aggregationExpectedSampleCount
+    && cloudBaseExpectedSampleCount === aggregationExpectedSampleCount
+    && timestampsValid;
   const structurallyComplete = cloudCover !== null
     && lowCloudCover !== null
     && midCloudCover !== null
@@ -479,9 +566,11 @@ function normalizeOperationalWeatherCloud(
     && expectedSampleCount !== null
     && expectedSampleCount === aggregationExpectedSampleCount
     && sampleCount === aggregationExpectedSampleCount
+    && cloudBaseStructurallyComplete
     && source.name !== 'Onbekend'
     && timestampsValid;
-  const claimedCompleteButInvalid = value.complete === true && !structurallyComplete;
+  const claimedCompleteButInvalid = (value.complete === true && !structurallyComplete)
+    || (value.cloud_base_complete === true && !cloudBaseStructurallyComplete);
   const stale = value.stale === true || claimedCompleteButInvalid;
 
   return {
@@ -491,7 +580,10 @@ function normalizeOperationalWeatherCloud(
     cloud_cover_low_pct: lowCloudCover,
     cloud_cover_mid_pct: midCloudCover,
     cloud_cover_high_pct: highCloudCover,
-    cloud_base_m: cloudBase,
+    cloud_base_m: cloudBaseStructurallyComplete && !stale ? cloudBase : null,
+    cloud_base_complete: cloudBaseStructurallyComplete && !stale,
+    cloud_base_sample_count: cloudBaseSampleCount,
+    cloud_base_expected_sample_count: cloudBaseExpectedSampleCount,
     model_run_at: modelRunAt,
     valid_at: validAt,
     measured_at: measuredAt,
@@ -525,11 +617,12 @@ function normalizeOperationalWeatherPrecipitation(
   const forecastUntilMillis = forecastUntil === null ? Number.NaN : Date.parse(forecastUntil);
   const firstPrecipitationMillis = firstPrecipitationAt === null ? null : Date.parse(firstPrecipitationAt);
   const radarTimestampsValid = Number.isFinite(referenceMillis)
-    && radarUntilMillis === referenceMillis + 120 * 60 * 1_000
+    && radarUntilMillis === referenceMillis + 180 * 60 * 1_000
     && measuredAt !== null
     && Date.parse(measuredAt) === referenceMillis
     && refreshedAt !== null
-    && Date.parse(refreshedAt) >= referenceMillis
+    && Date.parse(refreshedAt) >= referenceMillis - 120 * 60 * 1_000
+    && Date.parse(refreshedAt) <= radarUntilMillis
     && (value.radar_first_precipitation_at === null
       ? firstPrecipitationAt === null
       : firstPrecipitationMillis !== null
@@ -543,7 +636,7 @@ function normalizeOperationalWeatherPrecipitation(
     && source.name !== 'Onbekend'
     && radarTimestampsValid;
   const probabilityStructurallyComplete = probability !== null
-    && thirdHourFromMillis === radarUntilMillis
+    && thirdHourFromMillis === referenceMillis + 120 * 60 * 1_000
     && forecastUntilMillis === referenceMillis + 180 * 60 * 1_000;
   const hasExplicitProbabilityCompleteness = Object.prototype.hasOwnProperty.call(
     value,
@@ -602,7 +695,10 @@ function normalizeWallboardForecastMetric(value: unknown): WallboardForecastMetr
     && precipitationOutlook !== null
     && (
       precipitationOutlook.radar_status === 'unknown'
-      || precipitationOutlook.third_hour_probability_status === 'unknown'
+      || (
+        precipitationOutlook.attribution !== 'DMI'
+        && precipitationOutlook.third_hour_probability_status === 'unknown'
+      )
     );
   const numericValue = structuredOutlookInvalid ? null : suppliedNumericValue;
   const measuredAt = requiredIsoTimestamp(value.measured_at);
@@ -650,7 +746,7 @@ function normalizeForecastPrecipitationOutlook(
   value: unknown,
   fallbackStatus: WallboardForecastMetric['status'],
 ): WallboardForecastMetric['precipitation_outlook'] {
-  if (!isRecord(value) || !['KNMI', 'DIS_DEMO'].includes(String(value.attribution))) return null;
+  if (!isRecord(value) || !['KNMI', 'DMI', 'DIS_DEMO'].includes(String(value.attribution))) return null;
   const radarPeak = boundedNumber(value.radar_peak_mm_h, 0, 500);
   const probability = boundedNumber(value.third_hour_probability_pct, 0, 100);
   const sampleCount = normalizeBoundedInteger(value.sample_count, 1, 12);
@@ -701,14 +797,14 @@ function normalizeForecastPrecipitationOutlook(
     reference_time: referenceTime,
     sample_count: sampleCount,
     expected_sample_count: expectedSampleCount,
-    attribution: value.attribution as 'KNMI' | 'DIS_DEMO',
+    attribution: value.attribution as 'KNMI' | 'DMI' | 'DIS_DEMO',
   };
 }
 
 function normalizeForecastThunderstormOutlook(
   value: unknown,
 ): WallboardForecastMetric['thunderstorm_outlook'] {
-  if (!isRecord(value) || !['OPEN_METEO', 'DIS_DEMO'].includes(String(value.attribution))) return null;
+  if (!isRecord(value) || !['OPEN_METEO', 'DMI', 'DIS_DEMO'].includes(String(value.attribution))) return null;
   const sampleCount = normalizeBoundedInteger(value.sample_count, 1, 12);
   const expectedSampleCount = normalizeBoundedInteger(value.expected_sample_count, 1, 12);
   const firstExpectedAt = optionalIsoTimestamp(value.first_expected_at);
@@ -729,7 +825,7 @@ function normalizeForecastThunderstormOutlook(
     forecast_until: forecastUntil,
     sample_count: sampleCount,
     expected_sample_count: expectedSampleCount,
-    attribution: value.attribution as 'OPEN_METEO' | 'DIS_DEMO',
+    attribution: value.attribution as 'OPEN_METEO' | 'DMI' | 'DIS_DEMO',
   };
 }
 
@@ -752,7 +848,7 @@ function normalizeForecastCloudBaseForecast(
     !['forecast', 'not_calculated', 'unknown'].includes(String(value.status))
     || value.height_reference !== 'model_unspecified'
     || (value.aggregation !== null && !['single_grid_point', 'minimum_of_province_samples'].includes(String(value.aggregation)))
-    || !['KNMI_HARMONIE', 'DIS_DEMO'].includes(String(value.attribution))
+    || !['KNMI_HARMONIE', 'DMI_HARMONIE', 'DIS_DEMO'].includes(String(value.attribution))
   ) return null;
 
   const status = value.status as NonNullable<WallboardForecastMetric['cloud_base_forecast']>['status'];
@@ -1000,11 +1096,22 @@ function normalizeForecastWindSamples(value: unknown): WallboardForecastMetric['
 
 function normalizeForecastSource(value: unknown): WallboardForecastSource {
   if (!isRecord(value)) return { name: 'Onbekend', url: null };
+  const license = normalizeOptionalText(value.license, 160);
+  const licenseUrl = normalizeHttpsUrl(value.license_url);
+  const attribution = normalizeOptionalText(value.attribution, 240);
+  const processedBy = normalizeOptionalText(value.processed_by, 80);
+  const processingNote = normalizeOptionalText(value.processing_note, 300);
   return {
     name: typeof value.name === 'string' && value.name.trim() !== ''
       ? value.name.trim().slice(0, 80)
       : 'Onbekend',
-    url: typeof value.url === 'string' ? value.url.slice(0, 2048) : null,
+    url: normalizeHttpsUrl(value.url),
+    ...(license === null ? {} : { license }),
+    ...(licenseUrl === null ? {} : { license_url: licenseUrl }),
+    ...(attribution === null ? {} : { attribution }),
+    ...(typeof value.modified === 'boolean' ? { modified: value.modified } : {}),
+    ...(processedBy === null ? {} : { processed_by: processedBy }),
+    ...(processingNote === null ? {} : { processing_note: processingNote }),
   };
 }
 

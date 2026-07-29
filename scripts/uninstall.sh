@@ -188,44 +188,6 @@ SQL
   fi
 }
 
-retire_legacy_server_tts_for_uninstall() (
-  set -euo pipefail
-
-  local php_fpm_was_active=0
-
-  restore_php_fpm_after_retirement() {
-    local status="$?"
-
-    trap - EXIT INT TERM
-    if [ "${php_fpm_was_active}" = "1" ]; then
-      systemctl start "${PHP_FPM_SERVICE}" >/dev/null 2>&1 || {
-        printf '[dis:error] Failed to restart %s after legacy TTS retirement.\n' \
-          "${PHP_FPM_SERVICE}.service" >&2
-        [ "${status}" -ne 0 ] || status=1
-      }
-    fi
-    exit "${status}"
-  }
-  trap restore_php_fpm_after_retirement EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-
-  if systemd_service_exists "${PHP_FPM_SERVICE}" \
-    && systemctl is-active --quiet "${PHP_FPM_SERVICE}"; then
-    php_fpm_was_active=1
-    run_cmd systemctl stop "${PHP_FPM_SERVICE}"
-  fi
-
-  DIS_RETIRE_TTS_PARENT_OWNS_LOCK=1 \
-    bash "${SCRIPT_DIR}/retire-server-tts.sh"
-
-  if [ "${php_fpm_was_active}" = "1" ]; then
-    run_cmd systemctl start "${PHP_FPM_SERVICE}"
-    php_fpm_was_active=0
-  fi
-  trap - EXIT INT TERM
-)
-
 confirm "This will uninstall DIS service configuration from this server."
 acquire_dis_operation_lock uninstall
 
@@ -240,8 +202,6 @@ for service in dis-media dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue d
     run_cmd systemctl disable --now "${service}" >/dev/null 2>&1 || true
   fi
 done
-
-retire_legacy_server_tts_for_uninstall
 
 log "Removing DIS systemd units"
 for unit in \
@@ -379,7 +339,8 @@ if [ "${PURGE_PACKAGES}" = "1" ]; then
   confirm "Purge Ubuntu packages installed by DIS setup? Use only on a dedicated server."
   log "Purging DIS package dependencies"
   run_cmd apt-get purge -y \
-    composer ffmpeg nginx postgresql postgresql-client redis-server redis-tools cifs-utils smbclient hdf5-tools libeccodes-tools \
+    composer ffmpeg nginx postgresql postgresql-client redis-server redis-tools cifs-utils smbclient \
+    hdf5-tools libeccodes-tools \
     "php${PHP_VERSION}-fpm" "php${PHP_VERSION}-cli" "php${PHP_VERSION}-pgsql" "php${PHP_VERSION}-redis" \
     "php${PHP_VERSION}-mbstring" "php${PHP_VERSION}-xml" "php${PHP_VERSION}-curl" "php${PHP_VERSION}-zip" \
     "php${PHP_VERSION}-bcmath" "php${PHP_VERSION}-intl" \

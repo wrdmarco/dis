@@ -158,7 +158,7 @@ const FORECAST_BLOCK_OPTIONS: ReadonlyArray<{
   { key: 'wind_gust', label: 'Windstoten', help: 'Verwachte windstoten rond 120 meter.' },
   { key: 'wind_direction', label: 'Windrichting', help: 'Richting van de wind rond 120 meter.' },
   { key: 'precipitation_probability', label: 'Neerslagkans', help: 'Kans op neerslag.' },
-  { key: 'precipitation_outlook', label: 'Buien +3 uur', help: 'KNMI-radar voor de eerste twee uur en neerslagkans voor het derde uur.' },
+  { key: 'precipitation_outlook', label: 'Modelneerslag +3 uur', help: 'DMI-modelneerslag tot +3 uur; dit is deterministisch en een kanswaarde blijft onbekend.' },
   { key: 'thunderstorm_forecast', label: 'Onweer +3 uur', help: 'WMO-modelverwachting in stappen; geen live bliksemdetectie.' },
   { key: 'cloud_cover', label: 'Bewolking', help: 'Totale bewolkingsgraad.' },
   { key: 'visibility', label: 'Zichtbaarheid', help: 'Horizontaal zicht.' },
@@ -1551,11 +1551,11 @@ function WallboardPageEditor({
                 },
               })}
             >
-              <option value="precipitation">Buien · KNMI-neerslagverwachting</option>
+              <option value="precipitation">Regen · live radar</option>
               <option value="lightning">Bliksem · EUMETSAT-detecties</option>
             </select>
             <small>
-              De tv speelt de gekozen lokaal opgeslagen beeldreeks automatisch af. Er wordt geen externe kaart ingebed.
+              De tv speelt de gekozen live beeldreeks automatisch af en toont bron en actualiteit.
             </small>
           </label>
         </fieldset>

@@ -64,12 +64,12 @@ test('creates and normalizes independently configurable wallboard radar pages', 
   ]);
 });
 
-test('normalizes only immutable first-party radar atlas contracts for both authenticated renderers', () => {
+test('normalizes first-party legacy atlases and live image frames for both authenticated renderers', () => {
   const precipitation = precipitationLayer(
-    '/api/wallboard/weather-radar/precipitation/20260723T120000Z-0123456789abcdef.png',
+    '/api/wallboard/weather-radar/precipitation/20260723T120000Z-o-0123456789abcdef.png',
   );
   const lightning = lightningLayer(
-    '/api/operational-weather/radar/lightning/20260723T120000Z-fedcba9876543210.png',
+    '/api/operational-weather/radar/lightning/20260723T120000Z-o-fedcba9876543210.png',
   );
 
   expect(normalizeOperationalWeatherRadarState({ precipitation, lightning })).toMatchObject({
@@ -87,11 +87,26 @@ test('normalizes only immutable first-party radar atlas contracts for both authe
   });
   expect(external.precipitation).toMatchObject({ status: 'unavailable', atlas_url: null, frames: [] });
   expect(external.lightning).toMatchObject({ status: 'unavailable', atlas_url: null, frames: [] });
+
+  const live = normalizeOperationalWeatherRadarState({
+    precipitation: livePrecipitationLayer(),
+    lightning: null,
+  });
+  expect(live.precipitation).toMatchObject({
+    status: 'available',
+    render_mode: 'image_frames',
+    atlas_url: null,
+    bounds: { crs: 'EPSG:4326', west: 2.5, south: 50.5, east: 7.8, north: 53.7 },
+  });
+  expect(live.precipitation?.frames).toMatchObject([
+    { phase: 'observation', lead_minutes: -5 },
+    { phase: 'forecast', lead_minutes: 0 },
+  ]);
 });
 
 test('uses one locked autoplay renderer on wallboards while preserving interactive weather tabs', () => {
   expect(EDITOR_SOURCE).toContain("{ value: 'weather_radar', label: 'Weerradar' }");
-  expect(EDITOR_SOURCE).toContain('<option value="precipitation">Buien · KNMI-neerslagverwachting</option>');
+  expect(EDITOR_SOURCE).toContain('<option value="precipitation">Regen · live radar</option>');
   expect(EDITOR_SOURCE).toContain('<option value="lightning">Bliksem · EUMETSAT-detecties</option>');
 
   expect(DISPLAY_SOURCE).toContain("if (page.type === 'weather_radar')");
@@ -105,10 +120,11 @@ test('uses one locked autoplay renderer on wallboards while preserving interacti
   expect(RADAR_SOURCE).toContain('{readOnly ? null : (');
   expect(RADAR_SOURCE).toContain('{readOnly ? (');
   expect(RADAR_SOURCE).toContain('role={readOnly ?');
-  expect(WEATHER_PAGE_SOURCE).toContain('<WeatherRadarSection radar={weather.radar} />');
+  expect(WEATHER_PAGE_SOURCE).toContain('radar={weather.radar}');
+  expect(WEATHER_PAGE_SOURCE).toContain('location={weather.location}');
   expect(RADAR_CSS).toContain('.radarWorkbenchWallboard');
   expect(RADAR_CSS).toContain('height: 100%;');
-  expect(RADAR_CSS).toContain('grid-template-rows: auto minmax(0, 1fr) auto;');
+  expect(RADAR_CSS).toContain('flex: 1 1 auto;');
   expect(PLAYBACK_SOURCE).toContain("layer?.status !== 'available'");
   expect(PLAYBACK_SOURCE).toContain('setFramePosition(radarReferenceFramePosition(displayLayer));');
   expect(PLAYBACK_SOURCE).toContain('RADAR_WALLBOARD_RETRY_MS');
@@ -146,7 +162,7 @@ for (const scenario of [
           <div class="radarHeading">
             <span class="sectionIcon"></span>
             <div>
-              <span class="sectionKicker">Automatische beeldreeks uit lokaal opgeslagen brondata</span>
+              <span class="sectionKicker">Live kaartbeeld</span>
               <h2>${scenario.kind === 'precipitation' ? 'Buienradar' : 'Bliksemradar'}</h2>
               <p>De gekozen laag speelt zonder bediening af. Er wordt geen externe kaart ingebed.</p>
             </div>
@@ -174,7 +190,7 @@ for (const scenario of [
               <div><dt>Actualiteit</dt><dd>2 minuten oud</dd></div>
               <div><dt>Referentietijd</dt><dd>23 juli 2026 14:00</dd></div>
               <div><dt>Bronvertraging</dt><dd>minder dan 1 minuut</dd></div>
-              <div><dt>Bron</dt><dd>${scenario.kind === 'precipitation' ? 'KNMI' : 'EUMETSAT'}</dd></div>
+              <div><dt>Bron</dt><dd>${scenario.kind === 'precipitation' ? 'DWD RV' : 'EUMETSAT'}</dd></div>
               <div><dt>Licentie</dt><dd>Open data</dd></div>
             </dl>
           </aside>
@@ -223,6 +239,47 @@ for (const scenario of [
   });
 }
 
+function livePrecipitationLayer(): Record<string, unknown> {
+  return {
+    status: 'available',
+    render_mode: 'image_frames',
+    bounds: { crs: 'EPSG:4326', west: 2.5, south: 50.5, east: 7.8, north: 53.7 },
+    reference_time: '2026-07-23T12:00:00Z',
+    observed_period_end: null,
+    age_seconds: 90,
+    lag_seconds: 20,
+    refreshed_at: '2026-07-23T12:01:00Z',
+    atlas_url: null,
+    atlas_columns: 0,
+    atlas_rows: 0,
+    frame_width: 960,
+    frame_height: 720,
+    frames: [
+      {
+        index: 0,
+        valid_at: '2026-07-23T11:55:00Z',
+        lead_minutes: -5,
+        phase: 'observation',
+        image_url: '/api/wallboard/weather-radar/precipitation/20260723T115500Z-o-0123456789abcdef.png',
+      },
+      {
+        index: 1,
+        valid_at: '2026-07-23T12:00:00Z',
+        lead_minutes: 0,
+        phase: 'forecast',
+        image_url: '/api/wallboard/weather-radar/precipitation/20260723T120000Z-f20260723T120000Z-fedcba9876543210.png',
+      },
+    ],
+    source: {
+      name: 'DWD RV',
+      url: 'https://www.dwd.de/',
+      license: 'CC BY 4.0',
+      license_url: 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
+    },
+    availability_note: null,
+  };
+}
+
 function precipitationLayer(atlasUrl: string): OperationalWeatherRadarLayer {
   const reference = Date.parse('2026-07-23T12:00:00Z');
   return {
@@ -242,7 +299,12 @@ function precipitationLayer(atlasUrl: string): OperationalWeatherRadarLayer {
       valid_at: new Date(reference + index * 5 * 60_000).toISOString(),
       lead_minutes: index * 5,
     })),
-    source: { name: 'KNMI', url: 'https://www.knmi.nl', license: 'KNMI Open Data' },
+    source: {
+      name: 'DWD RV',
+      url: 'https://www.dwd.de/DE/leistungen/radarprodukte/radarlayer.html',
+      license: 'CC BY 4.0',
+      license_url: 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
+    },
     availability_note: null,
   };
 }

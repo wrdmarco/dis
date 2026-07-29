@@ -62,10 +62,6 @@ export const webRouteAccess = {
     ],
     anyPermission: true,
   },
-  knmi: {
-    permissions: ['knmi.manage'],
-    anyPermission: false,
-  },
   branding: {
     permissions: ['branding.manage'],
     anyPermission: false,

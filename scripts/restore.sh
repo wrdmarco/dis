@@ -179,8 +179,8 @@ replace_managed_tree "${RESTORED_DATA}/storage" "${DIS_DATA_PATH}/storage"
 replace_managed_tree "${RESTORED_DATA}/webapp/backend/storage" "${DIS_DATA_PATH}/webapp/backend/storage"
 replace_managed_tree "${RESTORED_DATA}/secrets" "${DIS_DATA_PATH}/secrets"
 
-DIS_RETIRE_TTS_PARENT_OWNS_LOCK=1 \
-  bash "${SCRIPT_DIR}/retire-server-tts.sh"
+DIS_RETIRE_WEATHER_PARENT_OWNS_LOCK=1 \
+  bash "${SCRIPT_DIR}/retire-weather-snapshots.sh"
 repair_restored_data_permissions
 ensure_data_links "${APP_ROOT}"
 require_backup_encryption_key >/dev/null
@@ -190,10 +190,6 @@ regenerate_backend_package_manifest "${APP_ROOT}/webapp/backend"
 run_cmd runuser -u "${DIS_USER}" -- env \
   PGOPTIONS="-c lock_timeout=60s -c statement_timeout=15min" \
   php "${APP_ROOT}/webapp/backend/artisan" migrate --force
-run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
-  dis:reconcile-knmi-after-restore
-run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
-  dis:refresh-knmi-precipitation-outlook
 log "Revoking restored authentication state"
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
   dis:revoke-all-authentication-state --reason=backup-restore

@@ -16,7 +16,6 @@ use App\Support\WallboardConfiguration;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
@@ -28,23 +27,12 @@ final class WallboardWeatherRadarTest extends TestCase
 
     private WallboardWeatherRadarProviderStub $radar;
 
-    private ?string $radarFixturePath = null;
-
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->radar = new WallboardWeatherRadarProviderStub;
         $this->app->instance(OperationalRadarProvider::class, $this->radar);
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->radarFixturePath !== null) {
-            File::delete($this->radarFixturePath);
-        }
-
-        parent::tearDown();
     }
 
     public function test_weather_radar_configuration_has_a_canonical_kind_and_rejects_unknown_kinds(): void
@@ -87,6 +75,7 @@ final class WallboardWeatherRadarTest extends TestCase
         ]));
         $cookie = $this->wallboardCredential($wallboard);
         $this->radar->metadata['lightning']['atlas_url'] = 'https://untrusted.example/radar.png';
+        $this->radar->metadata['lightning']['frames'][0]['image_url'] = 'https://untrusted.example/frame.png';
 
         $this->wallboardGetJson('/api/wallboard/state', $cookie)
             ->assertOk()
@@ -95,10 +84,16 @@ final class WallboardWeatherRadarTest extends TestCase
                 '/api/wallboard/weather-radar/precipitation/'.
                     WallboardWeatherRadarProviderStub::PRECIPITATION_SNAPSHOT.'.png',
             )
+            ->assertJsonPath(
+                'data.weather_radar.precipitation.frames.0.image_url',
+                '/api/wallboard/weather-radar/precipitation/'.
+                    WallboardWeatherRadarProviderStub::PRECIPITATION_SNAPSHOT.'.png',
+            )
             ->assertJsonPath('data.weather_radar.precipitation.age_seconds', 60)
             ->assertJsonPath('data.weather_radar.precipitation.lag_seconds', 30)
             ->assertJsonPath('data.weather_radar.precipitation.observed_period_end', null)
-            ->assertJsonPath('data.weather_radar.lightning.atlas_url', null);
+            ->assertJsonPath('data.weather_radar.lightning.atlas_url', null)
+            ->assertJsonPath('data.weather_radar.lightning.frames.0.image_url', null);
         $this->assertSame(1, $this->radar->metadataCalls);
 
         $this->wallboardGetJson('/api/wallboard/live', $cookie)
@@ -140,15 +135,8 @@ final class WallboardWeatherRadarTest extends TestCase
         $snapshot = WallboardWeatherRadarProviderStub::PRECIPITATION_SNAPSHOT;
         $url = '/api/wallboard/weather-radar/precipitation/'.$snapshot.'.png';
         $png = "\x89PNG\r\n\x1a\nwallboard-radar";
-        $this->radarFixturePath = storage_path('framework/testing/wallboard-weather-radar.png');
-        File::ensureDirectoryExists(dirname($this->radarFixturePath));
-        File::put($this->radarFixturePath, $png);
         $sha256 = hash('sha256', $png);
-        $this->radar->files['precipitation|'.$snapshot] = new OperationalRadarContent(
-            $this->radarFixturePath,
-            strlen($png),
-            $sha256,
-        );
+        $this->radar->files['precipitation|'.$snapshot] = OperationalRadarContent::fromBody($png);
 
         $this->get($url)
             ->assertUnauthorized()
@@ -161,7 +149,7 @@ final class WallboardWeatherRadarTest extends TestCase
             ->assertHeader('Content-Length', (string) strlen($png))
             ->assertHeader('ETag', '"'.$sha256.'"')
             ->assertHeader('Cache-Control', 'immutable, max-age=31536000, private');
-        $this->assertSame($png, $response->streamedContent());
+        $this->assertSame($png, $response->getContent());
         $this->assertSame(1, $this->radar->fileCalls);
 
         $this->wallboardGet(
@@ -230,15 +218,8 @@ final class WallboardWeatherRadarTest extends TestCase
         $this->deployment($actor);
         $cookie = $this->wallboardCredential($wallboard);
         $png = "\x89PNG\r\n\x1a\nalarm-lightning-radar";
-        $this->radarFixturePath = storage_path('framework/testing/wallboard-alarm-weather-radar.png');
-        File::ensureDirectoryExists(dirname($this->radarFixturePath));
-        File::put($this->radarFixturePath, $png);
         $snapshot = WallboardWeatherRadarProviderStub::LIGHTNING_SNAPSHOT;
-        $this->radar->files['lightning|'.$snapshot] = new OperationalRadarContent(
-            $this->radarFixturePath,
-            strlen($png),
-            hash('sha256', $png),
-        );
+        $this->radar->files['lightning|'.$snapshot] = OperationalRadarContent::fromBody($png);
 
         $this->wallboardGet(
             '/api/wallboard/weather-radar/lightning/'.$snapshot.'.png',
@@ -508,16 +489,7 @@ final class WallboardWeatherRadarTest extends TestCase
     private function registerRadarFile(string $kind, string $snapshot, string $suffix): string
     {
         $png = "\x89PNG\r\n\x1a\nwallboard-radar-".$suffix;
-        $this->radarFixturePath = storage_path(
-            'framework/testing/wallboard-weather-radar-'.$suffix.'.png',
-        );
-        File::ensureDirectoryExists(dirname($this->radarFixturePath));
-        File::put($this->radarFixturePath, $png);
-        $this->radar->files[$kind.'|'.$snapshot] = new OperationalRadarContent(
-            $this->radarFixturePath,
-            strlen($png),
-            hash('sha256', $png),
-        );
+        $this->radar->files[$kind.'|'.$snapshot] = OperationalRadarContent::fromBody($png);
 
         return '/api/wallboard/weather-radar/'.$kind.'/'.$snapshot.'.png';
     }
@@ -608,9 +580,9 @@ final class WallboardWeatherRadarTest extends TestCase
 
 final class WallboardWeatherRadarProviderStub implements OperationalRadarProvider
 {
-    public const PRECIPITATION_SNAPSHOT = '20260723T103000Z-0123456789abcdef';
+    public const PRECIPITATION_SNAPSHOT = '20260723T103000Z-o-0123456789abcdef';
 
-    public const LIGHTNING_SNAPSHOT = '20260723T102500Z-fedcba9876543210';
+    public const LIGHTNING_SNAPSHOT = '20260723T102500Z-o-fedcba9876543210';
 
     public int $metadataCalls = 0;
 
@@ -676,9 +648,11 @@ final class WallboardWeatherRadarProviderStub implements OperationalRadarProvide
                 'index' => 0,
                 'valid_at' => '2026-07-23T10:30:00+00:00',
                 'lead_minutes' => 0,
+                'phase' => 'observation',
+                'image_url' => '/api/operational-weather/radar/'.$kind.'/'.$snapshot.'.png',
             ]],
             'source' => [
-                'name' => $kind === 'precipitation' ? 'KNMI radar' : 'EUMETSAT lightning',
+                'name' => $kind === 'precipitation' ? 'DWD RV neerslagradar' : 'EUMETSAT lightning',
                 'url' => 'https://example.test/'.$kind,
                 'license' => 'Test license',
             ],

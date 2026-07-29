@@ -22,17 +22,13 @@ final class EumetsatLightningConfiguration
 
     private const INTERVAL_MINUTES = 5;
 
-    private const ATLAS_COLUMNS = 4;
-
-    private const ATLAS_ROWS = 2;
-
     private const SOURCE_NAME = 'EUMETSAT MTG Lightning Imager';
 
     private const SOURCE_URL = 'https://view.eumetsat.int/';
 
-    private const LICENSE_NAME = 'EUMETSAT Data Policy (vrije EUMETView-toegang)';
+    private const LICENSE_NAME = 'CC BY 4.0';
 
-    private const LICENSE_URL = 'https://www.eumetsat.int/eumetsat-data-policy';
+    private const LICENSE_URL = 'https://user.eumetsat.int/resources/user-guides/data-registration-and-licensing';
 
     public function endpoint(): string
     {
@@ -90,53 +86,6 @@ final class EumetsatLightningConfiguration
         return $this->fixedInt('interval_minutes', self::INTERVAL_MINUTES);
     }
 
-    public function atlasColumns(): int
-    {
-        return $this->fixedInt('atlas_columns', self::ATLAS_COLUMNS);
-    }
-
-    public function atlasRows(): int
-    {
-        return $this->fixedInt('atlas_rows', self::ATLAS_ROWS);
-    }
-
-    public function atlasWidth(): int
-    {
-        return $this->frameWidth() * $this->atlasColumns();
-    }
-
-    public function atlasHeight(): int
-    {
-        return $this->frameHeight() * $this->atlasRows();
-    }
-
-    public function storageRoot(): string
-    {
-        $root = trim((string) config('dis.eumetsat_lightning.storage_root'));
-        if ($root === '' || str_contains($root, "\0")) {
-            throw new \RuntimeException('The EUMETSAT lightning storage root is invalid.');
-        }
-
-        $normalized = str_replace('\\', '/', $root);
-        $segments = array_values(array_filter(
-            explode('/', trim($normalized, '/')),
-            static fn (string $segment): bool => $segment !== '',
-        ));
-        $isWindowsDrive = preg_match('/\A[A-Za-z]:\//D', $normalized) === 1;
-        $isUnc = str_starts_with($normalized, '//');
-        $isAbsolute = str_starts_with($normalized, '/') || $isWindowsDrive;
-        $minimumSegments = $isUnc ? 3 : ($isWindowsDrive ? 3 : 2);
-
-        if (! $isAbsolute
-            || in_array('.', $segments, true)
-            || in_array('..', $segments, true)
-            || count($segments) < $minimumSegments) {
-            throw new \RuntimeException('The EUMETSAT lightning storage root must be a dedicated absolute directory.');
-        }
-
-        return rtrim($root, '/\\');
-    }
-
     public function connectTimeoutSeconds(): int
     {
         return min(15, max(1, $this->positiveInt('connect_timeout_seconds', 5)));
@@ -159,12 +108,7 @@ final class EumetsatLightningConfiguration
 
     public function maximumFrameBytes(): int
     {
-        return min(8_388_608, max(65_536, $this->positiveInt('maximum_frame_bytes', 4_194_304)));
-    }
-
-    public function maximumAtlasBytes(): int
-    {
-        return min(67_108_864, max(1_048_576, $this->positiveInt('maximum_atlas_bytes', 33_554_432)));
+        return min(262_144, max(65_536, $this->positiveInt('maximum_frame_bytes', 262_144)));
     }
 
     public function maximumAgeSeconds(): int
@@ -174,12 +118,23 @@ final class EumetsatLightningConfiguration
 
     public function maximumFallbackAgeSeconds(): int
     {
-        return $this->maximumAgeSeconds() * 4;
+        return $this->maximumAgeSeconds() * 2;
     }
 
-    public function retainReleases(): int
+    public function frameCacheSeconds(): int
     {
-        return $this->fixedInt('retain_releases', 2);
+        return $this->maximumFallbackAgeSeconds()
+            + (($this->frameCount() - 1) * $this->intervalMinutes() * 60);
+    }
+
+    public function timelineLockSeconds(): int
+    {
+        return $this->capabilitiesTimeoutSeconds() + 10;
+    }
+
+    public function frameLockSeconds(): int
+    {
+        return $this->frameTimeoutSeconds() + 10;
     }
 
     /** @return array{name: string, url: string, layer: string} */

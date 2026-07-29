@@ -47,7 +47,6 @@ final class WebNavigationPermissionTest extends TestCase
             ['GET', 'api/admin/pilot-report/form-config', 'permission:forms.manage'],
             ['PATCH', 'api/admin/deployment-form/config', 'permission:forms.manage'],
             ['GET', 'api/admin/settings', 'permission:settings.manage'],
-            ['GET', 'api/admin/knmi', 'permission:knmi.manage'],
             ['GET', 'api/admin/branding/settings', 'permission:branding.manage'],
             ['GET', 'api/admin/audit-logs', 'permission:audit.view'],
             ['GET', 'api/admin/backups', 'permission:backups.manage'],
@@ -65,6 +64,11 @@ final class WebNavigationPermissionTest extends TestCase
             $this->assertInstanceOf(IlluminateRoute::class, $route, "$method $uri was not registered.");
             $this->assertContains($permissionMiddleware, $route->gatherMiddleware(), "$method $uri did not enforce $permissionMiddleware.");
         }
+
+        $this->assertNull(
+            collect(Route::getRoutes()->getRoutes())
+                ->first(fn (IlluminateRoute $candidate): bool => str_starts_with($candidate->uri(), 'api/admin/knmi')),
+        );
     }
 
     public function test_legacy_settings_and_health_permissions_do_not_open_split_management_pages(): void
@@ -74,7 +78,6 @@ final class WebNavigationPermissionTest extends TestCase
 
         foreach ([
             '/api/admin/pilot-report/form-config',
-            '/api/admin/knmi',
             '/api/admin/branding/settings',
             '/api/admin/routing/osrm',
             '/api/admin/queues',
@@ -90,6 +93,40 @@ final class WebNavigationPermissionTest extends TestCase
         $this->asWebClient($legacyManager)
             ->getJson('/api/admin/health')
             ->assertOk();
+    }
+
+    public function test_retired_knmi_management_permission_preserves_forecast_access_then_disappears(): void
+    {
+        $role = Role::query()->create([
+            'name' => 'legacy-knmi-manager',
+            'display_name' => 'Legacy KNMI manager',
+            'can_use_operator_app' => false,
+            'can_use_admin_app' => true,
+        ]);
+        $legacyPermission = Permission::query()->create([
+            'name' => 'knmi.manage',
+            'display_name' => 'Legacy KNMI management',
+            'category' => 'migration-test',
+            'description' => 'Compatibility input for retirement.',
+        ]);
+        $role->permissions()->attach($legacyPermission->id, ['created_at' => now()]);
+        $role->permissions()->detach(
+            Permission::query()
+                ->whereIn('name', ['operational-weather.view', 'uav-forecast.view'])
+                ->pluck('id'),
+        );
+
+        $migration = require database_path('migrations/2026_07_29_000002_purge_retired_weather_snapshot_metadata.php');
+        $migration->up();
+
+        $this->assertDatabaseMissing('permissions', ['name' => 'knmi.manage']);
+        $this->assertEqualsCanonicalizing(
+            ['operational-weather.view', 'uav-forecast.view'],
+            $role->permissions()
+                ->whereIn('permissions.name', ['operational-weather.view', 'uav-forecast.view'])
+                ->pluck('permissions.name')
+                ->all(),
+        );
     }
 
     public function test_routing_viewer_uses_scoped_realtime_channel_without_system_update_access(): void
@@ -167,7 +204,6 @@ final class WebNavigationPermissionTest extends TestCase
         $this->grant($manager, [
             'expiry.view',
             'forms.manage',
-            'knmi.manage',
             'branding.manage',
             'system.routing.view',
             'system.queues.view',
@@ -183,9 +219,6 @@ final class WebNavigationPermissionTest extends TestCase
             ->assertOk();
         $this->asWebClient($manager)
             ->getJson('/api/admin/deployment-form/config')
-            ->assertOk();
-        $this->asWebClient($manager)
-            ->getJson('/api/admin/knmi')
             ->assertOk();
         $this->asWebClient($manager)
             ->getJson('/api/admin/branding/settings')

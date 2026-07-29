@@ -27,8 +27,8 @@ RUN_SEEDERS="${RUN_SEEDERS:-0}"
 DIS_DEPLOYMENT_OWNER="${DIS_DEPLOYMENT_OWNER:-deploy}"
 DIS_DEFER_OPERATIONAL_SERVICES="${DIS_DEFER_OPERATIONAL_SERVICES:-0}"
 RELEASE_MARKER_TEMP=""
-LEGACY_TTS_COMPAT_REQUIRED=0
 LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED=0
+LEGACY_WEATHER_COMPAT_REQUIRED=0
 
 require_directory "${APP_ROOT}"
 require_file "${NGINX_SOURCE}"
@@ -45,7 +45,6 @@ ENV_FILE="${APP_ROOT}/.env"
 # Keep the new worker's fixed Ubuntu runtime dependency self-contained at this
 # checkout boundary so an app-only first rollout cannot publish a dead worker.
 ensure_wallboard_media_runtime_dependencies
-ensure_knmi_forecast_runtime_dependencies
 
 deployment_exit_handler() {
   local status="$1"
@@ -78,29 +77,26 @@ else
 fi
 stop_dis_deployment_services
 if [ "${DIS_DEPLOYMENT_OWNER}" = "update" ] \
-  && [ -z "${DIS_LEGACY_TTS_COMPAT_REQUIRED+x}" ]; then
-  # A parent updater from the previous release still has service/readiness
-  # functions in memory. Keep only an inert bridge until that exact process
-  # exits; all models, audio and speech settings are retired immediately.
-  LEGACY_TTS_COMPAT_REQUIRED=1
+  && [ -z "${DIS_LEGACY_WEATHER_COMPAT_REQUIRED+x}" ]; then
+  # The already-running updater from the previous release still starts and
+  # verifies the two retired weather-worker names after this nested deploy.
+  LEGACY_WEATHER_COMPAT_REQUIRED=1
 else
-  LEGACY_TTS_COMPAT_REQUIRED="${DIS_LEGACY_TTS_COMPAT_REQUIRED:-0}"
+  LEGACY_WEATHER_COMPAT_REQUIRED="${DIS_LEGACY_WEATHER_COMPAT_REQUIRED:-0}"
 fi
-case "${LEGACY_TTS_COMPAT_REQUIRED}" in
+case "${LEGACY_WEATHER_COMPAT_REQUIRED}" in
   0)
-    DIS_RETIRE_TTS_PARENT_OWNS_LOCK=1 \
-    DIS_RETIRE_TTS_ALLOW_DEFERRED_QUEUE_CLEAR=1 \
-      bash "${SCRIPT_DIR}/retire-server-tts.sh"
+    DIS_RETIRE_WEATHER_PARENT_OWNS_LOCK=1 \
+      bash "${SCRIPT_DIR}/retire-weather-snapshots.sh"
     ;;
   1)
     [ "${DIS_DEPLOYMENT_OWNER}" = "update" ] \
-      || fail "Legacy TTS compatibility is only valid inside an application update."
-    DIS_RETIRE_TTS_PARENT_OWNS_LOCK=1 \
-    DIS_RETIRE_TTS_ALLOW_DEFERRED_QUEUE_CLEAR=1 \
-      bash "${SCRIPT_DIR}/retire-server-tts.sh" --compat-parent-pid "${PPID}"
+      || fail "Legacy weather-worker compatibility is only valid inside an application update."
+    DIS_RETIRE_WEATHER_PARENT_OWNS_LOCK=1 \
+      bash "${SCRIPT_DIR}/retire-weather-snapshots.sh" --compat-parent-pid "${PPID}"
     ;;
   *)
-    fail "DIS_LEGACY_TTS_COMPAT_REQUIRED must be 0 or 1."
+    fail "DIS_LEGACY_WEATHER_COMPAT_REQUIRED must be 0 or 1."
     ;;
 esac
 if [ "${DIS_DEPLOYMENT_OWNER}" = "update" ] \
@@ -367,8 +363,8 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
     run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" optimize:clear
   fi
   regenerate_backend_package_manifest "${BACKEND_DIR}"
-  DIS_RETIRE_TTS_PARENT_OWNS_LOCK=1 \
-    bash "${SCRIPT_DIR}/retire-server-tts.sh" --clear-queue-only
+  DIS_RETIRE_WEATHER_PARENT_OWNS_LOCK=1 \
+    bash "${SCRIPT_DIR}/retire-weather-snapshots.sh" --clear-queues-only
   enable_backend_deployment_maintenance "${BACKEND_DIR}"
   run_cmd runuser -u "${DIS_USER}" -- env \
     PGOPTIONS="-c lock_timeout=60s -c statement_timeout=15min" \
@@ -440,8 +436,6 @@ run_cmd visudo -cf /etc/sudoers.d/dis-update
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-push@.service" /etc/systemd/system/dis-push@.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-media.service" /etc/systemd/system/dis-media.service
-run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-knmi.service" /etc/systemd/system/dis-knmi.service
-run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-knmi-realtime.service" /etc/systemd/system/dis-knmi-realtime.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-deployment-enrichment.service" /etc/systemd/system/dis-deployment-enrichment.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
@@ -467,7 +461,7 @@ esac
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable \
   dis-push@1 dis-push@2 dis-push@3 dis-push@4 \
-  dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment dis-knmi dis-knmi-realtime \
+  dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment \
   dis-backup-request.path dis-backup-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile

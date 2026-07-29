@@ -1,11 +1,11 @@
-import { AlertTriangle, Cloud, Database, RadioTower, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
-import { Panel } from '../../components/Panel';
+import { AlertTriangle, Cloud, CloudSun, Database, RadioTower, RefreshCw } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { formatDateTime } from '../../lib/dateTime';
 import type {
   OperationalWeatherCloudState,
   OperationalWeatherPageState,
   OperationalWeatherPrecipitationState,
+  WallboardForecastSource,
 } from '../../types/api';
 import { ForecastLocationControl } from './ForecastLocationControl';
 import { ForecastError, ForecastLoading } from './ForecastStates';
@@ -46,23 +46,26 @@ export function WeatherPage() {
     setLocation(next);
   }
 
+  const compactLocationControl = (
+    <ForecastLocationControl
+      busy={resource.busy}
+      compact
+      location={location}
+      onApply={applyLocation}
+      onRefresh={() => void resource.refresh()}
+    />
+  );
+
   return (
     <div className={`page-stack ${styles.page}`}>
-      <Panel title="Weerbeeld">
-        <div className={`panel-body ${styles.pageIntroduction}`}>
-          <p>KNMI-bewolking en neerslag, aangevuld met lokaal opgeslagen EUMETSAT-bliksemdetectie.</p>
-          <p className={styles.pageIntroductionNote}>
-            <strong>Lokaal opgeslagen brondata.</strong> Dit weerbeeld is geen vliegadvies. De browser laadt geen externe weer- of radarkaart.
-          </p>
+      <header className={styles.weatherPageHero}>
+        <span className={styles.sectionIcon} aria-hidden><CloudSun size={22} /></span>
+        <div>
+          <span className={styles.sectionKicker}>Operationeel weerbeeld</span>
+          <h1>Live weerkaart</h1>
+          <p>Regen, bliksem en UAV-weergegevens voor snelle oriëntatie. Dit kaartbeeld is geen vliegadvies.</p>
         </div>
-      </Panel>
-
-      <ForecastLocationControl
-        busy={resource.busy}
-        location={location}
-        onApply={applyLocation}
-        onRefresh={() => void resource.refresh()}
-      />
+      </header>
 
       {resource.stale && weather ? (
         <div className={styles.inlineWarning} role="alert">
@@ -90,19 +93,47 @@ export function WeatherPage() {
       ) : null}
 
       {resource.loading ? (
-        <ForecastLoading label="Lokale KNMI-gegevens laden" />
+        <>
+          <ForecastLocationControl
+            busy={resource.busy}
+            location={location}
+            onApply={applyLocation}
+            onRefresh={() => void resource.refresh()}
+          />
+          <ForecastLoading label="Live weergegevens laden" />
+        </>
       ) : weather ? (
-        <WeatherOverview weather={weather} />
+        <WeatherOverview weather={weather} locationControl={compactLocationControl} />
       ) : (
-        <ForecastError message={resource.error} onRetry={() => void resource.refresh()} />
+        <>
+          <ForecastLocationControl
+            busy={resource.busy}
+            location={location}
+            onApply={applyLocation}
+            onRefresh={() => void resource.refresh()}
+          />
+          <ForecastError message={resource.error} onRetry={() => void resource.refresh()} />
+        </>
       )}
     </div>
   );
 }
 
-function WeatherOverview({ weather }: { weather: OperationalWeatherPageState }) {
+function WeatherOverview({
+  weather,
+  locationControl,
+}: {
+  weather: OperationalWeatherPageState;
+  locationControl: ReactNode;
+}) {
   return (
     <>
+      <WeatherRadarSection
+        radar={weather.radar}
+        location={weather.location}
+        locationControl={locationControl}
+      />
+
       <section className={`${styles.dataBanner} ${styles[`dataBanner_${weather.data_status}`]}`} aria-labelledby="weather-data-status">
         <span className={styles.dataPulse} aria-hidden />
         <div>
@@ -122,8 +153,6 @@ function WeatherOverview({ weather }: { weather: OperationalWeatherPageState }) 
         </dl>
       </section>
 
-      <WeatherRadarSection radar={weather.radar} />
-
       <div className={styles.weatherLayout}>
         <CloudSpine cloud={weather.cloud} />
         <PrecipitationTimeline precipitation={weather.precipitation} />
@@ -134,7 +163,7 @@ function WeatherOverview({ weather }: { weather: OperationalWeatherPageState }) 
           <Database aria-hidden size={19} />
           <div>
             <h2 id="weather-provenance-title">Bron en actualiteit</h2>
-            <p>Losse KNMI-producten blijven zichtbaar als afzonderlijke datasets.</p>
+            <p>Iedere weerlaag toont zijn eigen bron en meet- of modeltijd.</p>
           </div>
         </header>
         <div className={styles.provenanceGrid}>
@@ -143,7 +172,7 @@ function WeatherOverview({ weather }: { weather: OperationalWeatherPageState }) 
             complete={weather.cloud.complete}
             measuredAt={weather.cloud.measured_at ?? weather.cloud.valid_at}
             refreshedAt={weather.cloud.refreshed_at}
-            sourceName={weather.cloud.source.name}
+            source={weather.cloud.source}
             stale={weather.cloud.stale}
             title="Bewolking en wolkenbasis"
           />
@@ -152,9 +181,9 @@ function WeatherOverview({ weather }: { weather: OperationalWeatherPageState }) 
             complete={weather.precipitation.complete}
             measuredAt={weather.precipitation.measured_at ?? weather.precipitation.reference_time}
             refreshedAt={weather.precipitation.refreshed_at}
-            sourceName={weather.precipitation.source.name}
+            source={weather.precipitation.source}
             stale={weather.precipitation.stale}
-            title="Radar en ensemble uur 3"
+            title="DMI-modelneerslag"
           />
         </div>
         <p className={styles.scopeNote}>{weather.scope_note}</p>
@@ -185,7 +214,11 @@ function CloudSpine({ cloud }: { cloud: OperationalWeatherCloudState }) {
         <div className={styles.cloudBaseMarker}>
           <span>Modelwolkenbasis</span>
           <strong>{formatNumber(cloud.cloud_base_m, 'm')}</strong>
-          <small>Hoogtereferentie niet door het modelproduct gespecificeerd</small>
+          <small>
+            {cloud.cloud_base_complete
+              ? 'Hoogtereferentie niet door het modelproduct gespecificeerd'
+              : `Onbekend · ${sampleCoverage(cloud.cloud_base_sample_count, cloud.cloud_base_expected_sample_count)} geldige punten`}
+          </small>
         </div>
       </div>
 
@@ -218,7 +251,7 @@ function CloudLayer({
 }
 
 function PrecipitationTimeline({ precipitation }: { precipitation: OperationalWeatherPrecipitationState }) {
-  const radarDry = precipitation.radar_peak_mm_h !== null && precipitation.radar_peak_mm_h < 0.1;
+  const modelDry = precipitation.radar_peak_mm_h !== null && precipitation.radar_peak_mm_h < 0.1;
   return (
     <section className={`${styles.precipitationPanel} ${precipitation.stale ? styles.providerStale : ''}`} aria-labelledby="precipitation-title">
       <header className={styles.sectionHeader}>
@@ -231,7 +264,7 @@ function PrecipitationTimeline({ precipitation }: { precipitation: OperationalWe
           {precipitation.stale
             ? 'Verouderd'
             : precipitation.complete
-              ? precipitation.probability_complete ? 'Compleet' : 'Radar actueel'
+              ? 'Model actueel'
               : 'Onvolledig'}
         </span>
       </header>
@@ -239,27 +272,17 @@ function PrecipitationTimeline({ precipitation }: { precipitation: OperationalWe
       <div className={styles.rainHeadline}>
         <span>{precipitation.radar_first_precipitation_at
           ? `Eerste neerslag rond ${formatClock(precipitation.radar_first_precipitation_at)}`
-          : radarDry ? 'Radarvenster blijft droog' : 'Start neerslag onbekend'}</span>
+          : modelDry ? 'Modelvenster blijft droog' : 'Start neerslag onbekend'}</span>
         <strong>{formatNumber(precipitation.radar_peak_mm_h, 'mm/u')}</strong>
-        <small>hoogste radarpiek in de eerste twee uur</small>
+        <small>hoogste modelpiek in de komende drie uur</small>
       </div>
 
       <ol className={styles.rainTimeline} aria-label="Neerslagverwachting voor de komende drie uur">
         <li className={styles.radarWindow}>
           <span className={styles.timelineDot} aria-hidden />
-          <small>Nu → {formatClock(precipitation.radar_until)}</small>
-          <strong>KNMI radar</strong>
-          <span>Lokale radarrasterreeks tot +2 uur</span>
-        </li>
-        <li className={styles.ensembleWindow}>
-          <span className={styles.timelineDot} aria-hidden />
-          <small>{precipitation.probability_complete
-            ? `${formatClock(precipitation.third_hour_from)} → ${formatClock(precipitation.forecast_until)}`
-            : '+2 → +3 uur'}</small>
-          <strong>Uur 3 · ensemble</strong>
-          <span>{precipitation.probability_complete
-            ? `${formatNumber(precipitation.third_hour_probability_pct, '%')} kans op ≥ 0,1 mm/u`
-            : 'Kansmodel niet beschikbaar'}</span>
+          <small>Modeltijd {formatClock(precipitation.reference_time)} → {formatClock(precipitation.radar_until)}</small>
+          <strong>Modelneerslag · 0–3 uur</strong>
+          <span>{precipitation.source.name} · deterministische verwachting; gewone neerslagkans niet beschikbaar</span>
         </li>
       </ol>
 
@@ -274,7 +297,7 @@ function PrecipitationTimeline({ precipitation }: { precipitation: OperationalWe
 
 function WeatherSourceCard({
   title,
-  sourceName,
+  source,
   complete,
   stale,
   measuredAt,
@@ -282,7 +305,7 @@ function WeatherSourceCard({
   availabilityNote,
 }: {
   title: string;
-  sourceName: string;
+  source: WallboardForecastSource;
   complete: boolean;
   stale: boolean;
   measuredAt: string | null;
@@ -293,11 +316,23 @@ function WeatherSourceCard({
     <article className={styles.sourceCard}>
       <div>
         <strong>{title}</strong>
-        <span>{sourceName || 'KNMI · bron onbekend'}</span>
+        <span className={styles.sourceLinks}>
+          {source.url ? (
+            <a href={source.url} rel="noreferrer noopener" target="_blank">{source.name || 'Bron onbekend'}</a>
+          ) : source.name || 'Bron onbekend'}
+          {source.license ? (
+            source.license_url
+              ? <a href={source.license_url} rel="noreferrer noopener" target="_blank">{source.license}</a>
+              : <span>{source.license}</span>
+          ) : null}
+        </span>
+        {forecastSourceProcessingLabel(source) ? (
+          <small className={styles.sourceProcessing}>{forecastSourceProcessingLabel(source)}</small>
+        ) : null}
       </div>
       <dl>
         <div><dt>Waarde geldig / gemeten</dt><dd>{formatDateTime(measuredAt)}</dd></div>
-        <div><dt>Lokaal ververst</dt><dd>{formatDateTime(refreshedAt)}</dd></div>
+        <div><dt>Bron vernieuwd</dt><dd>{formatDateTime(refreshedAt)}</dd></div>
       </dl>
       <span className={complete && !stale ? styles.freshBadge : styles.unknownBadge}>
         {stale ? 'Verouderd' : complete ? 'Actueel' : 'Niet compleet'}
@@ -307,11 +342,19 @@ function WeatherSourceCard({
   );
 }
 
+function forecastSourceProcessingLabel(source: WallboardForecastSource): string | null {
+  const processing = source.processing_note ?? source.attribution ?? null;
+  const processor = source.modified && source.processed_by
+    ? `Verwerkt door ${source.processed_by}`
+    : null;
+  return [processing, processor].filter((part): part is string => part !== null).join(' · ') || null;
+}
+
 export function weatherDataStatusLabel(status: OperationalWeatherPageState['data_status']): string {
   switch (status) {
-    case 'current': return 'Lokale datasets actueel';
-    case 'partial': return 'Lokale datasets gedeeltelijk beschikbaar';
-    case 'unavailable': return 'Lokale datasets niet beschikbaar';
+    case 'current': return 'Live weergegevens actueel';
+    case 'partial': return 'Weergegevens gedeeltelijk beschikbaar';
+    case 'unavailable': return 'Weergegevens niet beschikbaar';
   }
 }
 
@@ -319,7 +362,7 @@ function weatherAggregationLabel(weather: OperationalWeatherPageState): string {
   if (weather.aggregation.type === 'province_average') {
     return `${weather.aggregation.sample_count}/${weather.aggregation.expected_sample_count} provinciepunten`;
   }
-  return weather.aggregation.complete ? 'Lokaal rasterpunt compleet' : 'Lokaal rasterpunt onvolledig';
+  return weather.aggregation.complete ? 'Locatiebeeld compleet' : 'Locatiebeeld onvolledig';
 }
 
 export function formatNumber(value: number | null, unit: string): string {

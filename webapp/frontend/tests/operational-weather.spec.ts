@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
-import { expect, test, type Page, type Route } from 'playwright/test';
+import { expect, test, type Locator, type Page, type Route } from 'playwright/test';
 import {
   buildForecastResourcePath,
   FORECAST_REFRESH_INTERVAL_MS,
@@ -11,6 +11,7 @@ import {
 } from '../src/features/weather/useForecastResource';
 import {
   normalizeOperationalWeatherPage,
+  normalizeOperationalWeatherRadarState,
   normalizeUavForecastPage,
 } from '../src/features/weather/forecastNormalization';
 
@@ -22,6 +23,7 @@ const uavPage = readFileSync(new URL('../src/features/weather/UavForecastPage.ts
 const locationControl = readFileSync(new URL('../src/features/weather/ForecastLocationControl.tsx', import.meta.url), 'utf8');
 const resourceHook = readFileSync(new URL('../src/features/weather/useForecastResource.ts', import.meta.url), 'utf8');
 const radarSection = readFileSync(new URL('../src/features/weather/WeatherRadarSection.tsx', import.meta.url), 'utf8');
+const liveRadarMap = readFileSync(new URL('../src/features/weather/LiveRadarMap.tsx', import.meta.url), 'utf8');
 const radarPlayback = readFileSync(new URL('../src/features/weather/useWeatherRadarPlayback.ts', import.meta.url), 'utf8');
 const apiTypes = readFileSync(new URL('../src/types/api.ts', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/features/weather/OperationalForecast.module.css', import.meta.url), 'utf8');
@@ -42,14 +44,13 @@ test('weather and UAV Forecast are permission-gated operation routes and preload
   expect(uavRoute).toContain('<ProtectedShell {...webRouteAccess.uavForecast}>');
 });
 
-test('weather pages use compact standard panels instead of duplicate page heroes', () => {
-  expect(weatherPage).toContain('<Panel title="Weerbeeld">');
+test('weather opens with its live map while the UAV page keeps the compact standard panel', () => {
+  expect(weatherPage).toContain('<h1>Live weerkaart</h1>');
   expect(uavPage).toContain('<Panel title="Vluchtvoorbereiding">');
-  expect(weatherPage).not.toContain('styles.pageHero');
+  expect(weatherPage).toContain('styles.weatherPageHero');
   expect(uavPage).not.toContain('styles.pageHero');
-  expect(weatherPage).not.toContain('<h1>');
   expect(uavPage).not.toContain('<h1>');
-  expect(styles).toContain('.pageIntroduction');
+  expect(styles).toContain('.weatherPageHero');
   expect(styles).not.toContain('.pageHero');
   expect(styles).not.toContain('.heroIcon');
 });
@@ -67,23 +68,39 @@ test('forecast queries use only a national scope or a normalized server-side add
   expect(resourceHook).not.toContain("parameters.set('longitude'");
 });
 
-test('weather uses locally stored KNMI and EUMETSAT products without an embedded external map or flight advice', () => {
+test('weather uses live open radar and EUMETSAT products without presenting flight advice', () => {
   expect(weatherPage).toContain('useForecastResource<OperationalWeatherPageState>(');
   expect(weatherPage).toContain("'/operational-weather'");
   expect(weatherPage).toContain('normalizeOperationalWeatherPage');
   expect(weatherPage).toContain('markOperationalWeatherStale(resource.data)');
-  expect(weatherPage).toContain('Lokaal opgeslagen brondata');
-  expect(weatherPage).toContain('De browser laadt geen externe weer- of radarkaart.');
+  expect(weatherPage).toContain('Live weerkaart');
+  expect(weatherPage).toContain('Dit kaartbeeld is geen vliegadvies.');
   expect(weatherPage).toContain('cloud_cover_high_pct');
   expect(weatherPage).toContain('cloud_base_m');
   expect(weatherPage).toContain('radar_peak_mm_h');
-  expect(weatherPage).toContain('third_hour_probability_pct');
-  expect(weatherPage).toContain('Lokale radarrasterreeks tot +2 uur');
+  expect(weatherPage).not.toContain('third_hour_probability_pct');
+  expect(weatherPage).toContain('Modeltijd');
+  expect(weatherPage).toContain('Modelneerslag · 0–3 uur');
+  expect(weatherPage).not.toContain('Nu → {formatClock(precipitation.radar_until)}');
   expect(weatherPage).toContain('Hoogtereferentie niet door het modelproduct gespecificeerd');
-  expect(weatherPage).toContain('<WeatherRadarSection radar={weather.radar} />');
+  expect(weatherPage).toContain('location={weather.location}');
+  expect(weatherPage).toContain('locationControl={locationControl}');
   expect(radarSection).toContain('Buien- en bliksemradar');
-  expect(radarSection).toContain('EUMETSAT LI total lightning; geen onderscheid tussen wolk-grond en wolk-wolk');
-  expect(radarSection).toContain('Er wordt geen externe kaart ingebed.');
+  expect(radarSection).toContain("dynamic(() => import('./LiveRadarMap')");
+  expect(liveRadarMap).toContain('EPSG:3857/{z}/{x}/{y}.png');
+  expect(liveRadarMap).toContain('projection: bounds.crs');
+  expect(liveRadarMap).toContain('bounds.west,');
+  expect(liveRadarMap).not.toContain("projection: 'EPSG:3857',");
+  expect(liveRadarMap).toContain("const PDOK_ATTRIBUTION = 'Kaart: CC-BY Kadaster 2026';");
+  expect(liveRadarMap).toContain('https://www.kadaster.nl/zakelijk/registraties/basisregistraties/brt');
+  expect(styles).toContain(':global(.ol-viewport canvas)');
+  expect(radarSection).toContain('RadarLicenseLink');
+  expect(radarSection).toContain('source.attribution');
+  expect(radarPlayback).toContain('Promise.all(renderUrls.map((renderUrl) => preloadRadarFrame(renderUrl, images)))');
+  expect(radarPlayback).toContain('setImageFrameRenderUrls(renderUrls);');
+  expect(radarPlayback).toContain('current.renderKey === requestedRenderKey');
+  expect(radarSection).toContain('Gemeten');
+  expect(radarSection).toContain('Verwachting');
   expect(weatherPage).not.toContain('forecastAdvice(');
 });
 
@@ -101,10 +118,12 @@ test('UAV Forecast renders server advice, every advice metric, provenance and fa
   expect(uavPage).toContain('{forecast.disclaimer}');
 });
 
-test('API types mirror nullable local KNMI provider fields', () => {
+test('API types mirror nullable weather fields and live radar rendering', () => {
   expect(apiTypes).toContain("export type OperationalWeatherDataStatus = 'current' | 'partial' | 'unavailable'");
   expect(apiTypes).toContain('export interface OperationalWeatherCloudState');
   expect(apiTypes).toContain('cloud_base_m: number | null;');
+  expect(apiTypes).toContain('cloud_base_complete: boolean;');
+  expect(apiTypes).toContain('cloud_base_sample_count: number | null;');
   expect(apiTypes).toContain('model_run_at: string | null;');
   expect(apiTypes).toContain('export interface OperationalWeatherPrecipitationState');
   expect(apiTypes).toContain('probability_complete: boolean;');
@@ -113,6 +132,10 @@ test('API types mirror nullable local KNMI provider fields', () => {
   expect(apiTypes).toContain('radar_status: WallboardForecastStatus;');
   expect(apiTypes).toContain('third_hour_probability_status: WallboardForecastStatus;');
   expect(apiTypes).toContain("export type OperationalWeatherRadarLayerStatus = 'available' | 'stale' | 'unavailable'");
+  expect(apiTypes).toContain("export type OperationalWeatherRadarRenderMode = 'atlas' | 'image_frames'");
+  expect(apiTypes).toContain("export type OperationalWeatherRadarFramePhase = 'observation' | 'forecast'");
+  expect(apiTypes).toContain('image_url?: string | null;');
+  expect(apiTypes).toContain('bounds?: OperationalWeatherRadarBounds | null;');
   expect(apiTypes).toContain('export interface OperationalWeatherRadarLayer');
   expect(apiTypes).toContain('observed_period_end: string | null;');
   expect(apiTypes).toContain('age_seconds: number | null;');
@@ -157,42 +180,108 @@ test('weather normalization never accepts malformed current data as current', ()
   });
 });
 
-test('weather keeps the local radar usable while a missing third-hour probability stays unknown', () => {
-  const radarOnly = currentWeather();
-  radarOnly.data_status = 'partial';
-  radarOnly.aggregation = {
-    ...(radarOnly.aggregation as Record<string, unknown>),
-    complete: false,
-    fresh: false,
-  };
-  radarOnly.precipitation = {
-    ...(radarOnly.precipitation as Record<string, unknown>),
+test('weather accepts a complete three-hour DMI outlook while ordinary precipitation probability stays unknown', () => {
+  const dmiWeather = currentWeather();
+  dmiWeather.precipitation = {
+    ...(dmiWeather.precipitation as Record<string, unknown>),
     probability_complete: false,
     third_hour_probability_pct: null,
     third_hour_from: null,
     forecast_until: null,
-    availability_note: 'De lokale KNMI-radar is beschikbaar; de kans voor uur 3 ontbreekt.',
+    availability_note: 'DMI DINI SF levert hiervoor geen gewone neerslagkans.',
   };
 
-  const normalized = normalizeOperationalWeatherPage(radarOnly);
+  const normalized = normalizeOperationalWeatherPage(dmiWeather);
 
-  expect(normalized?.data_status).toBe('partial');
-  expect(normalized?.aggregation).toMatchObject({ complete: false, fresh: false });
+  expect(normalized?.data_status).toBe('current');
+  expect(normalized?.aggregation).toMatchObject({ complete: true, fresh: true });
   expect(normalized?.precipitation).toMatchObject({
     complete: true,
     probability_complete: false,
     stale: false,
     radar_peak_mm_h: 0,
+    radar_until: '2026-07-21T15:00:00Z',
     third_hour_probability_pct: null,
     third_hour_from: null,
     forecast_until: null,
   });
 });
 
-test('radar normalization accepts only the bounded same-origin atlas contract and preserves stale placeholders', () => {
+test('weather accepts the nearest DMI model step when it is slightly ahead of refresh time', () => {
+  const futureModelStep = currentWeather();
+  futureModelStep.cloud = {
+    ...(futureModelStep.cloud as Record<string, unknown>),
+    valid_at: '2026-07-21T13:00:00Z',
+    measured_at: '2026-07-21T13:00:00Z',
+    refreshed_at: '2026-07-21T12:40:00Z',
+  };
+  futureModelStep.precipitation = {
+    ...(futureModelStep.precipitation as Record<string, unknown>),
+    reference_time: '2026-07-21T13:00:00Z',
+    measured_at: '2026-07-21T13:00:00Z',
+    refreshed_at: '2026-07-21T12:40:00Z',
+    radar_until: '2026-07-21T16:00:00Z',
+  };
+
+  const normalized = normalizeOperationalWeatherPage(futureModelStep);
+
+  expect(normalized?.data_status).toBe('current');
+  expect(normalized?.cloud).toMatchObject({ complete: true, stale: false });
+  expect(normalized?.precipitation).toMatchObject({ complete: true, stale: false });
+});
+
+test('a known red DMI precipitation peak stays red when ordinary probability is unavailable', () => {
+  const dmiForecast = greenUavForecast();
+  dmiForecast.overall_status = 'red';
+  dmiForecast.metrics = (dmiForecast.metrics as Array<Record<string, unknown>>).map((metric) => (
+    metric.key === 'precipitation_outlook'
+      ? {
+          ...metric,
+          value: 5,
+          status: 'red',
+          precipitation_outlook: {
+            radar_peak_mm_h: 5,
+            radar_status: 'red',
+            radar_first_precipitation_at: '2026-07-21T12:30:00Z',
+            radar_until: '2026-07-21T15:00:00Z',
+            third_hour_probability_pct: null,
+            third_hour_probability_status: 'unknown',
+            third_hour_from: null,
+            forecast_until: null,
+            reference_time: '2026-07-21T12:00:00Z',
+            sample_count: 12,
+            expected_sample_count: 12,
+            attribution: 'DMI',
+          },
+        }
+      : metric
+  ));
+
+  const normalized = normalizeUavForecastPage(dmiForecast);
+  const precipitation = normalized?.metrics.find((metric) => metric.key === 'precipitation_outlook');
+
+  expect(precipitation?.status).toBe('red');
+  expect(precipitation?.precipitation_outlook?.radar_status).toBe('red');
+  expect(precipitation?.precipitation_outlook?.third_hour_probability_status).toBe('unknown');
+  expect(normalized?.overall_status).toBe('red');
+});
+
+test('radar normalization accepts bounded same-origin atlas and live-frame contracts', () => {
   const weather = currentWeather();
   const normalized = normalizeOperationalWeatherPage(weather);
   expect(normalized?.data_status).toBe('current');
+  expect(normalized?.cloud).toMatchObject({
+    cloud_base_complete: true,
+    cloud_base_sample_count: 12,
+    cloud_base_expected_sample_count: 12,
+    source: {
+      license: 'CC BY 4.0',
+      license_url: 'https://www.dmi.dk/friedata/dokumentation/terms-of-use',
+      attribution: 'Contains modified DMI data',
+      modified: true,
+      processed_by: 'DIS',
+    },
+  });
   expect(normalized?.radar.precipitation).toMatchObject({
     status: 'available',
     observed_period_end: null,
@@ -213,6 +302,56 @@ test('radar normalization accepts only the bounded same-origin atlas contract an
   });
   expect(normalized?.radar.lightning?.frames.map((frame) => frame.lead_minutes))
     .toEqual([-30, -25, -20, -15, -10, -5, 0]);
+
+  const liveFrames = currentWeather();
+  const liveRadar = liveFrames.radar as Record<string, unknown>;
+  liveRadar.precipitation = livePrecipitationLayer();
+  const normalizedLive = normalizeOperationalWeatherPage(liveFrames);
+  expect(normalizedLive?.radar.precipitation).toMatchObject({
+    status: 'available',
+    render_mode: 'image_frames',
+    atlas_url: null,
+    atlas_columns: 0,
+    atlas_rows: 0,
+    bounds: {
+      crs: 'EPSG:4326',
+      west: 2.5,
+      south: 50.5,
+      east: 7.8,
+      north: 53.7,
+    },
+    source: {
+      license_url: 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
+    },
+  });
+  expect(normalizedLive?.radar.precipitation?.frames).toMatchObject([
+    { lead_minutes: -5, phase: 'observation' },
+    { lead_minutes: 0, phase: 'forecast' },
+    { lead_minutes: 5, phase: 'forecast' },
+  ]);
+
+  const legacyFrameToken = livePrecipitationLayer();
+  (legacyFrameToken.frames as Array<Record<string, unknown>>)[0].image_url =
+    '/api/operational-weather/radar/precipitation/20260721T115500Z-0123456789abcdef.png';
+  expect(normalizeOperationalWeatherRadarState({
+    precipitation: legacyFrameToken,
+    lightning: null,
+  }).precipitation).toMatchObject({ status: 'unavailable', frames: [] });
+
+  const externalFrame = currentWeather();
+  const externalFrameRadar = externalFrame.radar as Record<string, unknown>;
+  const invalidLiveLayer = livePrecipitationLayer();
+  invalidLiveLayer.frames = [
+    {
+      ...(invalidLiveLayer.frames as Array<Record<string, unknown>>)[0],
+      image_url: 'https://radar.example/frame.png',
+    },
+  ];
+  externalFrameRadar.precipitation = invalidLiveLayer;
+  expect(normalizeOperationalWeatherPage(externalFrame)?.radar.precipitation).toMatchObject({
+    status: 'unavailable',
+    frames: [],
+  });
 
   const externalAtlas = currentWeather();
   const radar = externalAtlas.radar as Record<string, unknown>;
@@ -299,7 +438,9 @@ test('forecast layout is responsive, keyboard visible and reduced-motion safe', 
   expect(styles).toContain('.locationModes label:has(input:focus-visible)');
   expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
   expect(styles).toContain('color: var(--dis-blue);');
-  expect(styles).toContain('grid-template-columns: minmax(0, 1fr) minmax(300px, 350px);');
+  expect(styles).toContain('height: 55dvh;');
+  expect(styles).toContain('.radarNowSeam');
+  expect(styles).toContain('.radarMapControls button:focus-visible');
   expect(styles).toContain('.radarTabs button:focus-visible');
   expect(radarPlayback).toContain("document.addEventListener('visibilitychange', handleVisibility)");
   expect(radarPlayback).toContain("window.matchMedia('(prefers-reduced-motion: reduce)')");
@@ -310,10 +451,10 @@ test('help index and operation manual explain both operational weather pages', (
   expect(help).toContain("href: '/weather'");
   expect(help).toContain("id: 'uav-forecast'");
   expect(help).toContain("href: '/uav-forecast'");
-  expect(operationManual).toContain("id: 'weather-read-local-knmi'");
+  expect(operationManual).toContain("id: 'weather-read-live-map'");
   expect(operationManual).toContain("id: 'uav-forecast-assess'");
   expect(operationManual).toContain('De pagina Weer geeft geen vliegadvies.');
-  expect(operationManual).toContain('EUMETSAT LI-product toont total lightning');
+  expect(operationManual).toContain('EUMETSAT LI toont total lightning');
 });
 
 test('a failed UAV refresh immediately fails closed and stays closed during retry', async ({ page }) => {
@@ -377,7 +518,7 @@ test('the initial forecast request disables controls and cannot be duplicated', 
   expect(requestCount).toBe(1);
 
   releaseInitial?.();
-  await expect(page.getByRole('heading', { name: 'Lokale datasets actueel' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Live weergegevens actueel' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Verversen' })).toBeEnabled();
 });
 
@@ -421,20 +562,128 @@ test('weather radar starts at now, exposes explicit controls and switches to tot
   await page.goto('/weather');
   await expect(page.getByRole('heading', { name: 'Buien- en bliksemradar' })).toBeVisible();
   const precipitationPanel = page.getByRole('tabpanel');
-  await expect(precipitationPanel.getByText('Nu', { exact: true })).toBeVisible();
+  await expect(precipitationPanel.getByText('Nu', { exact: true }).first()).toBeVisible();
   await expect(precipitationPanel.getByRole('slider')).toHaveValue('0');
   await expect(precipitationPanel.getByRole('button', { name: 'Radaranimatie afspelen' })).toBeEnabled();
 
-  await page.getByRole('tab', { name: 'Buien' }).focus();
-  await page.getByRole('tab', { name: 'Buien' }).press('ArrowRight');
+  await page.getByRole('tab', { name: 'Regen' }).focus();
+  await page.getByRole('tab', { name: 'Regen' }).press('ArrowRight');
   await expect(page.getByRole('tab', { name: 'Bliksem' })).toHaveAttribute('aria-selected', 'true');
-  await expect(precipitationPanel.getByText('EUMETSAT LI total lightning; geen onderscheid tussen wolk-grond en wolk-wolk')).toBeVisible();
+  await expect(page.getByText('Recente bliksemdetectie voor operationele oriëntatie.')).toBeVisible();
   await expect(precipitationPanel.getByRole('slider')).toHaveValue('6');
   await precipitationPanel.getByRole('slider').fill('0');
-  await expect(precipitationPanel.getByText('−30 min · waarneming')).toBeVisible();
+  await expect(precipitationPanel.getByText('−30 min · gemeten').first()).toBeVisible();
   await expect(precipitationPanel.getByRole('button', { name: 'Naar nu' })).toBeEnabled();
   await precipitationPanel.getByRole('button', { name: 'Naar nu' }).click();
   await expect(precipitationPanel.getByRole('slider')).toHaveValue('6');
+});
+
+test('live radar commits a refreshed image series atomically and retries without dropping the previous map', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  let weatherRequests = 0;
+  let retryRequests = 0;
+  let releaseFailedSeries: (() => void) | null = null;
+  const failedSeriesGate = new Promise<void>((resolve) => {
+    releaseFailedSeries = resolve;
+  });
+  const initialWeather = currentWeather();
+  (initialWeather.radar as Record<string, unknown>).precipitation = livePrecipitationLayer();
+  const refreshedWeather = currentWeather();
+  (refreshedWeather.radar as Record<string, unknown>).precipitation = livePrecipitationLayer(
+    '2026-07-21T12:05:00Z',
+    ['1111111111111111', '2222222222222222', '3333333333333333'],
+  );
+
+  await mockForecastApi(
+    page,
+    'dark',
+    async (path) => {
+      if (path !== '/api/operational-weather') return notFoundResponse();
+      weatherRequests += 1;
+      return successResponse(weatherRequests === 1 ? initialWeather : refreshedWeather);
+    },
+    async (route) => {
+      const url = new URL(route.request().url());
+      const isRefreshedSeries = /-(?:1111111111111111|2222222222222222|3333333333333333)\.png$/.test(url.pathname);
+      if (isRefreshedSeries && !url.searchParams.has('retry')) {
+        await failedSeriesGate;
+        await route.fulfill({ status: 503, contentType: 'text/plain', body: 'tijdelijk niet beschikbaar' });
+        return;
+      }
+      if (isRefreshedSeries && url.searchParams.get('retry') === '1') retryRequests += 1;
+      await route.fulfill({ status: 200, contentType: 'image/png', body: RADAR_TEST_PNG });
+    },
+  );
+
+  await page.goto('/weather');
+  const radar = page.locator('[data-radar-kind="precipitation"]');
+  const map = radar.getByRole('application');
+  const attribution = radar.getByRole('link', { name: 'Kaart: CC-BY Kadaster 2026' });
+  const legend = radar.locator('[data-radar-legend]');
+  const status = radar.locator('[data-radar-status]');
+  const layers = radar.locator('[data-radar-layers]');
+  await expect(map).toBeVisible();
+  await expectLocatorsNotToOverlap(status, legend);
+  await expectLocatorsNotToOverlap(layers, attribution);
+  await expectLocatorsNotToOverlap(legend, attribution);
+  const previousMapLabel = await map.getAttribute('aria-label');
+  expect(previousMapLabel).not.toBeNull();
+
+  await page.getByRole('button', { name: 'Verversen' }).click();
+  await expect(radar.getByText('Nieuwe beeldreeks laden')).toBeVisible();
+  await expectLocatorsNotToOverlap(radar.locator('[data-radar-overlay]'), attribution);
+  await expectLocatorsNotToOverlap(status, legend);
+  await expect(map).toHaveAttribute('aria-label', previousMapLabel ?? '');
+
+  releaseFailedSeries?.();
+  await expect(radar.getByText('Nieuwe beeldreeks niet geladen')).toBeVisible();
+  await expectLocatorsNotToOverlap(radar.locator('[data-radar-overlay]'), attribution);
+  await expect(radar.getByText('Het vorige geldige beeld blijft beschikbaar.')).toBeVisible();
+  await expect(map).toHaveAttribute('aria-label', previousMapLabel ?? '');
+
+  await radar.getByRole('button', { name: 'Opnieuw laden' }).click();
+  await expect.poll(() => retryRequests).toBeGreaterThanOrEqual(3);
+  await expect(map).not.toHaveAttribute('aria-label', previousMapLabel ?? '');
+  expect(retryRequests).toBeLessThanOrEqual(4);
+  await expect(radar.getByText('Nieuwe beeldreeks niet geladen')).toHaveCount(0);
+});
+
+test('live radar keeps its location controls, time and Kadaster attribution separate at 1280px', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const weather = currentWeather();
+  (weather.radar as Record<string, unknown>).precipitation = livePrecipitationLayer();
+  await mockForecastApi(page, 'dark', async (path) => path === '/api/operational-weather'
+    ? successResponse(weather)
+    : notFoundResponse());
+
+  await page.goto('/weather');
+  const radar = page.locator('[data-radar-kind="precipitation"]');
+  const locationForm = radar.getByRole('form', { name: 'Forecastgebied kiezen' });
+  const moment = radar.locator('[data-radar-map-moment]');
+  const legend = radar.locator('[data-radar-legend]');
+  const attribution = radar.getByRole('link', { name: 'Kaart: CC-BY Kadaster 2026' });
+  await expect(attribution).toBeVisible();
+  await expect(attribution).toHaveAttribute(
+    'href',
+    'https://www.kadaster.nl/zakelijk/registraties/basisregistraties/brt',
+  );
+
+  const rectangles = await Promise.all([
+    locationForm.boundingBox(),
+    moment.boundingBox(),
+    legend.boundingBox(),
+    attribution.boundingBox(),
+  ]);
+  const [locationRect, momentRect, legendRect, attributionRect] = rectangles;
+  expect(locationRect).not.toBeNull();
+  expect(momentRect).not.toBeNull();
+  expect(legendRect).not.toBeNull();
+  expect(attributionRect).not.toBeNull();
+  if (locationRect === null || momentRect === null || legendRect === null || attributionRect === null) {
+    throw new Error('Radar-overlay kon niet worden gemeten.');
+  }
+  expect(locationRect.y + locationRect.height).toBeLessThanOrEqual(momentRect.y);
+  expect(rectanglesOverlap(legendRect, attributionRect)).toBe(false);
 });
 
 test('weather radar keeps its loading state honest until the atlas has decoded', async ({ page }) => {
@@ -459,7 +708,7 @@ test('weather radar keeps its loading state honest until the atlas has decoded',
   await expect(radar.getByText('Radarbeeld laden')).toBeVisible();
 
   releaseAtlas?.();
-  await expect(radar.getByRole('img', { name: /KNMI-neerslagradar/ })).toBeVisible();
+  await expect(radar.getByRole('img', { name: /DWD RV · neerslagradar/ })).toBeVisible();
   await expect(radar.getByText('Actueel', { exact: true })).toBeVisible();
 });
 
@@ -485,7 +734,7 @@ test('weather radar retries a failed atlas without discarding the page data', as
   const radar = page.locator('[data-radar-kind="precipitation"]');
   await expect(radar.getByText('Radarafbeelding niet geladen')).toBeVisible();
   await radar.getByRole('button', { name: 'Opnieuw laden' }).click();
-  await expect(radar.getByRole('img', { name: /KNMI-neerslagradar/ })).toBeVisible();
+  await expect(radar.getByRole('img', { name: /DWD RV · neerslagradar/ })).toBeVisible();
   expect(atlasRequests).toBeGreaterThanOrEqual(2);
   expect(atlasRequests).toBeLessThanOrEqual(3);
 });
@@ -499,7 +748,7 @@ test('a stale radar atlas stays inspectable and never presents itself as live', 
     status: 'stale',
     age_seconds: 3_600,
     lag_seconds: 420,
-    availability_note: 'De laatst gevalideerde KNMI-reeks is ouder dan toegestaan.',
+    availability_note: 'De laatst gevalideerde DWD-reeks is ouder dan toegestaan.',
   };
 
   await mockForecastApi(page, 'dark', async (path) => path === '/api/operational-weather'
@@ -532,7 +781,7 @@ test('reduced motion keeps radar animation off while manual time steps remain av
 });
 
 for (const scenario of [
-  { path: '/weather', theme: 'light', heading: 'Lokale datasets actueel' },
+  { path: '/weather', theme: 'light', heading: 'Live weergegevens actueel' },
   { path: '/uav-forecast', theme: 'dark', heading: 'Advies onvolledig' },
 ] as const) {
   test(`${scenario.path} renders without horizontal overflow at 375px in ${scenario.theme} mode`, async ({ page }) => {
@@ -601,7 +850,7 @@ async function mockForecastApi(
 ): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    const radarMatch = /^\/api\/operational-weather\/radar\/(precipitation|lightning)\/\d{8}T\d{6}Z-[a-f0-9]{16}\.png$/.exec(path);
+    const radarMatch = /^\/api\/operational-weather\/radar\/(precipitation|lightning)\/\d{8}T\d{6}Z-(?:o|f\d{8}T\d{6}Z)-[a-f0-9]{16}\.png$/.exec(path);
     if (radarMatch !== null) {
       if (radarResponse !== undefined) {
         await radarResponse(route, radarMatch[1] as 'precipitation' | 'lightning');
@@ -678,7 +927,15 @@ function currentUser(theme: 'dark' | 'light') {
 }
 
 function currentWeather(): Record<string, unknown> {
-  const source = { name: 'KNMI lokaal', url: null };
+  const source = {
+    name: 'DMI HARMONIE DINI',
+    url: 'https://www.dmi.dk/friedata/dokumentation/forecast-data-edr-api',
+    license: 'CC BY 4.0',
+    license_url: 'https://www.dmi.dk/friedata/dokumentation/terms-of-use',
+    attribution: 'Contains modified DMI data',
+    modified: true,
+    processed_by: 'DIS',
+  };
   return {
     location: { mode: 'netherlands', label: 'UAV Nederland', latitude: 52.2, longitude: 5.3 },
     aggregation: {
@@ -698,6 +955,9 @@ function currentWeather(): Record<string, unknown> {
       cloud_cover_mid_pct: 25,
       cloud_cover_high_pct: 30,
       cloud_base_m: 1_200,
+      cloud_base_complete: true,
+      cloud_base_sample_count: 12,
+      cloud_base_expected_sample_count: 12,
       model_run_at: '2026-07-21T09:00:00Z',
       valid_at: '2026-07-21T12:00:00Z',
       measured_at: '2026-07-21T12:00:00Z',
@@ -709,14 +969,14 @@ function currentWeather(): Record<string, unknown> {
     },
     precipitation: {
       complete: true,
-      probability_complete: true,
+      probability_complete: false,
       stale: false,
       radar_peak_mm_h: 0,
       radar_first_precipitation_at: null,
-      radar_until: '2026-07-21T14:00:00Z',
-      third_hour_probability_pct: 5,
-      third_hour_from: '2026-07-21T14:00:00Z',
-      forecast_until: '2026-07-21T15:00:00Z',
+      radar_until: '2026-07-21T15:00:00Z',
+      third_hour_probability_pct: null,
+      third_hour_from: null,
+      forecast_until: null,
       reference_time: '2026-07-21T12:00:00Z',
       measured_at: '2026-07-21T12:00:00Z',
       refreshed_at: '2026-07-21T12:05:00Z',
@@ -733,7 +993,7 @@ function currentWeather(): Record<string, unknown> {
         age_seconds: 90,
         lag_seconds: 20,
         refreshed_at: '2026-07-21T12:05:00Z',
-        atlas_url: '/api/operational-weather/radar/precipitation/20260721T120000Z-0123456789abcdef.png',
+        atlas_url: '/api/operational-weather/radar/precipitation/20260721T120000Z-o-0123456789abcdef.png',
         atlas_columns: 5,
         atlas_rows: 5,
         frame_width: 140,
@@ -744,9 +1004,10 @@ function currentWeather(): Record<string, unknown> {
           lead_minutes: index * 5,
         })),
         source: {
-          name: 'KNMI Precipitation Radar',
-          url: 'https://dataplatform.knmi.nl/',
+          name: 'DWD RV',
+          url: 'https://www.dwd.de/DE/leistungen/radarprodukte/radarlayer.html',
           license: 'CC BY 4.0',
+          license_url: 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
         },
         availability_note: null,
       },
@@ -757,7 +1018,7 @@ function currentWeather(): Record<string, unknown> {
         age_seconds: 30,
         lag_seconds: 15,
         refreshed_at: '2026-07-21T12:05:00Z',
-        atlas_url: '/api/operational-weather/radar/lightning/20260721T120000Z-fedcba9876543210.png',
+        atlas_url: '/api/operational-weather/radar/lightning/20260721T120000Z-o-fedcba9876543210.png',
         atlas_columns: 4,
         atlas_rows: 2,
         frame_width: 640,
@@ -770,14 +1031,89 @@ function currentWeather(): Record<string, unknown> {
         source: {
           name: 'EUMETSAT MTG Lightning Imager',
           url: 'https://view.eumetsat.int/',
-          license: 'EUMETSAT Data Policy',
+          license: 'CC BY 4.0',
+          license_url: 'https://user.eumetsat.int/resources/user-guides/data-registration-and-licensing',
+          attribution: 'Contains modified EUMETSAT Meteosat data 2026',
+          modified: true,
+          processed_by: 'DIS',
         },
         availability_note: null,
       },
     },
-    scope_note: 'Landelijk overzicht uit lokaal opgeslagen KNMI-producten.',
+    scope_note: 'Live DWD-radar, EUMETSAT-bliksemdetectie en DMI-modelwaarden.',
     disclaimer: 'Dit weerbeeld is geen vliegadvies.',
   };
+}
+
+function livePrecipitationLayer(
+  referenceTime = '2026-07-21T12:00:00Z',
+  hashes = ['0123456789abcdef', 'fedcba9876543210', 'abcdef0123456789'],
+): Record<string, unknown> {
+  const reference = Date.parse(referenceTime);
+  const referenceToken = radarTokenTimestamp(reference);
+  return {
+    status: 'available',
+    render_mode: 'image_frames',
+    bounds: {
+      crs: 'EPSG:4326',
+      west: 2.5,
+      south: 50.5,
+      east: 7.8,
+      north: 53.7,
+    },
+    reference_time: referenceTime,
+    observed_period_end: null,
+    age_seconds: 90,
+    lag_seconds: 20,
+    refreshed_at: new Date(reference + 60_000).toISOString(),
+    atlas_url: null,
+    atlas_columns: 0,
+    atlas_rows: 0,
+    frame_width: 960,
+    frame_height: 720,
+    frames: [-5, 0, 5].map((leadMinutes, index) => {
+      const validAt = reference + leadMinutes * 60_000;
+      const token = leadMinutes < 0
+        ? `${radarTokenTimestamp(validAt)}-o-${hashes[index]}`
+        : `${radarTokenTimestamp(validAt)}-f${referenceToken}-${hashes[index]}`;
+      return {
+        index,
+        valid_at: new Date(validAt).toISOString(),
+        lead_minutes: leadMinutes,
+        phase: leadMinutes < 0 ? 'observation' : 'forecast',
+        image_url: `/api/operational-weather/radar/precipitation/${token}.png`,
+      };
+    }),
+    source: {
+      name: 'DWD RV',
+      url: 'https://www.dwd.de/',
+      license: 'CC BY 4.0',
+      license_url: 'https://www.dwd.de/DE/leistungen/opendata/faqs_opendata.html',
+    },
+    availability_note: null,
+  };
+}
+
+function radarTokenTimestamp(timestamp: number): string {
+  return new Date(timestamp).toISOString().replaceAll('-', '').replaceAll(':', '').replace('.000', '');
+}
+
+function rectanglesOverlap(
+  left: { x: number; y: number; width: number; height: number },
+  right: { x: number; y: number; width: number; height: number },
+): boolean {
+  return left.x < right.x + right.width
+    && left.x + left.width > right.x
+    && left.y < right.y + right.height
+    && left.y + left.height > right.y;
+}
+
+async function expectLocatorsNotToOverlap(left: Locator, right: Locator): Promise<void> {
+  const [leftRect, rightRect] = await Promise.all([left.boundingBox(), right.boundingBox()]);
+  expect(leftRect).not.toBeNull();
+  expect(rightRect).not.toBeNull();
+  if (leftRect === null || rightRect === null) throw new Error('Radar-overlay kon niet worden gemeten.');
+  expect(rectanglesOverlap(leftRect, rightRect)).toBe(false);
 }
 
 function greenUavForecast(): Record<string, unknown> {

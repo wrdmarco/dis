@@ -510,13 +510,38 @@ final class WallboardStateService
             return $value;
         }
 
+        $frames = $value['frames'] ?? null;
+        if (is_array($frames)) {
+            foreach ($frames as $index => $frame) {
+                if (! is_array($frame) || ! array_key_exists('image_url', $frame)) {
+                    continue;
+                }
+                $frameUrl = $frame['image_url'];
+                if (! is_string($frameUrl)
+                    || preg_match(
+                        '#\A/api/operational-weather/radar/(precipitation|lightning)/(\d{8}T\d{6}Z-(?:o|f\d{8}T\d{6}Z)-[a-f0-9]{16})\.png\z#D',
+                        $frameUrl,
+                        $matches,
+                    ) !== 1
+                    || $matches[1] !== $kind) {
+                    $value['frames'][$index]['image_url'] = null;
+
+                    continue;
+                }
+                $value['frames'][$index]['image_url'] = route('wallboard.weather-radar-atlas', [
+                    'kind' => $kind,
+                    'snapshot' => $matches[2],
+                ], false);
+            }
+        }
+
         $atlasUrl = $value['atlas_url'] ?? null;
         if ($atlasUrl === null) {
             return $value;
         }
         if (! is_string($atlasUrl)
             || preg_match(
-                '#\A/api/operational-weather/radar/(precipitation|lightning)/(\d{8}T\d{6}Z-[a-f0-9]{16})\.png\z#D',
+                '#\A/api/operational-weather/radar/(precipitation|lightning)/(\d{8}T\d{6}Z-(?:o|f\d{8}T\d{6}Z)-[a-f0-9]{16})\.png\z#D',
                 $atlasUrl,
                 $matches,
             ) !== 1

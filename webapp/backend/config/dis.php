@@ -84,51 +84,38 @@ return [
         // This path may itself be the deployment-managed storage symlink.
         'directory' => storage_path('logs'),
     ],
-    'knmi_forecast' => [
-        'api_base_url' => 'https://api.dataplatform.knmi.nl/open-data/v1',
-        'download_host' => 'knmi-kdp-datasets-eu-west-1.s3.eu-west-1.amazonaws.com',
-        'dataset' => 'harmonie_arome_cy43_p1',
-        'dataset_version' => '1.0',
-        'api_key' => env('KNMI_OPEN_DATA_API_KEY'),
-        'storage_root' => env('KNMI_FORECAST_STORAGE_ROOT', storage_path('app/knmi-forecast')),
-        'minimum_archive_bytes' => (int) env('KNMI_FORECAST_MIN_ARCHIVE_BYTES', 104857600),
-        'maximum_archive_bytes' => (int) env('KNMI_FORECAST_MAX_ARCHIVE_BYTES', 1181116006),
-        'download_timeout_seconds' => (int) env('KNMI_FORECAST_DOWNLOAD_TIMEOUT_SECONDS', 1800),
-        'connect_timeout_seconds' => (int) env('KNMI_FORECAST_CONNECT_TIMEOUT_SECONDS', 10),
-        'retain_releases' => (int) env('KNMI_FORECAST_RETAIN_RELEASES', 2),
-        'maximum_model_age_seconds' => (int) env('KNMI_FORECAST_MAXIMUM_MODEL_AGE_SECONDS', 21600),
-        'maximum_valid_offset_seconds' => (int) env('KNMI_FORECAST_MAXIMUM_VALID_OFFSET_SECONDS', 3600),
-        'integrity_cache_seconds' => (int) env('KNMI_FORECAST_INTEGRITY_CACHE_SECONDS', 900),
-        'point_cache_seconds' => (int) env('KNMI_FORECAST_POINT_CACHE_SECONDS', 21600),
-        'query_timeout_seconds' => (int) env('KNMI_FORECAST_QUERY_TIMEOUT_SECONDS', 10),
-    ],
-    'knmi_precipitation' => [
-        'api_base_url' => 'https://api.dataplatform.knmi.nl/open-data/v1',
-        'download_host' => 'knmi-kdp-datasets-eu-west-1.s3.eu-west-1.amazonaws.com',
-        'storage_root' => env(
-            'KNMI_PRECIPITATION_STORAGE_ROOT',
-            rtrim((string) env('KNMI_FORECAST_STORAGE_ROOT', storage_path('app/knmi-forecast')), '/\\').'/precipitation-outlook',
-        ),
-        'radar_dataset' => 'radar_forecast',
-        'radar_version' => '2.0',
-        'radar_minimum_bytes' => (int) env('KNMI_PRECIPITATION_RADAR_MINIMUM_BYTES', 32_768),
-        'radar_maximum_bytes' => (int) env('KNMI_PRECIPITATION_RADAR_MAXIMUM_BYTES', 16_777_216),
-        'probability_dataset' => 'seamless_precipitation_ensemble_forecast_probabilities',
-        'probability_version' => '1.0',
-        'probability_minimum_bytes' => (int) env('KNMI_PRECIPITATION_PROBABILITY_MINIMUM_BYTES', 1_048_576),
-        'probability_maximum_bytes' => (int) env('KNMI_PRECIPITATION_PROBABILITY_MAXIMUM_BYTES', 134_217_728),
-        'connect_timeout_seconds' => (int) env('KNMI_PRECIPITATION_CONNECT_TIMEOUT_SECONDS', 10),
-        'download_timeout_seconds' => (int) env('KNMI_PRECIPITATION_DOWNLOAD_TIMEOUT_SECONDS', 180),
-        'retain_releases' => (int) env('KNMI_PRECIPITATION_RETAIN_RELEASES', 2),
-        'maximum_reference_age_seconds' => (int) env('KNMI_PRECIPITATION_MAXIMUM_REFERENCE_AGE_SECONDS', 1800),
-        'integrity_cache_seconds' => (int) env('KNMI_PRECIPITATION_INTEGRITY_CACHE_SECONDS', 300),
-        'point_cache_seconds' => (int) env('KNMI_PRECIPITATION_POINT_CACHE_SECONDS', 600),
-        'query_timeout_seconds' => (int) env('KNMI_PRECIPITATION_QUERY_TIMEOUT_SECONDS', 10),
+    'dwd_radar' => [
+        // These fixed WMS endpoints provide the same RV product from DWD's
+        // production and officially documented disaster-recovery sites.
+        'endpoints' => [
+            'https://maps.dwd.de/geoserver/dwd/Radar_rv_product_1x1km_ger/wms',
+            'https://brz-maps.dwd.de/geoserver/dwd/Radar_rv_product_1x1km_ger/wms',
+        ],
+        'layer' => 'Radar_rv_product_1x1km_ger',
+        'style' => 'radar_rv_product_1x1km_ger',
+        'bbox' => [2.5, 50.5, 7.8, 53.7],
+        'frame_width' => 960,
+        'frame_height' => 580,
+        'history_minutes' => 60,
+        'forecast_minutes' => 120,
+        'interval_minutes' => 5,
+        'connect_timeout_seconds' => 5,
+        'capabilities_timeout_seconds' => 15,
+        'frame_timeout_seconds' => 20,
+        'maximum_capabilities_bytes' => 262_144,
+        'maximum_frame_bytes' => 262_144,
+        'timeline_cache_seconds' => 240,
+        // HMAC frame tokens, a 256 KiB payload ceiling and this two-hour TTL
+        // bound Redis use while retaining the full one-hour history plus the
+        // complete one-hour stale-fallback window.
+        'frame_cache_seconds' => 7200,
+        'maximum_age_seconds' => 1200,
+        'maximum_fallback_age_seconds' => 3600,
     ],
     'eumetsat_lightning' => [
         // EUMETView exposes this WMS without an account, token or API key. Keep
         // the remote contract fixed so a configuration change cannot turn the
-        // scheduled importer into a generic outbound request primitive.
+        // live frame fetcher into a generic outbound request primitive.
         'endpoint' => 'https://view.eumetsat.int/geoserver/wms',
         'layer' => 'mtg_fd:li_afa',
         'style' => 'mtg_li_afa',
@@ -138,28 +125,20 @@ return [
         'frame_height' => 384,
         'frame_count' => 7,
         'interval_minutes' => 5,
-        'atlas_columns' => 4,
-        'atlas_rows' => 2,
-        'storage_root' => env(
-            'EUMETSAT_LIGHTNING_STORAGE_ROOT',
-            rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/\\').'/webapp/backend/storage/app/eumetsat-lightning',
-        ),
         'connect_timeout_seconds' => 5,
         'capabilities_timeout_seconds' => 15,
         'frame_timeout_seconds' => 20,
         'maximum_capabilities_bytes' => 1_048_576,
-        'maximum_frame_bytes' => 4_194_304,
-        'maximum_atlas_bytes' => 33_554_432,
+        'maximum_frame_bytes' => 262_144,
         // LI AFA is published with normal source latency. Thirty minutes keeps
         // current frames usable without presenting a prolonged outage as live;
-        // older validated snapshots are exposed only as an explicitly stale,
-        // time-bounded fallback.
+        // older validated Redis-cached frames are exposed only as an explicitly
+        // stale, time-bounded fallback.
         'maximum_age_seconds' => 1800,
-        'retain_releases' => 2,
         'source_name' => 'EUMETSAT MTG Lightning Imager',
         'source_url' => 'https://view.eumetsat.int/',
-        'license_name' => 'EUMETSAT Data Policy (vrije EUMETView-toegang)',
-        'license_url' => 'https://www.eumetsat.int/eumetsat-data-policy',
+        'license_name' => 'CC BY 4.0',
+        'license_url' => 'https://user.eumetsat.int/resources/user-guides/data-registration-and-licensing',
     ],
     'wallboards' => [
         'pairing_ttl_seconds' => (int) env('WALLBOARD_PAIRING_TTL_SECONDS', 300),
@@ -179,6 +158,11 @@ return [
             'geocode_cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_GEOCODE_CACHE_SECONDS', 2592000),
             'weather_stale_seconds' => (int) env('WALLBOARD_UAV_FORECAST_WEATHER_STALE_SECONDS', 1800),
             'kp_stale_seconds' => (int) env('WALLBOARD_UAV_FORECAST_KP_STALE_SECONDS', 14400),
+            'dmi_model_cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_DMI_MODEL_CACHE_SECONDS', 600),
+            'dmi_model_stale_seconds' => (int) env('DMI_MODEL_STALE_SECONDS', 21600),
+            'dmi_valid_window_seconds' => (int) env('DMI_VALID_WINDOW_SECONDS', 5400),
+            'dmi_lock_seconds' => (int) env('DMI_LOCK_SECONDS', 20),
+            'dmi_retry_delay_ms' => (int) env('DMI_RETRY_DELAY_MS', 250),
             'knmi_edr_api_key' => env('KNMI_EDR_API_KEY'),
             'cloud_base_station_cache_seconds' => (int) env('WALLBOARD_UAV_CLOUD_BASE_STATION_CACHE_SECONDS', 86400),
             'cloud_base_stale_seconds' => (int) env('WALLBOARD_UAV_CLOUD_BASE_STALE_SECONDS', 1800),
@@ -266,6 +250,5 @@ return [
         'push_logs_days' => (int) env('PUSH_LOG_RETENTION_DAYS', 90),
         'push_queue_work_items_days' => max(1, (int) env('PUSH_QUEUE_WORK_ITEM_RETENTION_DAYS', 7)),
         'audit_logs_days' => (int) env('AUDIT_LOG_RETENTION_DAYS', 3650),
-        'weather_dataset_operations_days' => max(1, (int) env('WEATHER_DATASET_OPERATION_RETENTION_DAYS', 14)),
     ],
 ];

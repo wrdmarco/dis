@@ -245,7 +245,7 @@ function permissionCategoryLabel(category: string): string {
     case 'form_configuration':
       return 'Formulieren';
     case 'weather_configuration':
-      return 'Weer en KNMI';
+      return 'Weer en UAV';
     case 'branding_configuration':
       return 'Branding';
     case 'audit_log_access':
@@ -278,7 +278,7 @@ function permissionCategoryDescription(category: string): string | null {
     case 'form_configuration':
       return 'Beheer de dynamische inzet- en rapportformulieren zonder toegang tot overige systeeminstellingen.';
     case 'weather_configuration':
-      return 'Toegang tot Weer en UAV Forecast staat los van het technische beheer van KNMI-bronnen en datasets.';
+      return 'Bepaal afzonderlijk wie de live weerkaart en wie de UAV Forecast mag bekijken.';
     case 'branding_configuration':
       return 'Beheer huisstijl, logo en berichttemplates zonder toegang tot technische systeeminstellingen.';
     default:

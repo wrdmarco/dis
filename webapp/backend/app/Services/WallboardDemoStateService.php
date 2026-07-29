@@ -148,9 +148,9 @@ final class WallboardDemoStateService
             $this->forecastMetric('weather_code', 'Weerbeeld', 2, null, 'green', $source, $generatedAt, 'Licht bewolkt'),
             $this->forecastMetric('temperature_c', 'Temperatuur', 18.4, '°C', 'green', $source, $generatedAt, '18,4'),
             $this->forecastMetric('dew_point_c', 'Dauwpunt', 11.2, '°C', 'green', $source, $generatedAt, '11,2'),
-            $this->forecastMetric('wind_speed_kmh', 'Wind op 120 m AGL', 22.5, 'km/u', 'orange', $source, $generatedAt, '22,5', 120),
+            $this->forecastMetric('wind_speed_kmh', 'Wind op 100 m AGL', 20.8, 'km/u', 'orange', $source, $generatedAt, '20,8', 100),
             $this->forecastMetric('wind_gust_kmh', 'Windstoten op 10 m AGL', 31.0, 'km/u', 'orange', $source, $generatedAt, '31,0', 10),
-            $this->forecastMetric('wind_direction_degrees', 'Windrichting op 120 m AGL', 245, '°', 'green', $source, $generatedAt, '245', 120),
+            $this->forecastMetric('wind_direction_degrees', 'Windrichting op 100 m AGL', 245, '°', 'green', $source, $generatedAt, '245', 100),
             $this->forecastMetric('precipitation_probability_pct', 'Neerslagkans', 15, '%', 'green', $source, $generatedAt, '15'),
             $this->forecastMetric('precipitation_mm', 'Neerslag', 0.0, 'mm', 'green', $source, $generatedAt, '0,0'),
             $this->forecastMetric('precipitation_outlook', 'Buien +3 uur', 0.4, 'mm/u', 'orange', $source, $generatedAt, null),
@@ -164,10 +164,10 @@ final class WallboardDemoStateService
         ];
         $metrics[3]['height_samples_agl_m'] = [
             ['height_agl_m' => 10, 'speed_kmh' => 14.2],
-            ['height_agl_m' => 80, 'speed_kmh' => 20.8],
-            ['height_agl_m' => 120, 'speed_kmh' => 22.5],
+            ['height_agl_m' => 100, 'speed_kmh' => 20.8],
+            ['height_agl_m' => 150, 'speed_kmh' => 24.8],
         ];
-        $metrics[3]['max_non_red_wind_height_agl_m'] = 120;
+        $metrics[3]['max_non_red_wind_height_agl_m'] = 150;
         $metrics[8]['precipitation_outlook'] = [
             'radar_peak_mm_h' => 0.4,
             'radar_status' => 'orange',
@@ -277,7 +277,7 @@ final class WallboardDemoStateService
                 ],
                 'wind_profile' => [
                     'samples' => $metrics[3]['height_samples_agl_m'],
-                    'max_non_red_wind_height_agl_m' => 120,
+                    'max_non_red_wind_height_agl_m' => 150,
                     'stale' => false,
                 ],
                 'metrics' => $pageMetrics,

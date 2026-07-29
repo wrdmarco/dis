@@ -24,6 +24,28 @@
   color: var(--dis-text-strong);
 }
 
+.weatherPageHero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--dis-border);
+  padding: 0 2px 12px;
+}
+
+.weatherPageHero h1 {
+  margin: 2px 0 0;
+  color: var(--dis-text-strong);
+  font-size: clamp(1.35rem, 2.4vw, 1.8rem);
+  letter-spacing: -0.025em;
+}
+
+.weatherPageHero p {
+  margin: 3px 0 0;
+  color: var(--dis-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .sectionKicker,
 .dataLabel {
   display: inline-flex;
@@ -153,6 +175,60 @@
 .locationActions button {
   min-height: 44px;
   white-space: nowrap;
+}
+
+.locationControlCompact {
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  gap: 6px;
+  border-color: color-mix(in srgb, var(--dis-border-strong) 78%, transparent);
+  background: color-mix(in srgb, var(--dis-surface) 94%, transparent);
+  box-shadow: 0 8px 28px rgba(2, 15, 30, 0.2);
+  padding: 6px;
+}
+
+.locationControlCompact .locationHeading {
+  display: none;
+}
+
+.locationControlCompact .locationModes {
+  align-self: stretch;
+}
+
+.locationControlCompact .locationModes label,
+.locationControlCompact .addressField input,
+.locationControlCompact .locationActions button {
+  min-height: 46px;
+}
+
+.locationControlCompact .addressField {
+  align-self: stretch;
+}
+
+.locationControlCompact .addressField label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.locationControlCompact .locationActions {
+  gap: 5px;
+}
+
+.locationControlCompact .locationActions button:last-child {
+  width: 46px;
+  min-width: 46px;
+  overflow: hidden;
+  padding: 0;
+  font-size: 0;
+}
+
+.locationControlCompact .locationActions button:last-child svg {
+  width: 18px;
+  height: 18px;
 }
 
 .inlineWarning,
@@ -606,6 +682,36 @@
   font-size: 0.75rem;
 }
 
+.sourceLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.sourceLinks a,
+.radarHeaderSource a,
+.radarFacts a {
+  color: var(--dis-blue);
+  font-weight: 760;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.sourceLinks a:focus-visible,
+.radarHeaderSource a:focus-visible,
+.radarFacts a:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--dis-blue);
+  outline-offset: 2px;
+}
+
+.sourceProcessing {
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
 .sourceCard dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -643,59 +749,342 @@
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--weather-line);
-  border-radius: 11px;
+  border-radius: 12px;
   background: var(--dis-surface);
+  box-shadow: 0 18px 48px rgba(2, 15, 30, 0.16);
 }
 
 .radarHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 20px;
   border-bottom: 1px solid var(--dis-border);
-  padding: 18px 22px;
+  padding: 15px 18px;
 }
 
 .radarHeading {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
 }
 
 .radarHeading h2 {
   margin: 2px 0 0;
   color: var(--dis-text-strong);
-  font-size: 1.08rem;
+  font-size: 1.12rem;
 }
 
 .radarHeading p {
   max-width: 72ch;
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   color: var(--dis-muted);
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   line-height: 1.5;
 }
 
-.radarTabs {
+.radarHeaderSource {
   flex: 0 0 auto;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+}
+
+.radarHeaderSource strong {
+  color: var(--dis-text-strong);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.radarPanel {
+  min-width: 0;
   display: flex;
-  gap: 5px;
-  border: 1px solid var(--dis-border);
-  border-radius: 9px;
+  flex-direction: column;
+}
+
+.radarVisualColumn {
+  min-width: 0;
+}
+
+.radarStage {
+  position: relative;
+  height: clamp(480px, 62dvh, 760px);
+  min-height: 440px;
+  overflow: hidden;
   background: var(--dis-field);
+  isolation: isolate;
+}
+
+.radarLiveMap,
+.radarMapPlaceholder,
+.radarCanvas,
+.radarEmpty {
+  width: 100%;
+  height: 100%;
+}
+
+.radarLiveMap {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--dis-field) 88%, var(--weather-blue-soft));
+}
+
+.radarLiveMap:fullscreen {
+  background: var(--dis-field);
+}
+
+.radarMapCanvas {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--dis-field) 88%, var(--weather-blue-soft));
+}
+
+.radarMapCanvas:focus-visible {
+  outline: 3px solid var(--dis-blue);
+  outline-offset: -3px;
+}
+
+.radarMapCanvas :global(.ol-viewport),
+.radarMapCanvas :global(.ol-unselectable) {
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+.radarMapCanvas :global(.ol-viewport canvas) {
+  all: unset;
+  overflow: hidden;
+}
+
+.radarMapCanvas :global(.ol-viewport),
+.radarMapCanvas :global(.ol-layer),
+.radarMapCanvas :global(canvas) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.radarMapCanvas :global(.ol-viewport) {
+  overflow: hidden;
+  touch-action: pan-x pan-y;
+}
+
+.radarMapPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--dis-muted-strong);
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.radarMapControls {
+  position: absolute;
+  z-index: 12;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.radarMapControls button {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--dis-border-strong) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-surface) 94%, transparent);
+  box-shadow: 0 8px 24px rgba(2, 15, 30, 0.2);
+  color: var(--dis-text-strong);
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.radarMapControls button:hover {
+  background: var(--dis-blue-panel);
+  color: var(--dis-blue);
+}
+
+.radarMapControls button:focus-visible,
+.radarMapLoadState button:focus-visible {
+  outline: 3px solid var(--dis-blue);
+  outline-offset: 2px;
+}
+
+.radarMapControls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.radarMapLoadState {
+  position: absolute;
+  z-index: 14;
+  left: 50%;
+  bottom: 72px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  transform: translateX(-50%);
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-surface) 94%, transparent);
+  box-shadow: 0 8px 26px rgba(2, 15, 30, 0.22);
+  color: var(--dis-text-strong);
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.radarMapLoadState button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 6px;
+  background: var(--dis-field);
+  color: var(--dis-text-strong);
+  cursor: pointer;
+  padding: 5px 9px;
+  font: inherit;
+}
+
+.radarMapLoadError {
+  border-color: color-mix(in srgb, var(--dis-critical) 52%, var(--dis-border));
+}
+
+.radarMapLoadError > svg {
+  color: var(--dis-critical);
+}
+
+.radarMapAttribution,
+.radarBasemapNote {
+  position: absolute;
+  z-index: 11;
+  right: 14px;
+  bottom: 10px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--dis-surface) 90%, transparent);
+  color: var(--dis-muted-strong);
+  padding: 3px 6px;
+  font-size: 0.62rem;
+  font-weight: 680;
+}
+
+.radarMapAttribution {
+  z-index: 17;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.radarMapSearch {
+  position: absolute;
+  z-index: 15;
+  top: 14px;
+  left: 14px;
+  width: min(640px, calc(100% - 156px));
+}
+
+.radarMapMoment {
+  position: absolute;
+  z-index: 13;
+  top: 92px;
+  left: 14px;
+  display: grid;
+  gap: 1px;
+  border-left: 3px solid var(--weather-blue);
+  border-radius: 0 7px 7px 0;
+  background: color-mix(in srgb, var(--dis-surface) 92%, transparent);
+  box-shadow: 0 8px 24px rgba(2, 15, 30, 0.18);
+  padding: 7px 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.radarMapMoment span {
+  color: var(--dis-blue);
+  font-size: 0.63rem;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.radarMapMoment strong {
+  color: var(--dis-text-strong);
+  font-size: 1.18rem;
+}
+
+.radarStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid var(--dis-border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.radarStatusFloat {
+  position: absolute;
+  z-index: 13;
+  top: 14px;
+  right: 72px;
+  box-shadow: 0 8px 24px rgba(2, 15, 30, 0.18);
+}
+
+.radarStatus_available {
+  border-color: color-mix(in srgb, var(--dis-positive) 42%, var(--dis-border));
+  background: color-mix(in srgb, var(--dis-surface) 88%, var(--dis-positive-soft));
+  color: var(--dis-positive);
+}
+
+.radarStatus_stale {
+  border-color: color-mix(in srgb, var(--dis-warning) 42%, var(--dis-border));
+  background: color-mix(in srgb, var(--dis-surface) 88%, var(--dis-warning-soft));
+  color: var(--dis-warning);
+}
+
+.radarStatus_unavailable {
+  background: color-mix(in srgb, var(--dis-surface) 90%, var(--dis-critical-soft));
+  color: var(--dis-critical);
+}
+
+.radarMapLayers {
+  position: absolute;
+  z-index: 13;
+  left: 14px;
+  bottom: 14px;
+}
+
+.radarTabs {
+  display: flex;
+  gap: 4px;
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-surface) 94%, transparent);
+  box-shadow: 0 8px 24px rgba(2, 15, 30, 0.2);
   padding: 4px;
 }
 
 .radarTabs button {
-  min-width: 112px;
-  min-height: 44px;
+  min-width: 104px;
+  min-height: 46px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--dis-muted-strong);
   cursor: pointer;
@@ -710,7 +1099,7 @@
 }
 
 .radarTabs button:focus-visible {
-  outline: 2px solid var(--dis-blue);
+  outline: 3px solid var(--dis-blue);
   outline-offset: 2px;
 }
 
@@ -720,96 +1109,10 @@
   color: var(--dis-blue);
 }
 
-.radarPanel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 350px);
-  min-width: 0;
-}
-
-.radarVisualColumn {
-  min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 14px;
-  padding: 18px;
-}
-
-.radarStatusRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.radarStatusRow > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.radarStatusRow strong {
-  color: var(--dis-text-strong);
-  font-size: 0.87rem;
-}
-
-.radarStatusRow span:not(.radarStatusBadge) {
-  color: var(--dis-muted);
-  font-size: 0.75rem;
-  line-height: 1.45;
-}
-
-.radarStatusBadge {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  border: 1px solid var(--dis-border);
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 0.7rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.radarStatus_available {
-  border-color: color-mix(in srgb, var(--dis-blue) 36%, var(--dis-border));
-  background: var(--weather-blue-soft);
-  color: var(--dis-blue);
-}
-
-.radarStatus_stale {
-  border-color: color-mix(in srgb, var(--dis-warning) 36%, var(--dis-border));
-  background: var(--dis-warning-soft);
-  color: var(--dis-warning);
-}
-
-.radarStatus_unavailable {
-  background: color-mix(in srgb, var(--weather-slate) 9%, transparent);
-  color: var(--dis-muted-strong);
-}
-
-.radarStage {
-  position: relative;
-  min-width: 0;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--weather-blue) 24%, var(--dis-border));
-  border-radius: 10px;
-  background:
-    linear-gradient(135deg, rgba(78, 168, 255, 0.055), transparent 56%),
-    var(--dis-field);
-  padding: 12px;
-}
-
 .radarCanvas {
   position: relative;
-  width: min(100%, 720px);
-  max-width: 100%;
   overflow: hidden;
-  border-radius: 6px;
   background: var(--dis-field);
-  box-shadow: 0 12px 36px rgba(2, 15, 30, 0.2);
 }
 
 .radarBasemap,
@@ -837,7 +1140,7 @@
 .radarLand {
   fill: color-mix(in srgb, var(--dis-surface) 78%, var(--weather-blue-soft));
   stroke: color-mix(in srgb, var(--weather-cyan) 60%, var(--dis-text-strong));
-  stroke-width: 2.2;
+  stroke-width: 3;
   vector-effect: non-scaling-stroke;
 }
 
@@ -849,14 +1152,6 @@
   vector-effect: non-scaling-stroke;
 }
 
-.radarReferenceDot {
-  fill: var(--dis-text-strong);
-  stroke: var(--dis-surface);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-
-.radarReferenceLabel,
 .radarSeaLabel {
   fill: var(--dis-text-strong);
   paint-order: stroke;
@@ -869,10 +1164,6 @@
   letter-spacing: 0.02em;
 }
 
-.radarReferenceLabel {
-  font-size: 17px;
-}
-
 .radarSeaLabel {
   fill: var(--dis-muted);
   font-size: 25px;
@@ -880,23 +1171,10 @@
   font-weight: 640;
 }
 
-.radarBasemapNote {
-  position: absolute;
-  z-index: 2;
-  inset: 10px auto auto 10px;
-  border: 1px solid color-mix(in srgb, var(--weather-blue) 24%, var(--dis-border));
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--dis-surface) 88%, transparent);
-  color: var(--dis-muted-strong);
-  padding: 4px 7px;
-  font-size: 0.66rem;
-  font-weight: 720;
-  line-height: 1.35;
-}
-
 .radarOverlay {
   position: absolute;
-  inset: auto 24px 24px;
+  z-index: 16;
+  inset: auto 24px 100px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -971,13 +1249,12 @@
 }
 
 .radarEmpty {
-  min-height: 390px;
+  min-height: 460px;
   display: grid;
   place-items: center;
   align-content: center;
   gap: 8px;
   border: 1px dashed color-mix(in srgb, var(--weather-slate) 48%, var(--dis-border));
-  border-radius: 10px;
   background: var(--dis-field);
   color: var(--dis-muted);
   padding: 28px;
@@ -1007,24 +1284,29 @@
 
 .radarControls {
   min-width: 0;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--dis-border);
+  background: color-mix(in srgb, var(--dis-field) 66%, transparent);
+  padding: 14px 18px 15px;
+}
+
+.radarTimelineHeader {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
-  border-left: 1px solid var(--dis-border);
-  background: color-mix(in srgb, var(--dis-field) 56%, transparent);
-  padding: 20px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .radarTimeReadout {
   display: grid;
   gap: 2px;
-  border-left: 3px solid var(--weather-blue);
-  padding: 4px 0 4px 13px;
+  min-width: 148px;
 }
 
 .radarTimeReadout span {
   color: var(--dis-blue);
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-weight: 820;
   letter-spacing: 0.065em;
   text-transform: uppercase;
@@ -1032,7 +1314,7 @@
 
 .radarTimeReadout strong {
   color: var(--dis-text-strong);
-  font-size: clamp(1.9rem, 4vw, 2.65rem);
+  font-size: 1.35rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.045em;
   line-height: 1.08;
@@ -1044,24 +1326,50 @@
 }
 
 .radarTransport {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .radarTransport button {
-  min-width: 0;
-  min-height: 44px;
+  min-width: 46px;
+  min-height: 46px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding-inline: 9px;
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 7px;
+  background: var(--dis-surface);
+  color: var(--dis-text-strong);
+  cursor: pointer;
+  padding-inline: 11px;
+  font: inherit;
   font-size: 0.75rem;
+  font-weight: 760;
 }
 
-.radarTransport button:first-child {
-  grid-column: 1 / -1;
+.radarTransport button:hover {
+  border-color: var(--dis-blue);
+  color: var(--dis-blue);
+}
+
+.radarTransport button:focus-visible {
+  outline: 3px solid var(--dis-blue);
+  outline-offset: 2px;
+}
+
+.radarTransport button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.radarTransport .radarPlayButton {
+  min-width: 112px;
+  border-color: color-mix(in srgb, var(--dis-blue) 48%, var(--dis-border));
+  background: var(--weather-blue-soft);
+  color: var(--dis-blue);
 }
 
 .radarAutoplayStatus {
@@ -1073,7 +1381,7 @@
   border-radius: 8px;
   background: var(--weather-blue-soft);
   color: var(--dis-blue);
-  padding: 11px 13px;
+  padding: 8px 11px;
 }
 
 .radarAutoplayStatus > span {
@@ -1105,24 +1413,36 @@
   color: var(--dis-critical);
 }
 
-.radarRangeLabel {
+.radarTimelineBody {
+  position: relative;
+  display: grid;
+  gap: 3px;
+}
+
+.radarPhaseLabels {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  color: var(--dis-muted-strong);
-  font-size: 0.76rem;
+  color: var(--dis-muted);
+  font-size: 0.65rem;
+  font-weight: 780;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
 }
 
-.radarRangeLabel strong {
-  color: var(--dis-text-strong);
-  font-variant-numeric: tabular-nums;
+.radarRangeTrack {
+  position: relative;
+  height: 40px;
+  display: flex;
+  align-items: center;
 }
 
 .radarRange {
+  position: relative;
+  z-index: 2;
   width: 100%;
-  min-height: 32px;
-  margin: -4px 0 0;
+  min-height: 40px;
+  margin: 0;
   accent-color: var(--dis-blue);
   cursor: pointer;
 }
@@ -1132,16 +1452,53 @@
   opacity: 0.5;
 }
 
+.radarNowSeam {
+  position: absolute;
+  z-index: 1;
+  top: -18px;
+  bottom: -15px;
+  left: var(--radar-now-position);
+  width: 2px;
+  transform: translateX(-1px);
+  background: var(--dis-warning);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dis-surface) 72%, transparent);
+  pointer-events: none;
+}
+
+.radarNowSeam em {
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  border-radius: 4px;
+  background: var(--dis-warning);
+  color: #141008;
+  padding: 2px 5px;
+  font-size: 0.6rem;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.radarTimelineTicks {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.radarTimelineTicks strong {
+  color: var(--dis-text-strong);
+}
+
+.radarTimelineTicks span:last-child {
+  text-align: right;
+}
+
 .latestButton {
-  min-height: 44px;
-  border: 1px solid color-mix(in srgb, var(--weather-blue) 32%, var(--dis-border));
-  border-radius: 7px;
-  background: var(--weather-blue-soft);
-  color: var(--dis-blue);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 780;
+  min-width: 76px !important;
 }
 
 .latestButton:disabled {
@@ -1149,7 +1506,6 @@
   opacity: 0.48;
 }
 
-.latestButton:focus-visible,
 .radarRange:focus-visible {
   outline: 2px solid var(--dis-blue);
   outline-offset: 2px;
@@ -1165,17 +1521,16 @@
 }
 
 .radarFacts {
-  display: grid;
-  gap: 9px;
-  margin: auto 0 0;
-  border-top: 1px solid var(--dis-border);
-  padding-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
 }
 
 .radarFacts div {
   min-width: 0;
-  display: grid;
-  gap: 3px;
+  display: flex;
+  gap: 6px;
 }
 
 .radarFacts dt {
@@ -1195,13 +1550,63 @@
   overflow-wrap: anywhere;
 }
 
+.radarDataAttribution {
+  margin: 8px 0 0;
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.radarLegendPopover {
+  position: absolute;
+  z-index: 13;
+  right: 14px;
+  bottom: 42px;
+  max-width: min(560px, calc(100% - 28px));
+}
+
+.radarLegendPopover summary {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-left: auto;
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-surface) 94%, transparent);
+  box-shadow: 0 8px 24px rgba(2, 15, 30, 0.2);
+  color: var(--dis-text-strong);
+  cursor: pointer;
+  padding: 7px 12px;
+  font-size: 0.75rem;
+  font-weight: 780;
+  list-style: none;
+}
+
+.radarLegendPopover summary::-webkit-details-marker {
+  display: none;
+}
+
+.radarLegendPopover summary:focus-visible {
+  outline: 3px solid var(--dis-blue);
+  outline-offset: 2px;
+}
+
+.radarLegendPopover[open] .radarLegend {
+  margin-top: 7px;
+}
+
 .radarLegend {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px 16px;
-  border-top: 1px solid var(--dis-border);
-  padding-top: 13px;
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-surface) 96%, transparent);
+  box-shadow: 0 8px 24px rgba(2, 15, 30, 0.22);
+  padding: 10px 12px;
 }
 
 .radarLegend > div:first-child {
@@ -1402,6 +1807,7 @@
 }
 
 .metricCard footer span,
+.metricCard footer small,
 .metricCard footer time {
   color: var(--dis-muted);
   font-size: 0.68rem;
@@ -1432,6 +1838,15 @@
   .locationActions {
     grid-column: 1 / -1;
     justify-content: flex-end;
+  }
+
+  .locationControlCompact {
+    grid-template-columns: auto minmax(180px, 1fr) auto;
+  }
+
+  .locationControlCompact .locationActions {
+    grid-column: auto;
+    justify-content: flex-start;
   }
 
   .metricGrid {
@@ -1484,20 +1899,21 @@
 
   .radarHeader {
     align-items: flex-start;
-    flex-direction: column;
   }
 
-  .radarPanel {
-    grid-template-columns: minmax(0, 1fr);
+  .radarHeaderSource {
+    padding-top: 4px;
   }
 
-  .radarControls {
-    border-top: 1px solid var(--dis-border);
-    border-left: 0;
+  .locationControlCompact {
+    grid-template-columns: auto minmax(180px, 1fr) auto;
+  }
+
+  .radarStage {
+    height: clamp(440px, 58dvh, 680px);
   }
 
   .radarFacts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     margin-top: 4px;
   }
 }
@@ -1559,36 +1975,86 @@
     flex-direction: column;
   }
 
-  .radarHeader,
-  .radarVisualColumn,
-  .radarControls {
-    padding: 15px;
+  .radarHeader {
+    align-items: flex-start;
+    padding: 13px;
   }
 
   .radarHeading {
     align-items: flex-start;
   }
 
-  .radarTabs {
-    width: 100%;
-  }
-
-  .radarTabs button {
-    flex: 1 1 50%;
-    min-width: 0;
-  }
-
-  .radarStatusRow {
-    align-items: flex-start;
-    flex-direction: column;
+  .radarHeaderSource {
+    display: none;
   }
 
   .radarStage {
-    padding: 7px;
+    height: 55dvh;
+    min-height: min(430px, 55dvh);
+    max-height: 650px;
+    padding: 0;
+  }
+
+  .radarMapSearch {
+    top: 8px;
+    left: 8px;
+    width: calc(100% - 70px);
+  }
+
+  .locationControlCompact {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px;
+    padding: 5px;
+  }
+
+  .locationControlCompact .locationModes {
+    grid-column: 1 / -1;
+    display: flex;
+  }
+
+  .locationControlCompact .locationModes label {
+    flex: 1 1 50%;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .locationControlCompact .locationActions button:first-child {
+    padding-inline: 9px;
+  }
+
+  .radarMapControls {
+    top: 8px;
+    right: 8px;
+  }
+
+  .radarMapMoment {
+    top: 126px;
+    left: 8px;
+  }
+
+  .radarStatusFloat {
+    top: auto;
+    right: 8px;
+    bottom: 104px;
+  }
+
+  .radarMapLayers {
+    left: 8px;
+    bottom: 42px;
+  }
+
+  .radarTabs button {
+    min-width: 84px;
+    min-height: 46px;
+  }
+
+  .radarLegendPopover {
+    right: 8px;
+    bottom: 42px;
   }
 
   .radarOverlay {
-    inset: auto 14px 14px;
+    inset: auto 14px 150px;
     flex-wrap: wrap;
   }
 
@@ -1598,11 +2064,30 @@
   }
 
   .radarEmpty {
-    min-height: 280px;
+    min-height: min(430px, 55dvh);
+  }
+
+  .radarControls {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .radarTimelineHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .radarTransport {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .radarTransport .latestButton {
+    margin-left: auto;
   }
 
   .radarFacts {
-    grid-template-columns: minmax(0, 1fr);
+    gap: 5px 16px;
   }
 
   .radarLegend {
@@ -1643,51 +2128,39 @@
   flex: 0 0 auto;
   align-items: center;
   flex-direction: row;
-  padding: clamp(18px, 1.35vw, 40px) clamp(22px, 1.7vw, 52px);
+  padding: clamp(14px, 1vw, 28px) clamp(20px, 1.4vw, 42px);
 }
 
 .radarWorkbenchWallboard .radarHeading h2 {
-  font-size: clamp(1.25rem, 1.25vw, 2.6rem);
+  font-size: clamp(1.2rem, 1.15vw, 2.2rem);
 }
 
 .radarWorkbenchWallboard .radarHeading p {
-  font-size: clamp(0.78rem, 0.67vw, 1.28rem);
+  font-size: clamp(0.74rem, 0.62vw, 1.15rem);
 }
 
 .radarWorkbenchWallboard .radarPanel {
   min-height: 0;
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, 1fr) minmax(310px, 22vw);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
 .radarWorkbenchWallboard .radarVisualColumn {
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  align-content: stretch;
-  padding: clamp(16px, 1.2vw, 36px);
-}
-
-.radarWorkbenchWallboard .radarStatusRow {
-  align-items: center;
-  flex-direction: row;
-}
-
-.radarWorkbenchWallboard .radarStatusRow strong {
-  font-size: clamp(0.88rem, 0.78vw, 1.45rem);
-}
-
-.radarWorkbenchWallboard .radarStatusRow span:not(.radarStatusBadge) {
-  font-size: clamp(0.74rem, 0.63vw, 1.15rem);
+  flex: 1 1 auto;
 }
 
 .radarWorkbenchWallboard .radarStage {
+  height: 100%;
   min-height: 0;
-  padding: clamp(8px, 0.8vw, 22px);
+  max-height: none;
+  padding: 0;
 }
 
 .radarWorkbenchWallboard .radarCanvas {
-  width: auto;
+  width: 100%;
   height: 100%;
   max-width: 100%;
   max-height: 100%;
@@ -1699,26 +2172,70 @@
 }
 
 .radarWorkbenchWallboard .radarControls {
-  min-height: 0;
-  border-top: 0;
-  border-left: 1px solid var(--dis-border);
-  padding: clamp(18px, 1.3vw, 40px);
+  flex: 0 0 auto;
+  gap: clamp(8px, 0.6vw, 14px);
+  border-top: 1px solid var(--dis-border);
+  padding: clamp(12px, 0.9vw, 24px) clamp(18px, 1.4vw, 42px);
+}
+
+.radarWorkbenchWallboard .radarTimelineHeader {
+  flex-direction: row;
 }
 
 .radarWorkbenchWallboard .radarTimeReadout strong {
-  font-size: clamp(2.25rem, 3.2vw, 5rem);
+  font-size: clamp(1.65rem, 1.8vw, 3.2rem);
 }
 
 .radarWorkbenchWallboard .radarTimeReadout span,
 .radarWorkbenchWallboard .radarTimeReadout small,
 .radarWorkbenchWallboard .radarFacts dd,
 .radarWorkbenchWallboard .radarAutoplayStatus strong {
-  font-size: clamp(0.76rem, 0.68vw, 1.25rem);
+  font-size: clamp(0.72rem, 0.62vw, 1.15rem);
 }
 
 .radarWorkbenchWallboard .radarFacts dt,
 .radarWorkbenchWallboard .radarAutoplayStatus small,
 .radarWorkbenchWallboard .radarLegend li,
 .radarWorkbenchWallboard .radarLegend small {
-  font-size: clamp(0.68rem, 0.58vw, 1.05rem);
+  font-size: clamp(0.65rem, 0.54vw, 1rem);
+}
+
+.radarWorkbenchWallboard .radarMapMoment {
+  top: clamp(18px, 1.2vw, 34px);
+  left: clamp(18px, 1.2vw, 34px);
+  padding: clamp(8px, 0.6vw, 14px) clamp(12px, 0.8vw, 20px);
+}
+
+.radarWorkbenchWallboard .radarMapMoment strong {
+  font-size: clamp(1.3rem, 1.5vw, 2.8rem);
+}
+
+.radarWorkbenchWallboard .radarStatusFloat {
+  top: clamp(18px, 1.2vw, 34px);
+  right: clamp(18px, 1.2vw, 34px);
+  bottom: auto;
+  font-size: clamp(0.7rem, 0.58vw, 1.05rem);
+}
+
+.radarWorkbenchWallboard .radarLegendPopover {
+  right: clamp(18px, 1.2vw, 34px);
+  bottom: clamp(34px, 2vw, 52px);
+}
+
+.radarWorkbenchWallboard .radarLegendPopover summary {
+  display: none;
+}
+
+.radarWorkbenchWallboard .radarLegendPopover[open] .radarLegend {
+  margin-top: 0;
+  padding: clamp(10px, 0.7vw, 18px);
+}
+
+.radarWorkbenchWallboard .radarOverlay {
+  inset: auto clamp(18px, 1.2vw, 34px) clamp(170px, 10vw, 230px);
+}
+
+.radarWorkbenchWallboard .radarMapAttribution {
+  right: clamp(18px, 1.2vw, 34px);
+  bottom: 6px;
 }

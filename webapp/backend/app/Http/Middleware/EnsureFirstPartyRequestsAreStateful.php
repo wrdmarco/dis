@@ -63,7 +63,7 @@ final class EnsureFirstPartyRequestsAreStateful extends EnsureFrontendRequestsAr
         return preg_match(
             '#\Aapi/(?:'
                 .'(?:operational-weather/radar|wallboard/weather-radar)'
-                .'/(?:precipitation|lightning)/\d{8}T\d{6}Z-[a-f0-9]{16}\.png'
+                .'/(?:precipitation|lightning)/\d{8}T\d{6}Z-(?:o|f\d{8}T\d{6}Z)-[a-f0-9]{16}\.png'
                 .')\z#D',
             $request->path(),
         ) === 1;

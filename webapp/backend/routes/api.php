@@ -3,7 +3,6 @@
 use App\Http\Controllers\AddressBookController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDeveloperController;
-use App\Http\Controllers\AdminKnmiController;
 use App\Http\Controllers\AdminOsrmController;
 use App\Http\Controllers\AdminPushController;
 use App\Http\Controllers\AdminStoreReviewController;
@@ -89,7 +88,7 @@ Route::get('/wallboard/media/{asset}', [WallboardMediaController::class, 'conten
     ->name('wallboard-media.content');
 Route::get('/wallboard/weather-radar/{kind}/{snapshot}.png', [WallboardController::class, 'weatherRadarAtlas'])
     ->where('kind', 'precipitation|lightning')
-    ->where('snapshot', '\\d{8}T\\d{6}Z-[a-f0-9]{16}')
+    ->where('snapshot', '\\d{8}T\\d{6}Z-(?:o|f\\d{8}T\\d{6}Z)-[a-f0-9]{16}')
     ->middleware(['wallboard.auth', 'throttle:wallboard-media-read'])
     ->name('wallboard.weather-radar-atlas');
 Route::post('/auth/mobile-pairing/consume', [MobilePairingController::class, 'consume'])->middleware('throttle:mobile-pairing');
@@ -406,7 +405,7 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware(['permission:operational-weather.view', 'throttle:operational-forecast-read']);
         Route::get('/operational-weather/radar/{kind}/{snapshot}.png', [OperationalForecastController::class, 'radarAtlas'])
             ->where('kind', 'precipitation|lightning')
-            ->where('snapshot', '\\d{8}T\\d{6}Z-[a-f0-9]{16}')
+            ->where('snapshot', '\\d{8}T\\d{6}Z-(?:o|f\\d{8}T\\d{6}Z)-[a-f0-9]{16}')
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:operational-weather.view', 'throttle:operational-radar-read'])
             ->name('operational-weather.radar-atlas');
@@ -583,27 +582,6 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/status/audit-users', [AdminController::class, 'auditUsers'])->middleware('permission:status.audit.view');
         Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
         Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
-        Route::get('/admin/knmi', [AdminKnmiController::class, 'show'])
-            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-read']);
-        Route::get('/admin/knmi/catalog', [AdminKnmiController::class, 'catalog'])
-            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-read']);
-        Route::patch('/admin/knmi', [AdminKnmiController::class, 'update'])
-            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-write']);
-        Route::post('/admin/knmi/refresh', [AdminKnmiController::class, 'refresh'])
-            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-write']);
-        Route::post('/admin/knmi/precipitation/refresh', [AdminKnmiController::class, 'refreshPrecipitation'])
-            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-write']);
-        Route::post('/admin/knmi/datasets/{dataset}/refresh', [AdminKnmiController::class, 'refreshDataset'])
-            ->where('dataset', implode('|', [
-                'harmonie_arome_cy43_p1',
-                'radar_forecast',
-                'seamless_precipitation_ensemble_forecast_probabilities',
-                'knmi_edr_observations',
-                'eumetsat_mtg_li',
-                'open_meteo',
-                'noaa_swpc_kp',
-            ]))
-            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-write']);
         Route::get('/admin/store-review/status', [AdminStoreReviewController::class, 'status'])->middleware('permission:settings.manage');
         Route::patch('/admin/store-review/accounts/{platform}', [AdminStoreReviewController::class, 'updateAccount'])->middleware(['permission:settings.manage', 'throttle:api']);
         Route::get('/admin/branding/settings', [AdminController::class, 'brandingSettings'])->middleware('permission:branding.manage');

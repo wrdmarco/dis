@@ -1,0 +1,8 @@
+# DIS temporary legacy weather snapshot compatibility bridge
+[Unit]
+Description=DIS temporary retired weather snapshot worker compatibility bridge
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/true
+RemainAfterExit=yes

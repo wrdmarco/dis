@@ -131,37 +131,42 @@ export function wallboardForecastAllDisplayBlocks(
 function forecastPrecipitationOutlookDisplayBlock(
   metric: WallboardForecastMetric | undefined,
 ): WallboardForecastDisplayBlock {
-  const base = forecastMetricDisplayBlock('precipitation_outlook', metric, 'Buien +3 uur');
+  const base = forecastMetricDisplayBlock('precipitation_outlook', metric, 'Neerslag +3 uur');
   const outlook = metric?.precipitation_outlook;
   if (metric?.stale === true) {
     return {
       ...base,
-      label: 'Buien +3 uur',
+      label: 'Neerslag +3 uur',
       value: 'Verouderd',
       details: [],
     };
   }
   if (outlook === null || outlook === undefined) {
     return metric?.status === 'unknown'
-      ? { ...base, label: 'Buien +3 uur', value: 'Onbekend', details: [] }
+      ? { ...base, label: 'Neerslag +3 uur', value: 'Onbekend', details: [] }
       : base;
   }
 
-  const dryThroughRadar = outlook.radar_peak_mm_h < 0.1;
-  const probabilityDetail = outlook.third_hour_probability_pct !== null
-      && outlook.third_hour_probability_status !== 'unknown'
-    ? `Uur 3 kansmodel: ${formatForecastNumber(outlook.third_hour_probability_pct)}% kans op ≥ 0,1 mm/u`
-    : 'Uur 3 kansmodel: niet beschikbaar';
+  const deterministicDmi = outlook.attribution === 'DMI';
+  const dryThroughWindow = outlook.radar_peak_mm_h < 0.1;
+  const probabilityDetail = deterministicDmi
+    ? 'Deterministische DMI-verwachting · neerslagkans onbekend'
+    : outlook.third_hour_probability_pct !== null
+        && outlook.third_hour_probability_status !== 'unknown'
+      ? `Uur 3 kansmodel: ${formatForecastNumber(outlook.third_hour_probability_pct)}% kans op ≥ 0,1 mm/u`
+      : 'Uur 3 kansmodel: niet beschikbaar';
   return {
     ...base,
-    label: 'Buien +3 uur',
+    label: deterministicDmi ? 'Modelneerslag +3 uur' : 'Neerslag +3 uur',
     value: outlook.radar_first_precipitation_at !== null
-      ? `Bui vanaf ${formatWallboardForecastUpdateTime(outlook.radar_first_precipitation_at)}`
-      : dryThroughRadar
-        ? 'Droog tot +2 uur'
+      ? `Neerslag vanaf ${formatWallboardForecastUpdateTime(outlook.radar_first_precipitation_at)}`
+      : dryThroughWindow
+        ? deterministicDmi ? 'Model droog tot +3 uur' : 'Droog tot +2 uur'
         : 'Lichte neerslag',
     details: [
-      `0–2 uur radar: piek ${formatForecastNumber(outlook.radar_peak_mm_h)} mm/u`,
+      deterministicDmi
+        ? `DMI-model tot +3 uur: piek ${formatForecastNumber(outlook.radar_peak_mm_h)} mm/u`
+        : `0–2 uur radar: piek ${formatForecastNumber(outlook.radar_peak_mm_h)} mm/u`,
       probabilityDetail,
     ],
   };

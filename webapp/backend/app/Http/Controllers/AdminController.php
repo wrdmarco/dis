@@ -28,7 +28,6 @@ final class AdminController extends Controller
     private const INTERNAL_SETTING_KEYS = [
         'system.update_duration_history',
         'weather.knmi_edr_api_key',
-        'weather.knmi_open_data_api_key',
     ];
 
     private const SENSITIVE_SETTING_KEYS = [
