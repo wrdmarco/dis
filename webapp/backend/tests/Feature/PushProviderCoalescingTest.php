@@ -74,16 +74,28 @@ final class PushProviderCoalescingTest extends TestCase
             return str_contains($request->url(), 'fcm.googleapis.com')
                 && ! array_key_exists('collapse_key', $payload['message']['android'] ?? []);
         });
-        Http::assertSent(static function (ClientRequest $request) use ($collapseId): bool {
-            $payload = $request->data();
+        $apnsRequests = Http::recorded(
+            static fn (ClientRequest $request): bool => str_contains($request->url(), 'api.push.apple.com'),
+        );
+        $this->assertCount(1, $apnsRequests);
+        $apnsRequestPair = $apnsRequests->first();
+        $this->assertNotNull($apnsRequestPair);
+        [$apnsRequest] = $apnsRequestPair;
+        $apnsPayload = $apnsRequest->data();
+        $renderedAlert = $apnsPayload['aps']['alert'] ?? [];
 
-            return str_contains($request->url(), 'api.push.apple.com')
-                && $request->hasHeader('apns-collapse-id', $collapseId)
-                && ($payload['aps']['alert']['title'] ?? null) === 'Nieuwe D.I.S.-melding'
-                && ($payload['aps']['alert']['body'] ?? null) === 'Open D.I.S. om de actuele melding veilig te bekijken.'
-                && ($payload['aps']['alert']['title'] ?? null) !== ($payload['title'] ?? null)
-                && ($payload['aps']['alert']['body'] ?? null) !== ($payload['body'] ?? null);
-        });
+        $this->assertTrue($apnsRequest->hasHeader('apns-collapse-id', $collapseId));
+        $this->assertSame('Nieuwe melding van NDT Alarmering', $renderedAlert['title'] ?? null);
+        $this->assertSame(
+            'Open NDT Alarmering om de actuele melding veilig te bekijken.',
+            $renderedAlert['body'] ?? null,
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/\bD\.?I\.?S\.?\b/i',
+            implode(' ', [$renderedAlert['title'] ?? '', $renderedAlert['body'] ?? '']),
+        );
+        $this->assertNotSame($renderedAlert['title'] ?? null, $apnsPayload['title'] ?? null);
+        $this->assertNotSame($renderedAlert['body'] ?? null, $apnsPayload['body'] ?? null);
         $this->assertNull(PushNotificationIdentity::dispatchCollapseId([
             'type' => 'dispatch_update',
             'dispatch_id' => $dispatchId,

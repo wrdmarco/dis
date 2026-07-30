@@ -15,9 +15,9 @@ final class ApnsClient
 {
     private const PREANNOUNCEMENT_TTL_SECONDS = 120;
 
-    private const SESSION_NEUTRAL_ALERT_TITLE = 'Nieuwe D.I.S.-melding';
+    private const SESSION_NEUTRAL_ALERT_TITLE = 'Nieuwe melding van NDT Alarmering';
 
-    private const SESSION_NEUTRAL_ALERT_BODY = 'Open D.I.S. om de actuele melding veilig te bekijken.';
+    private const SESSION_NEUTRAL_ALERT_BODY = 'Open NDT Alarmering om de actuele melding veilig te bekijken.';
 
     /** @param array<string, string> $data */
     public function send(FcmToken $token, string $title, string $body, array $data = []): Response
