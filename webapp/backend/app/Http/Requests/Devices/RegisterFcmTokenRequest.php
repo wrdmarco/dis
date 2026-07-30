@@ -16,7 +16,7 @@ final class RegisterFcmTokenRequest extends FormRequest
         return [
             'device_id' => ['required', 'string', 'max:180'],
             'token' => ['required', 'string', 'max:4096'],
-            'platform' => ['nullable', 'in:android'],
+            'platform' => ['nullable', 'in:android,ios'],
             'client_type' => ['nullable', 'in:operator,admin'],
             'app_version' => ['nullable', 'string', 'max:80'],
             'device_type' => ['nullable', 'in:phone,tablet'],
