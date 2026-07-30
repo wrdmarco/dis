@@ -14,7 +14,9 @@ use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
 use App\Repositories\LaravelQueueTransportMetrics;
+use App\Services\BrightSkyDwdForecastService;
 use App\Services\DmiForecastEdrService;
+use App\Services\FailoverUavWeatherForecastProvider;
 use App\Services\OperationalRadarService;
 use App\Services\PushProviderClient;
 use App\Services\QueuedDispatchNotificationQueue;
@@ -42,7 +44,15 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(PushProvider::class, PushProviderClient::class);
         $this->app->bind(QueueTransportMetrics::class, LaravelQueueTransportMetrics::class);
         $this->app->bind(WallboardContentProvider::class, SecureWallboardContentProvider::class);
-        $this->app->singleton(UavWeatherForecastProvider::class, DmiForecastEdrService::class);
+        $this->app->singleton(DmiForecastEdrService::class);
+        $this->app->singleton(BrightSkyDwdForecastService::class);
+        $this->app->singleton(
+            UavWeatherForecastProvider::class,
+            fn ($app): UavWeatherForecastProvider => new FailoverUavWeatherForecastProvider(
+                primary: $app->make(DmiForecastEdrService::class),
+                fallback: $app->make(BrightSkyDwdForecastService::class),
+            ),
+        );
         $this->app->singleton(OperationalRadarProvider::class, OperationalRadarService::class);
 
         $this->app->singleton(RoutingProvider::class, fn ($app): RoutingProvider => new OsrmRoutingProvider(

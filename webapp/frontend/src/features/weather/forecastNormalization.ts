@@ -39,6 +39,35 @@ const WALLBOARD_FORECAST_ADVICE_METRIC_KEYS = WALLBOARD_FORECAST_METRIC_KEYS.fil
   (key) => key !== 'cloud_cover_pct',
 );
 
+type ForecastPrecipitationAttribution = NonNullable<
+  WallboardForecastMetric['precipitation_outlook']
+>['attribution'];
+type ForecastThunderstormAttribution = NonNullable<
+  WallboardForecastMetric['thunderstorm_outlook']
+>['attribution'];
+type ForecastCloudBaseAttribution = NonNullable<
+  WallboardForecastMetric['cloud_base_forecast']
+>['attribution'];
+
+const FORECAST_PRECIPITATION_ATTRIBUTIONS: ReadonlySet<ForecastPrecipitationAttribution> = new Set([
+  'KNMI',
+  'DMI',
+  'DWD_MOSMIX',
+  'DIS_DEMO',
+]);
+const FORECAST_THUNDERSTORM_ATTRIBUTIONS: ReadonlySet<ForecastThunderstormAttribution> = new Set([
+  'OPEN_METEO',
+  'DMI',
+  'DWD_MOSMIX',
+  'DIS_DEMO',
+]);
+const FORECAST_CLOUD_BASE_ATTRIBUTIONS: ReadonlySet<ForecastCloudBaseAttribution> = new Set([
+  'KNMI_HARMONIE',
+  'DMI_HARMONIE',
+  'DWD_MOSMIX',
+  'DIS_DEMO',
+]);
+
 const OPERATIONAL_RADAR_ATLAS_PATH = /^\/api\/(?:operational-weather\/radar|wallboard\/weather-radar)\/(precipitation|lightning)\/(\d{8}T\d{6}Z-(?:o|f\d{8}T\d{6}Z)-[a-f0-9]{16})\.png$/;
 const OPERATIONAL_RADAR_FRAME_PATH = /^\/api\/(?:operational-weather\/radar|wallboard\/weather-radar)\/(precipitation|lightning)\/\d{8}T\d{6}Z-(?:o|f\d{8}T\d{6}Z)-[a-f0-9]{16}\.png$/;
 
@@ -791,7 +820,9 @@ function normalizeForecastPrecipitationOutlook(
   value: unknown,
   fallbackStatus: WallboardForecastMetric['status'],
 ): WallboardForecastMetric['precipitation_outlook'] {
-  if (!isRecord(value) || !['KNMI', 'DMI', 'DIS_DEMO'].includes(String(value.attribution))) return null;
+  if (!isRecord(value)) return null;
+  const attribution = value.attribution;
+  if (!isSetMember(FORECAST_PRECIPITATION_ATTRIBUTIONS, attribution)) return null;
   const radarPeak = boundedNumber(value.radar_peak_mm_h, 0, 500);
   const probability = boundedNumber(value.third_hour_probability_pct, 0, 100);
   const sampleCount = normalizeBoundedInteger(value.sample_count, 1, 12);
@@ -842,14 +873,16 @@ function normalizeForecastPrecipitationOutlook(
     reference_time: referenceTime,
     sample_count: sampleCount,
     expected_sample_count: expectedSampleCount,
-    attribution: value.attribution as 'KNMI' | 'DMI' | 'DIS_DEMO',
+    attribution,
   };
 }
 
 function normalizeForecastThunderstormOutlook(
   value: unknown,
 ): WallboardForecastMetric['thunderstorm_outlook'] {
-  if (!isRecord(value) || !['OPEN_METEO', 'DMI', 'DIS_DEMO'].includes(String(value.attribution))) return null;
+  if (!isRecord(value)) return null;
+  const attribution = value.attribution;
+  if (!isSetMember(FORECAST_THUNDERSTORM_ATTRIBUTIONS, attribution)) return null;
   const sampleCount = normalizeBoundedInteger(value.sample_count, 1, 12);
   const expectedSampleCount = normalizeBoundedInteger(value.expected_sample_count, 1, 12);
   const firstExpectedAt = optionalIsoTimestamp(value.first_expected_at);
@@ -870,7 +903,7 @@ function normalizeForecastThunderstormOutlook(
     forecast_until: forecastUntil,
     sample_count: sampleCount,
     expected_sample_count: expectedSampleCount,
-    attribution: value.attribution as 'OPEN_METEO' | 'DMI' | 'DIS_DEMO',
+    attribution,
   };
 }
 
@@ -889,22 +922,32 @@ function normalizeForecastCloudBaseForecast(
   value: unknown,
 ): WallboardForecastMetric['cloud_base_forecast'] {
   if (!isRecord(value)) return null;
+  const attribution = value.attribution;
   if (
     !['forecast', 'not_calculated', 'unknown'].includes(String(value.status))
     || value.height_reference !== 'model_unspecified'
     || (value.aggregation !== null && !['single_grid_point', 'minimum_of_province_samples'].includes(String(value.aggregation)))
-    || !['KNMI_HARMONIE', 'DMI_HARMONIE', 'DIS_DEMO'].includes(String(value.attribution))
+    || !isSetMember(FORECAST_CLOUD_BASE_ATTRIBUTIONS, attribution)
   ) return null;
 
   const status = value.status as NonNullable<WallboardForecastMetric['cloud_base_forecast']>['status'];
   const aggregation = value.aggregation as NonNullable<WallboardForecastMetric['cloud_base_forecast']>['aggregation'];
-  const attribution = value.attribution as NonNullable<WallboardForecastMetric['cloud_base_forecast']>['attribution'];
   const baseHeight = normalizeBoundedInteger(value.base_height_m, 0, 20_000);
   const sampleCount = normalizeBoundedInteger(value.sample_count, 0, 100);
   const modelRunAt = requiredIsoTimestamp(value.model_run_at);
   const validAt = requiredIsoTimestamp(value.valid_at);
 
   if (sampleCount === null) return null;
+  if (
+    attribution === 'DWD_MOSMIX'
+    && (
+      status !== 'unknown'
+      || value.base_height_m !== null
+      || value.sample_count !== 0
+      || value.model_run_at !== null
+      || value.valid_at !== null
+    )
+  ) return null;
   if (status === 'unknown') {
     return baseHeight === null && sampleCount === 0 && modelRunAt === null && validAt === null
       ? {
@@ -1191,6 +1234,10 @@ function normalizeForecastStatus(value: unknown): WallboardForecastMetric['statu
   return value === 'green' || value === 'orange' || value === 'red' || value === 'unknown'
     ? value
     : 'unknown';
+}
+
+function isSetMember<T extends string>(values: ReadonlySet<T>, value: unknown): value is T {
+  return typeof value === 'string' && values.has(value as T);
 }
 
 function normalizeForecastCoordinate(value: unknown, minimum: number, maximum: number): number | null {

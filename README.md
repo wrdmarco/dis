@@ -367,14 +367,24 @@ details are never included in the KPI payload. A percentage without a valid deno
 rather than zero.
 
 The UAV Forecast page uses either an administrator-selected address, resolved server-side through the existing
-DIS address search, or the exact average of one reference point in each of the twelve Dutch provinces. Weather,
-temperature, dew point, precipitation, visibility, cloud layers, model cloud base and winds come directly from
-the tokenless [DMI Forecast Data EDR API](https://www.dmi.dk/friedata/dokumentation/forecast-data-edr-api) and
-are cached in Redis for at most fifteen minutes. DMI HARMONIE DINI data is licensed under
-[CC BY 4.0](https://www.dmi.dk/friedata/dokumentation/terms-of-use). Daylight is calculated server-side for the
-resolved position and the planetary Kp index comes from the fixed
+DIS address search, or the exact average of one reference point in each of the twelve Dutch provinces. DMI
+HARMONIE DINI remains the primary live source through the tokenless
+[DMI Forecast Data EDR API](https://www.dmi.dk/friedata/dokumentation/forecast-data-edr-api). When DMI data is
+incomplete, stale, rate-limited or unavailable, DIS automatically uses free, tokenless DWD MOSMIX forecasts
+through [Bright Sky](https://brightsky.dev/). This fallback supplies current model forecasts for temperature,
+dew point, 10-metre wind speed, gust and direction, precipitation amount and probability, total cloud cover,
+visibility and weather condition. Wind at 100 and 150 metres, separate low, medium and high cloud layers and the
+model cloud base remain explicitly unknown during fallback.
+
+Both providers are cached only through the configured Laravel cache, Redis in production. A result remains fresh
+for at most fifteen minutes; the bounded last-good copy is retained for at most six hours and is always marked
+stale when used. DMI HARMONIE DINI follows the
+[DMI CC BY 4.0 terms](https://www.dmi.dk/friedata/dokumentation/terms-of-use) and DWD MOSMIX follows the
+[DWD CC BY 4.0 terms](https://www.dwd.de/EN/service/legal_notice/legal_notice.html), each with its respective
+source attribution. Daylight is calculated server-side for the resolved position and the planetary Kp index comes
+from the fixed
 [NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json). No forecast archive,
-GRIB/HDF5 file or immutable weather snapshot is stored on the application filesystem.
+GRIB/HDF5 file, local forecast file or immutable weather snapshot is stored on the application filesystem.
 
 The `/weather` page presents a map-first, Buienradar-style timeline. The server reads the open
 [anonymous KNMI WMS](https://developer.dataplatform.knmi.nl/wms). It combines the
@@ -410,9 +420,9 @@ removes their unit files and obsolete environment settings, and securely removes
 `/opt/dis-data/webapp/backend/storage/app/eumetsat-lightning`. Restore applies the same retirement after
 installing an older backup, so retired snapshots cannot silently return.
 
-DMI HARMONIE values are model expectations, not measurements. The model cloud-base field is displayed without
-claiming an AGL or MSL reference because that reference is not specified by this dataset contract. Missing,
-invalid, rate-limited or stale source data stays unknown and can never become green.
+DMI HARMONIE and DWD MOSMIX values are model expectations, not measurements. The DMI model cloud-base field is
+displayed without claiming an AGL or MSL reference because that reference is not specified by its dataset
+contract. Missing, invalid, rate-limited or stale source data stays unknown and can never become green.
 
 Wind is reported at its source height in metres AGL. The service also derives the highest sampled height at
 10, 100 or 150 metres AGL whose wind classification has not reached red. Visibility changes from metres to

@@ -282,6 +282,163 @@ test('preserves the authoritative backend advice and complete expanded contract'
     .toEqual(DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS);
 });
 
+test('accepts a complete fresh DWD MOSMIX fallback without claiming cloud-base values', () => {
+  const payload = greenBackendForecast();
+  const measuredAt = '2026-07-30T06:45:00Z';
+  const dwdSource = {
+    name: 'DWD MOSMIX',
+    url: 'https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/',
+  };
+  payload.generated_at = measuredAt;
+  payload.condition = {
+    ...payload.condition,
+    code: 1,
+    label: 'Overwegend helder',
+    source: dwdSource,
+    measured_at: measuredAt,
+  };
+  payload.metrics = payload.metrics.map((candidate) => (
+    candidate.key === 'kp_index' || candidate.key.startsWith('gnss_')
+      ? candidate
+      : { ...candidate, source: dwdSource, measured_at: measuredAt }
+  ));
+
+  const weather = payload.metrics.find((candidate) => candidate.key === 'weather_code');
+  const precipitationProbability = payload.metrics.find(
+    (candidate) => candidate.key === 'precipitation_probability_pct',
+  );
+  const precipitation = payload.metrics.find((candidate) => candidate.key === 'precipitation_outlook');
+  const thunder = payload.metrics.find((candidate) => candidate.key === 'thunderstorm_forecast');
+  const lowCloud = payload.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
+  if (
+    weather === undefined
+    || precipitationProbability === undefined
+    || precipitation?.precipitation_outlook === null
+    || precipitation?.precipitation_outlook === undefined
+    || thunder?.thunderstorm_outlook === null
+    || thunder?.thunderstorm_outlook === undefined
+    || lowCloud === undefined
+  ) throw new Error('Missing DWD fallback fixtures.');
+
+  weather.value = 1;
+  precipitationProbability.value = 10;
+  precipitation.value = 0;
+  precipitation.precipitation_outlook = {
+    ...precipitation.precipitation_outlook,
+    radar_peak_mm_h: 0,
+    radar_status: 'green',
+    radar_first_precipitation_at: null,
+    third_hour_probability_pct: 10,
+    third_hour_probability_status: 'green',
+    attribution: 'DWD_MOSMIX',
+  };
+  thunder.value = 0;
+  thunder.thunderstorm_outlook = {
+    ...thunder.thunderstorm_outlook,
+    expected: false,
+    first_expected_at: null,
+    attribution: 'DWD_MOSMIX',
+  };
+  lowCloud.cloud_base_forecast = {
+    status: 'unknown',
+    base_height_m: null,
+    height_reference: 'model_unspecified',
+    aggregation: null,
+    sample_count: 0,
+    model_run_at: null,
+    valid_at: null,
+    attribution: 'DWD_MOSMIX',
+  };
+  lowCloud.cloud_base_observation = null;
+
+  const forecast = normalizeUavForecastPage(payload);
+
+  expect(forecast?.overall_status).toBe('green');
+  expect(forecast?.condition).toMatchObject({
+    code: 1,
+    status: 'green',
+    source: { name: 'DWD MOSMIX' },
+  });
+  expect(forecast?.metrics.find((candidate) => candidate.key === 'precipitation_probability_pct'))
+    .toMatchObject({ value: 10, status: 'green' });
+  expect(forecast?.metrics.find((candidate) => candidate.key === 'precipitation_outlook')?.precipitation_outlook)
+    .toMatchObject({ attribution: 'DWD_MOSMIX', third_hour_probability_pct: 10 });
+  expect(forecast?.metrics.find((candidate) => candidate.key === 'thunderstorm_forecast')?.thunderstorm_outlook)
+    .toMatchObject({ attribution: 'DWD_MOSMIX', expected: false });
+  expect(forecast?.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct')?.cloud_base_forecast)
+    .toMatchObject({
+      status: 'unknown',
+      base_height_m: null,
+      sample_count: 0,
+      attribution: 'DWD_MOSMIX',
+    });
+});
+
+test('rejects unknown structured forecast attributions fail-closed', () => {
+  const payload = greenBackendForecast();
+  const precipitation = payload.metrics.find((candidate) => candidate.key === 'precipitation_outlook');
+  const thunder = payload.metrics.find((candidate) => candidate.key === 'thunderstorm_forecast');
+  if (
+    precipitation?.precipitation_outlook === null
+    || precipitation?.precipitation_outlook === undefined
+    || thunder?.thunderstorm_outlook === null
+    || thunder?.thunderstorm_outlook === undefined
+  ) throw new Error('Missing structured forecast fixtures.');
+
+  (precipitation.precipitation_outlook as { attribution: string }).attribution = 'UNTRUSTED';
+  (thunder.thunderstorm_outlook as { attribution: string }).attribution = 'UNTRUSTED';
+
+  const forecast = normalizeUavForecastPage(payload);
+
+  expect(forecast?.overall_status).toBe('unknown');
+  expect(forecast?.metrics.find((candidate) => candidate.key === 'precipitation_outlook'))
+    .toMatchObject({ value: null, status: 'unknown', precipitation_outlook: null });
+  expect(forecast?.metrics.find((candidate) => candidate.key === 'thunderstorm_forecast'))
+    .toMatchObject({ value: null, status: 'unknown', thunderstorm_outlook: null });
+});
+
+test('rejects DWD MOSMIX cloud-base values while retaining its explicit unknown contract', () => {
+  const unavailablePayload = backendForecast();
+  const unavailableCloud = unavailablePayload.metrics.find(
+    (candidate) => candidate.key === 'low_cloud_cover_pct',
+  );
+  if (unavailableCloud === undefined) throw new Error('Missing cloud fixture.');
+  unavailableCloud.cloud_base_forecast = {
+    status: 'unknown',
+    base_height_m: null,
+    height_reference: 'model_unspecified',
+    aggregation: null,
+    sample_count: 0,
+    model_run_at: null,
+    valid_at: null,
+    attribution: 'DWD_MOSMIX',
+  };
+
+  const unavailableForecast = normalizeUavForecastPage(unavailablePayload);
+  expect(unavailableForecast?.metrics.find(
+    (candidate) => candidate.key === 'low_cloud_cover_pct',
+  )?.cloud_base_forecast).toMatchObject({
+    status: 'unknown',
+    base_height_m: null,
+    sample_count: 0,
+    attribution: 'DWD_MOSMIX',
+  });
+
+  const masqueradePayload = backendForecast();
+  const masqueradeCloud = masqueradePayload.metrics.find(
+    (candidate) => candidate.key === 'low_cloud_cover_pct',
+  );
+  if (masqueradeCloud?.cloud_base_forecast === null || masqueradeCloud?.cloud_base_forecast === undefined) {
+    throw new Error('Missing cloud-base fixture.');
+  }
+  masqueradeCloud.cloud_base_forecast.attribution = 'DWD_MOSMIX';
+
+  const masqueradeForecast = normalizeUavForecastPage(masqueradePayload);
+  expect(masqueradeForecast?.metrics.find(
+    (candidate) => candidate.key === 'low_cloud_cover_pct',
+  )?.cloud_base_forecast).toBeNull();
+});
+
 test('keeps radar intensity and the third-hour probability visibly separate', () => {
   const forecast = normalizeWallboardForecastState({ pages: { forecast: backendForecast() } }).pages.forecast;
   const blocks = wallboardForecastDisplayBlocks(forecast);

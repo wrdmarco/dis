@@ -58,9 +58,9 @@ final class OperationalWeatherService
             'cloud' => $cloud,
             'precipitation' => $precipitation,
             'scope_note' => ($resolution['mode'] ?? null) === WallboardForecastLocationService::MODE_NETHERLANDS
-                ? 'Landelijk DMI-modelbeeld op basis van exact twaalf beheerde provinciepunten; bewolking is gemiddeld, de modelwolkenbasis is het laagste geldige punt en de neerslagpiek is de hoogste provinciewaarde. DMI DINI SF publiceert geen gewone neerslagkans.'
-                : 'Lokale DMI HARMONIE DINI-modelwaarden voor het server-side opgeloste adres.',
-            'disclaimer' => 'Uitsluitend indicatieve DMI-modeldata. Controleer altijd actuele lokale waarnemingen, waarschuwingen, toestellimieten en operationele omstandigheden voordat u vliegt.',
+                ? $this->nationalScopeNote($reading)
+                : $this->addressScopeNote($reading),
+            'disclaimer' => $this->disclaimer($reading),
         ];
     }
 
@@ -127,11 +127,16 @@ final class OperationalWeatherService
             'refreshed_at' => $this->timestampString($reading['refreshed_at'] ?? null, $refreshedAt),
             'sample_count' => $sampleCount,
             'expected_sample_count' => $expected,
-            'source' => $this->source($reading['source'] ?? null, 'DMI HARMONIE DINI'),
+            'source' => $this->source(
+                $reading['source'] ?? null,
+                $this->isDwdFallback($reading) ? 'DWD MOSMIX via Bright Sky' : 'DMI HARMONIE DINI',
+            ),
             'availability_note' => $this->availabilityNote(
                 $reading,
                 $complete,
-                'De live DMI HARMONIE DINI-bewolkingsdata is niet compleet beschikbaar.',
+                $this->isDwdFallback($reading)
+                    ? 'DWD MOSMIX levert via deze fallback geen complete afzonderlijke wolkenlagen of modelwolkenbasis.'
+                    : 'De live DMI HARMONIE DINI-bewolkingsdata is niet compleet beschikbaar.',
             ),
         ];
     }
@@ -154,6 +159,12 @@ final class OperationalWeatherService
         $firstPrecipitationAt = $firstPrecipitationValue === null
             ? null
             : $this->timestamp($firstPrecipitationValue);
+        $thirdHourProbability = $this->number(
+            $reading['forecast_precipitation_third_hour_probability_pct'] ?? null,
+            0,
+            100,
+        );
+        $thirdHourFrom = $this->timestamp($reading['forecast_precipitation_third_hour_from'] ?? null);
         $firstPrecipitationValid = $firstPrecipitationValue === null
             || ($firstPrecipitationAt !== null
                 && $referenceTime !== null
@@ -178,31 +189,48 @@ final class OperationalWeatherService
             && $peak !== null
             && $timestampsFresh
             && ! $stale;
+        $probabilityComplete = $complete
+            && $thirdHourProbability !== null
+            && $thirdHourFrom !== null
+            && $referenceTime !== null
+            && $radarUntil !== null
+            && $thirdHourFrom->equalTo($referenceTime->addHours(2));
         $availabilityNote = $this->availabilityNote(
             $reading,
             $complete,
-            'De live DMI-modelneerslag is niet compleet beschikbaar.',
+            $this->isDwdFallback($reading)
+                ? 'De live DWD MOSMIX-modelneerslag is niet compleet beschikbaar.'
+                : 'De live DMI-modelneerslag is niet compleet beschikbaar.',
         );
-        if ($complete && $availabilityNote === null) {
-            $availabilityNote = 'DMI DINI SF levert hiervoor geen gewone neerslagkans; die waarde blijft onbekend.';
+        if ($complete && ! $probabilityComplete && $availabilityNote === null) {
+            $availabilityNote = $this->isDwdFallback($reading)
+                ? 'DWD MOSMIX leverde geen volledige neerslagkans voor dit tijdvak; die waarde blijft onbekend.'
+                : 'DMI DINI SF levert hiervoor geen gewone neerslagkans; die waarde blijft onbekend.';
         }
 
         return [
             'complete' => $complete,
-            'probability_complete' => false,
+            'probability_complete' => $probabilityComplete,
             'stale' => $stale,
             'radar_peak_mm_h' => $peak,
             'radar_first_precipitation_at' => $this->timestampString($firstPrecipitationValue, $firstPrecipitationAt),
             'radar_until' => $this->timestampString($reading['forecast_precipitation_until'] ?? null, $radarUntil),
-            'third_hour_probability_pct' => null,
-            'third_hour_from' => null,
-            'forecast_until' => null,
+            'third_hour_probability_pct' => $probabilityComplete ? $thirdHourProbability : null,
+            'third_hour_from' => $probabilityComplete
+                ? $this->timestampString($reading['forecast_precipitation_third_hour_from'] ?? null, $thirdHourFrom)
+                : null,
+            'forecast_until' => $probabilityComplete
+                ? $this->timestampString($reading['forecast_precipitation_until'] ?? null, $radarUntil)
+                : null,
             'reference_time' => $this->timestampString($reading['valid_at'] ?? null, $referenceTime),
             'measured_at' => $this->timestampString($reading['measured_at'] ?? null, $measuredAt),
             'refreshed_at' => $this->timestampString($reading['refreshed_at'] ?? null, $refreshedAt),
             'sample_count' => $sampleCount,
             'expected_sample_count' => $expected,
-            'source' => $this->source($reading['source'] ?? null, 'DMI HARMONIE DINI'),
+            'source' => $this->source(
+                $reading['source'] ?? null,
+                $this->isDwdFallback($reading) ? 'DWD MOSMIX via Bright Sky' : 'DMI HARMONIE DINI',
+            ),
             'availability_note' => $availabilityNote,
         ];
     }
@@ -288,7 +316,8 @@ final class OperationalWeatherService
      *   license_url?: string,
      *   attribution?: string,
      *   modified?: bool,
-     *   processed_by?: string
+     *   processed_by?: string,
+     *   processing_note?: string
      * }
      */
     private function source(mixed $source, string $fallbackName): array
@@ -304,7 +333,7 @@ final class OperationalWeatherService
         if (! is_array($source)) {
             return $normalized;
         }
-        foreach (['license', 'license_url', 'attribution', 'processed_by'] as $key) {
+        foreach (['license', 'license_url', 'attribution', 'processed_by', 'processing_note'] as $key) {
             if (is_string($source[$key] ?? null) && trim($source[$key]) !== '') {
                 $normalized[$key] = trim($source[$key]);
             }
@@ -363,6 +392,42 @@ final class OperationalWeatherService
     private function timestampString(mixed $value, ?CarbonImmutable $timestamp): ?string
     {
         return $timestamp === null ? null : $this->string($value);
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function isDwdFallback(array $reading): bool
+    {
+        return ($reading['provider_identifier'] ?? null) === 'dwd_mosmix_bright_sky';
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function nationalScopeNote(array $reading): string
+    {
+        if ($this->isDwdFallback($reading)) {
+            return 'Landelijk DWD MOSMIX-modelbeeld via Bright Sky op basis van exact twaalf beheerde provinciepunten; totale bewolking is gemiddeld en de neerslagpiek is de hoogste provinciewaarde. Alleen 10 m-oppervlaktewind is in deze fallback beschikbaar; bovenwind, afzonderlijke wolkenlagen en modelwolkenbasis blijven onbekend.';
+        }
+
+        return 'Landelijk DMI-modelbeeld op basis van exact twaalf beheerde provinciepunten; bewolking is gemiddeld, de modelwolkenbasis is het laagste geldige punt en de neerslagpiek is de hoogste provinciewaarde. DMI DINI SF publiceert geen gewone neerslagkans.';
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function addressScopeNote(array $reading): string
+    {
+        if ($this->isDwdFallback($reading)) {
+            return 'Lokale DWD MOSMIX-modelwaarden via Bright Sky voor het server-side opgeloste adres. Alleen 10 m-oppervlaktewind is in deze fallback beschikbaar; bovenwind, afzonderlijke wolkenlagen en modelwolkenbasis blijven onbekend.';
+        }
+
+        return 'Lokale DMI HARMONIE DINI-modelwaarden voor het server-side opgeloste adres.';
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function disclaimer(array $reading): string
+    {
+        if ($this->isDwdFallback($reading)) {
+            return 'Uitsluitend indicatieve DWD MOSMIX-modeldata via Bright Sky. Ontbrekende hoogte- en wolkenbasisdata blijven onbekend. Controleer altijd actuele lokale waarnemingen, waarschuwingen, toestellimieten en operationele omstandigheden voordat u vliegt.';
+        }
+
+        return 'Uitsluitend indicatieve DMI-modeldata. Controleer altijd actuele lokale waarnemingen, waarschuwingen, toestellimieten en operationele omstandigheden voordat u vliegt.';
     }
 
     private function positiveConfig(string $key, int $default, int $minimum, int $maximum): int

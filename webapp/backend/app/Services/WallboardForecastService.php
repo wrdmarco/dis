@@ -82,12 +82,16 @@ final class WallboardForecastService
             $weather = $this->weatherForecasts->forResolution($resolution);
             $cloudForecast = $weather;
             $condition = $this->condition($weather);
-            $windMetric = $this->metric('wind_speed_kmh', 'Wind op 100 m AGL', $weather['wind_speed_kmh'] ?? null, 'km/u', $weather, 1);
-            $windMetric['height_samples_agl_m'] = [
-                ['height_agl_m' => 10, 'speed_kmh' => $this->roundedOrNull($weather['wind_speed_10m_kmh'] ?? null, 1)],
-                ['height_agl_m' => 100, 'speed_kmh' => $this->roundedOrNull($weather['wind_speed_100m_kmh'] ?? null, 1)],
-                ['height_agl_m' => 150, 'speed_kmh' => $this->roundedOrNull($weather['wind_speed_150m_kmh'] ?? null, 1)],
-            ];
+            $windReferenceHeight = $this->windReferenceHeight($weather);
+            $windMetric = $this->metric(
+                'wind_speed_kmh',
+                "Wind op {$windReferenceHeight} m AGL",
+                $weather['wind_speed_kmh'] ?? null,
+                'km/u',
+                $weather,
+                1,
+            );
+            $windMetric['height_samples_agl_m'] = $this->windSamples($weather);
             $windMetric['max_non_red_wind_height_agl_m'] = $this->maxNonRedWindHeight(
                 $weather,
                 (bool) ($weather['stale'] ?? false),
@@ -108,12 +112,19 @@ final class WallboardForecastService
                 $cloudForecast,
                 0,
             );
+            $cloudLayers = [
+                'low_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_low_pct'] ?? null, 0),
+                'mid_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_mid_pct'] ?? null, 0),
+                'high_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_high_pct'] ?? null, 0),
+                'total_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_pct'] ?? null, 0),
+            ];
             $lowCloudMetric['cloud_layers'] = ($cloudForecast['complete'] ?? false) === true
+                && ! in_array(null, $cloudLayers, true)
                 ? [
-                    'low_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_low_pct'] ?? null, 0),
-                    'mid_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_mid_pct'] ?? null, 0),
-                    'high_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_high_pct'] ?? null, 0),
-                    'total_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_pct'] ?? null, 0),
+                    'low_pct' => $cloudLayers['low_pct'],
+                    'mid_pct' => $cloudLayers['mid_pct'],
+                    'high_pct' => $cloudLayers['high_pct'],
+                    'total_pct' => $cloudLayers['total_pct'],
                 ]
                 : null;
             $cloudBaseForecast = $this->cloudBaseForecast($cloudForecast);
@@ -141,7 +152,14 @@ final class WallboardForecastService
                 ),
                 $windMetric,
                 $this->metric('wind_gust_kmh', 'Windstoten op 10 m AGL', $weather['wind_gust_kmh'] ?? null, 'km/u', $weather, 1),
-                $this->metric('wind_direction_degrees', 'Windrichting op 100 m AGL', $weather['wind_direction_degrees'] ?? null, '°', $weather, 0),
+                $this->metric(
+                    'wind_direction_degrees',
+                    "Windrichting op {$windReferenceHeight} m AGL",
+                    $weather['wind_direction_degrees'] ?? null,
+                    '°',
+                    $weather,
+                    0,
+                ),
                 $this->metric(
                     'precipitation_probability_pct',
                     'Neerslagkans',
@@ -207,9 +225,9 @@ final class WallboardForecastService
                 ],
                 'metrics' => $metrics,
                 'scope_note' => $resolution['mode'] === WallboardForecastLocationService::MODE_NETHERLANDS
-                    ? 'Rekenkundig gemiddelde van actuele DMI-modelwaarden voor exact alle 12 Nederlandse provincies; windrichting is een circulair gemiddelde, de modelwolkenbasis is het laagste geldige provinciepunt en zonopkomst/-ondergang worden als landelijke tijdsrange getoond.'
-                    : 'Actuele DMI-modelwaarden voor het server-side opgeloste adres; KNMI-stationsmetingen van de wolkenbasis blijven afzonderlijke puntmetingen.',
-                'disclaimer' => 'Indicatief vliegadvies. Modelwind wordt expliciet op 10, 100 en 150 m boven maaiveld getoond; windstoten zijn alleen als 10 m-grondwaarde beschikbaar. Toestellimieten, missieprofiel, lokale weerswaarneming, luchtruimregels en gezaghebbende operationele beoordeling gaan altijd voor.',
+                    ? $this->nationalScopeNote($weather)
+                    : $this->addressScopeNote($weather),
+                'disclaimer' => $this->disclaimer($weather),
             ];
         }
 
@@ -244,12 +262,27 @@ final class WallboardForecastService
             $explanation .= ' '.$reading['availability_note'];
         }
 
+        $windReferenceHeight = $this->windReferenceHeight($reading);
+        $isDwdFallback = $this->isDwdFallback($reading);
         $height = match ($key) {
-            'wind_speed_kmh', 'wind_direction_degrees' => ['altitude_m' => 100, 'source_height_label' => '100 m boven maaiveld'],
+            'wind_speed_kmh', 'wind_direction_degrees' => [
+                'altitude_m' => $windReferenceHeight,
+                'source_height_label' => "{$windReferenceHeight} m boven maaiveld",
+            ],
             'wind_gust_kmh' => ['altitude_m' => 10, 'source_height_label' => '10 m boven maaiveld (grondwaarde)'],
             'temperature_c', 'dew_point_c' => ['altitude_m' => 2, 'source_height_label' => '2 m boven maaiveld (grondwaarde)'],
-            'cloud_cover_pct' => ['altitude_m' => null, 'source_height_label' => 'Volledige hemelkolom volgens DMI HARMONIE DINI'],
-            'low_cloud_cover_pct' => ['altitude_m' => null, 'source_height_label' => 'DMI HARMONIE DINI-categorie lage bewolking; geen vaste hoogteband'],
+            'cloud_cover_pct' => [
+                'altitude_m' => null,
+                'source_height_label' => $isDwdFallback
+                    ? 'Volledige hemelkolom volgens DWD MOSMIX'
+                    : 'Volledige hemelkolom volgens DMI HARMONIE DINI',
+            ],
+            'low_cloud_cover_pct' => [
+                'altitude_m' => null,
+                'source_height_label' => $isDwdFallback
+                    ? 'DWD MOSMIX levert via deze live fallback geen afzonderlijke lage wolkenlaag'
+                    : 'DMI HARMONIE DINI-categorie lage bewolking; geen vaste hoogteband',
+            ],
             default => ['altitude_m' => null, 'source_height_label' => 'oppervlaktewaarde'],
         };
 
@@ -312,9 +345,34 @@ final class WallboardForecastService
         $peak = $complete ? round((float) $reading['forecast_precipitation_peak_mm_h'], 2) : null;
         $rateClassification = $this->classifier->classify('precipitation_rate_mm_h', $peak, $stale);
         $status = $complete ? $rateClassification['status'] : WallboardForecastClassifier::STATUS_UNKNOWN;
+        $thirdHourProbability = $this->roundedOrNull(
+            $reading['forecast_precipitation_third_hour_probability_pct'] ?? null,
+            0,
+        );
+        if ($thirdHourProbability !== null
+            && ($thirdHourProbability < 0 || $thirdHourProbability > 100)) {
+            $thirdHourProbability = null;
+        }
+        $thirdHourFrom = is_string($reading['forecast_precipitation_third_hour_from'] ?? null)
+            ? $reading['forecast_precipitation_third_hour_from']
+            : null;
+        $forecastUntil = is_string($reading['forecast_precipitation_until'] ?? null)
+            ? $reading['forecast_precipitation_until']
+            : null;
+        $probabilityComplete = $complete
+            && $thirdHourProbability !== null
+            && $thirdHourFrom !== null
+            && $forecastUntil !== null;
+        $probabilityClassification = $this->classifier->classify(
+            'precipitation_probability_pct',
+            $probabilityComplete ? $thirdHourProbability : null,
+            $stale,
+        );
         $availabilityNote = is_string($reading['availability_note'] ?? null)
             ? ' '.$reading['availability_note']
             : '';
+        $isDwdFallback = $this->isDwdFallback($reading);
+        $modelName = $isDwdFallback ? 'DWD MOSMIX' : 'DMI HARMONIE DINI';
 
         return [
             'key' => 'precipitation_outlook',
@@ -328,8 +386,10 @@ final class WallboardForecastService
             'source' => $reading['source'] ?? ['name' => 'DMI HARMONIE DINI', 'url' => null],
             'measured_at' => $complete ? $reading['valid_at'] : null,
             'explanation' => $complete
-                ? 'Deterministische DMI-modelverwachting voor de komende drie uur; dit is geen live radarmeting en bevat geen verzonnen neerslagkans.'
-                : 'De DMI-modelneerslag voor de komende drie uur is niet compleet beschikbaar.'.$availabilityNote,
+                ? ($isDwdFallback
+                    ? 'DWD MOSMIX-modelverwachting voor de komende drie uur via Bright Sky; dit is geen live radarmeting.'
+                    : 'Deterministische DMI-modelverwachting voor de komende drie uur; dit is geen live radarmeting en bevat geen verzonnen neerslagkans.')
+                : "De {$modelName}-modelneerslag voor de komende drie uur is niet compleet beschikbaar.".$availabilityNote,
             'altitude_m' => null,
             'source_height_label' => null,
             // Legacy field names stay additive-compatible until every client has
@@ -341,14 +401,16 @@ final class WallboardForecastService
                     ? $reading['forecast_precipitation_first_at']
                     : null,
                 'radar_until' => $reading['forecast_precipitation_until'],
-                'third_hour_probability_pct' => null,
-                'third_hour_probability_status' => WallboardForecastClassifier::STATUS_UNKNOWN,
-                'third_hour_from' => null,
-                'forecast_until' => null,
+                'third_hour_probability_pct' => $probabilityComplete ? $thirdHourProbability : null,
+                'third_hour_probability_status' => $probabilityComplete
+                    ? $probabilityClassification['status']
+                    : WallboardForecastClassifier::STATUS_UNKNOWN,
+                'third_hour_from' => $probabilityComplete ? $thirdHourFrom : null,
+                'forecast_until' => $probabilityComplete ? $forecastUntil : null,
                 'reference_time' => $reading['valid_at'],
                 'sample_count' => $reading['sample_count'],
                 'expected_sample_count' => $reading['expected_sample_count'],
-                'attribution' => 'DMI',
+                'attribution' => $this->structuredAttribution($reading),
             ] : null,
         ];
     }
@@ -388,7 +450,9 @@ final class WallboardForecastService
             'source' => $weather['source'] ?? ['name' => 'DMI HARMONIE DINI', 'url' => null],
             'measured_at' => is_string($weather['measured_at'] ?? null) ? $weather['measured_at'] : null,
             'explanation' => $complete
-                ? 'DMI-modelverwachting voor drie uur op basis van de modelkans op bliksem. Dit is geen live bliksemdetectie.'
+                ? ($this->isDwdFallback($weather)
+                    ? 'DWD MOSMIX-verwachting voor drie uur via Bright Sky op basis van de afgeleide weersconditie. Dit is geen live bliksemdetectie.'
+                    : 'DMI-modelverwachting voor drie uur op basis van de modelkans op bliksem. Dit is geen live bliksemdetectie.')
                 : 'Er is geen complete, actuele onweersverwachting voor circa drie uur beschikbaar.',
             'altitude_m' => null,
             'source_height_label' => null,
@@ -400,7 +464,7 @@ final class WallboardForecastService
                 'forecast_until' => $forecastUntil,
                 'sample_count' => $sampleCount,
                 'expected_sample_count' => $expectedSampleCount,
-                'attribution' => 'DMI',
+                'attribution' => $this->structuredAttribution($weather),
             ] : null,
         ];
     }
@@ -445,19 +509,24 @@ final class WallboardForecastService
             && $expectedSampleCount > 0
             && $sampleCount === $expectedSampleCount;
         $height = $this->roundedOrNull($reading['cloud_base_m'] ?? null, 0);
+        $isDwdFallback = $this->isDwdFallback($reading);
 
         return [
             'status' => $complete && $height !== null ? 'forecast' : 'unknown',
             'base_height_m' => $complete ? $height : null,
             'height_reference' => 'model_unspecified',
-            'aggregation' => is_string($reading['cloud_base_aggregation'] ?? null)
+            'aggregation' => ! $isDwdFallback && is_string($reading['cloud_base_aggregation'] ?? null)
                 ? $reading['cloud_base_aggregation']
                 : null,
             'sample_count' => $sampleCount,
             'expected_sample_count' => $expectedSampleCount,
-            'model_run_at' => is_string($reading['model_run_at'] ?? null) ? $reading['model_run_at'] : null,
-            'valid_at' => is_string($reading['valid_at'] ?? null) ? $reading['valid_at'] : null,
-            'attribution' => 'DMI_HARMONIE',
+            'model_run_at' => ! $isDwdFallback && is_string($reading['model_run_at'] ?? null)
+                ? $reading['model_run_at']
+                : null,
+            'valid_at' => ! $isDwdFallback && is_string($reading['valid_at'] ?? null)
+                ? $reading['valid_at']
+                : null,
+            'attribution' => $isDwdFallback ? 'DWD_MOSMIX' : 'DMI_HARMONIE',
         ];
     }
 
@@ -636,25 +705,98 @@ final class WallboardForecastService
     /** @param array<string, mixed> $weather */
     private function maxNonRedWindHeight(array $weather, bool $stale): ?int
     {
-        $samples = [
-            10 => $weather['wind_speed_10m_kmh'] ?? null,
-            100 => $weather['wind_speed_100m_kmh'] ?? null,
-            150 => $weather['wind_speed_150m_kmh'] ?? null,
-        ];
-        foreach ($samples as $value) {
-            if (! is_numeric($value)) {
+        $maximum = null;
+        foreach ($this->windSamples($weather) as $sample) {
+            $value = $sample['speed_kmh'];
+            if ($value === null) {
                 return null;
             }
-        }
-        $maximum = null;
-        foreach ($samples as $height => $value) {
-            $status = $this->classifier->classify('wind_speed_kmh', (float) $value, $stale)['status'];
+            $status = $this->classifier->classify('wind_speed_kmh', $value, $stale)['status'];
             if (in_array($status, [WallboardForecastClassifier::STATUS_GREEN, WallboardForecastClassifier::STATUS_ORANGE], true)) {
-                $maximum = $height;
+                $maximum = $sample['height_agl_m'];
             }
         }
 
         return $maximum;
+    }
+
+    /**
+     * @param  array<string, mixed>  $weather
+     * @return list<array{height_agl_m: int, speed_kmh: float|null}>
+     */
+    private function windSamples(array $weather): array
+    {
+        if (! $this->isDwdFallback($weather)) {
+            return [
+                ['height_agl_m' => 10, 'speed_kmh' => $this->roundedOrNull($weather['wind_speed_10m_kmh'] ?? null, 1)],
+                ['height_agl_m' => 100, 'speed_kmh' => $this->roundedOrNull($weather['wind_speed_100m_kmh'] ?? null, 1)],
+                ['height_agl_m' => 150, 'speed_kmh' => $this->roundedOrNull($weather['wind_speed_150m_kmh'] ?? null, 1)],
+            ];
+        }
+
+        $speed = $this->roundedOrNull($weather['wind_speed_10m_kmh'] ?? null, 1)
+            ?? $this->roundedOrNull($weather['wind_speed_kmh'] ?? null, 1);
+        if ($speed === null) {
+            return [];
+        }
+
+        return [['height_agl_m' => 10, 'speed_kmh' => $speed]];
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function windReferenceHeight(array $reading): int
+    {
+        if ($this->isDwdFallback($reading)) {
+            return 10;
+        }
+
+        $height = $reading['wind_reference_height_agl_m'] ?? null;
+
+        return is_numeric($height) && in_array((int) $height, [10, 100, 150], true)
+            ? (int) $height
+            : 100;
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function isDwdFallback(array $reading): bool
+    {
+        return ($reading['provider_identifier'] ?? null) === 'dwd_mosmix_bright_sky';
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function structuredAttribution(array $reading): string
+    {
+        return $this->isDwdFallback($reading) ? 'DWD_MOSMIX' : 'DMI';
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function nationalScopeNote(array $reading): string
+    {
+        if ($this->isDwdFallback($reading)) {
+            return 'Rekenkundig gemiddelde van actuele DWD MOSMIX-modelwaarden via Bright Sky voor exact alle 12 Nederlandse provinciepunten; de zwaarste weersconditie en hoogste neerslagpiek blijven conservatief leidend. Alleen 10 m-oppervlaktewind is in deze fallback beschikbaar; bovenwind, afzonderlijke wolkenlagen en modelwolkenbasis blijven onbekend.';
+        }
+
+        return 'Rekenkundig gemiddelde van actuele DMI-modelwaarden voor exact alle 12 Nederlandse provincies; windrichting is een circulair gemiddelde, de modelwolkenbasis is het laagste geldige provinciepunt en zonopkomst/-ondergang worden als landelijke tijdsrange getoond.';
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function addressScopeNote(array $reading): string
+    {
+        if ($this->isDwdFallback($reading)) {
+            return 'Actuele DWD MOSMIX-modelwaarden via Bright Sky voor het server-side opgeloste adres. Alleen 10 m-oppervlaktewind is in deze fallback beschikbaar; bovenwind, afzonderlijke wolkenlagen en modelwolkenbasis blijven onbekend.';
+        }
+
+        return 'Actuele DMI-modelwaarden voor het server-side opgeloste adres; KNMI-stationsmetingen van de wolkenbasis blijven afzonderlijke puntmetingen.';
+    }
+
+    /** @param array<string, mixed> $reading */
+    private function disclaimer(array $reading): string
+    {
+        if ($this->isDwdFallback($reading)) {
+            return 'Indicatief vliegadvies op basis van DWD MOSMIX. Modelwind is tijdens deze fallback alleen op 10 m boven maaiveld beschikbaar; ontbrekende hoogte- en wolkenbasisdata blijven onbekend. Toestellimieten, missieprofiel, lokale weerswaarneming, luchtruimregels en gezaghebbende operationele beoordeling gaan altijd voor.';
+        }
+
+        return 'Indicatief vliegadvies. Modelwind wordt expliciet op 10, 100 en 150 m boven maaiveld getoond; windstoten zijn alleen als 10 m-grondwaarde beschikbaar. Toestellimieten, missieprofiel, lokale weerswaarneming, luchtruimregels en gezaghebbende operationele beoordeling gaan altijd voor.';
     }
 
     private function roundedOrNull(mixed $value, int $precision): ?float

@@ -966,7 +966,7 @@ export interface WallboardForecastCloudBaseForecast {
   sample_count: number;
   model_run_at: string | null;
   valid_at: string | null;
-  attribution: 'KNMI_HARMONIE' | 'DMI_HARMONIE' | 'DIS_DEMO';
+  attribution: 'KNMI_HARMONIE' | 'DMI_HARMONIE' | 'DWD_MOSMIX' | 'DIS_DEMO';
 }
 
 export interface WallboardForecastPrecipitationOutlook {
@@ -981,7 +981,7 @@ export interface WallboardForecastPrecipitationOutlook {
   reference_time: string;
   sample_count: number;
   expected_sample_count: number;
-  attribution: 'KNMI' | 'DMI' | 'DIS_DEMO';
+  attribution: 'KNMI' | 'DMI' | 'DWD_MOSMIX' | 'DIS_DEMO';
 }
 
 export interface WallboardForecastThunderstormOutlook {
@@ -990,7 +990,7 @@ export interface WallboardForecastThunderstormOutlook {
   forecast_until: string;
   sample_count: number;
   expected_sample_count: number;
-  attribution: 'OPEN_METEO' | 'DMI' | 'DIS_DEMO';
+  attribution: 'OPEN_METEO' | 'DMI' | 'DWD_MOSMIX' | 'DIS_DEMO';
 }
 
 export interface WallboardForecastMetric {

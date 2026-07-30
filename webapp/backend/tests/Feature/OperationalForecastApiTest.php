@@ -231,6 +231,66 @@ final class OperationalForecastApiTest extends TestCase
             ->assertJsonPath('data.cloud.cloud_base_complete', false);
     }
 
+    public function test_operational_weather_exposes_dwd_fallback_precipitation_and_keeps_unsupported_cloud_fields_partial(): void
+    {
+        $this->weather->overrides = [
+            'provider_identifier' => 'dwd_mosmix_bright_sky',
+            'cloud_cover_pct' => 55.0,
+            'cloud_cover_low_pct' => null,
+            'cloud_cover_mid_pct' => null,
+            'cloud_cover_high_pct' => null,
+            'cloud_base_m' => null,
+            'cloud_base_sample_count' => 0,
+            'cloud_base_expected_sample_count' => 0,
+            'cloud_base_complete' => false,
+            'forecast_precipitation_peak_mm_h' => 0.0,
+            'forecast_precipitation_first_at' => null,
+            'forecast_precipitation_third_hour_probability_pct' => 10.0,
+            'forecast_precipitation_third_hour_from' => '2026-07-21T13:00:00+00:00',
+            'forecast_precipitation_until' => '2026-07-21T14:00:00+00:00',
+            'model_run_at' => null,
+            'valid_at' => '2026-07-21T11:00:00+00:00',
+            'measured_at' => '2026-07-21T11:00:00+00:00',
+            'source' => [
+                'name' => 'DWD MOSMIX via Bright Sky (12 provincies)',
+                'url' => 'https://brightsky.dev/',
+                'license' => 'CC BY 4.0',
+                'license_url' => 'https://creativecommons.org/licenses/by/4.0/',
+                'attribution' => 'Weergegevens: Deutscher Wetterdienst (DWD); API: Bright Sky',
+                'modified' => true,
+                'processed_by' => 'DIS',
+                'processing_note' => 'Alleen 10 m AGL-wind is beschikbaar.',
+            ],
+        ];
+        Http::preventStrayRequests();
+
+        $this->asWebClient($this->user('dwd-fallback-weather@example.test'))
+            ->getJson('/api/operational-weather')
+            ->assertOk()
+            ->assertJsonPath('data.data_status', 'partial')
+            ->assertJsonPath('data.aggregation.sample_count', 0)
+            ->assertJsonPath('data.aggregation.complete', false)
+            ->assertJsonPath('data.aggregation.fresh', false)
+            ->assertJsonPath('data.cloud.complete', false)
+            ->assertJsonPath('data.cloud.stale', false)
+            ->assertJsonPath('data.cloud.cloud_cover_pct', 55)
+            ->assertJsonPath('data.cloud.cloud_cover_low_pct', null)
+            ->assertJsonPath('data.cloud.cloud_base_expected_sample_count', 0)
+            ->assertJsonPath('data.cloud.model_run_at', null)
+            ->assertJsonPath('data.cloud.source.name', 'DWD MOSMIX via Bright Sky (12 provincies)')
+            ->assertJsonPath('data.cloud.source.processing_note', 'Alleen 10 m AGL-wind is beschikbaar.')
+            ->assertJsonPath('data.precipitation.complete', true)
+            ->assertJsonPath('data.precipitation.probability_complete', true)
+            ->assertJsonPath('data.precipitation.third_hour_probability_pct', 10)
+            ->assertJsonPath('data.precipitation.third_hour_from', '2026-07-21T13:00:00+00:00')
+            ->assertJsonPath('data.precipitation.forecast_until', '2026-07-21T14:00:00+00:00')
+            ->assertJsonPath('data.precipitation.source.name', 'DWD MOSMIX via Bright Sky (12 provincies)')
+            ->assertJsonPath('data.scope_note', fn (string $note): bool => str_contains($note, 'DWD MOSMIX'))
+            ->assertJsonPath('data.disclaimer', fn (string $note): bool => str_contains($note, 'Bright Sky'));
+
+        Http::assertNothingSent();
+    }
+
     public function test_operational_weather_keeps_dmi_model_precipitation_current_without_fabricating_probability(): void
     {
         Http::preventStrayRequests();

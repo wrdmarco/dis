@@ -256,6 +256,98 @@ final class WallboardForecastTest extends TestCase
         $this->assertStringContainsString('geen verzonnen neerslagkans', $metric['explanation']);
     }
 
+    public function test_dwd_fallback_keeps_available_uav_metrics_live_and_missing_height_data_unknown(): void
+    {
+        $this->setForecastTestNow();
+        $this->weatherForecasts->reading = [
+            ...$this->weatherForecasts->reading,
+            'provider_identifier' => 'dwd_mosmix_bright_sky',
+            'weather_code' => 2,
+            'temperature_c' => 18.0,
+            'dew_point_c' => 11.0,
+            'dew_point_spread_c' => 7.0,
+            'wind_speed_10m_kmh' => 18.0,
+            'wind_speed_100m_kmh' => null,
+            'wind_speed_150m_kmh' => null,
+            'wind_speed_kmh' => 18.0,
+            'wind_reference_height_agl_m' => 10,
+            'wind_gust_kmh' => 25.0,
+            'wind_direction_degrees' => 240.0,
+            'precipitation_probability_pct' => 10.0,
+            'precipitation_mm' => 0.0,
+            'precipitation_rate_mm_h' => 0.0,
+            'cloud_cover_pct' => 55.0,
+            'cloud_cover_low_pct' => null,
+            'cloud_cover_mid_pct' => null,
+            'cloud_cover_high_pct' => null,
+            'cloud_base_m' => null,
+            'cloud_base_expected_sample_count' => 0,
+            'cloud_base_aggregation' => null,
+            'forecast_precipitation_peak_mm_h' => 0.2,
+            'forecast_precipitation_first_at' => '2026-07-20T14:00:00+00:00',
+            'forecast_precipitation_third_hour_probability_pct' => 5.0,
+            'forecast_precipitation_third_hour_from' => '2026-07-20T15:00:00+00:00',
+            'forecast_precipitation_until' => '2026-07-20T16:00:00+00:00',
+            'thunderstorm_expected' => false,
+            'thunderstorm_probability_pct' => 0.0,
+            'thunderstorm_first_expected_at' => null,
+            'thunderstorm_forecast_until' => '2026-07-20T16:00:00+00:00',
+            'model_run_at' => null,
+            'valid_at' => '2026-07-20T13:00:00+00:00',
+            'measured_at' => '2026-07-20T13:00:00+00:00',
+            'source' => [
+                'name' => 'DWD MOSMIX via Bright Sky',
+                'url' => 'https://brightsky.dev/',
+                'attribution' => 'Deutscher Wetterdienst (DWD), via Bright Sky; bewerkt door DIS',
+                'processed_by' => 'DIS',
+            ],
+        ];
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 2.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metrics = collect($forecast['metrics'])->keyBy('key');
+        $wind = $metrics['wind_speed_kmh'];
+        $precipitation = $metrics['precipitation_outlook']['precipitation_outlook'];
+        $thunder = $metrics['thunderstorm_forecast']['thunderstorm_outlook'];
+        $lowCloud = $metrics['low_cloud_cover_pct'];
+
+        $this->assertTrue($forecast['aggregation']['complete']);
+        $this->assertTrue($forecast['aggregation']['fresh']);
+        $this->assertSame('Gedeeltelijk bewolkt', $forecast['condition']['label']);
+        $this->assertSame(18.0, $metrics['temperature_c']['value']);
+        $this->assertSame(10, $wind['altitude_m']);
+        $this->assertSame('10 m boven maaiveld', $wind['source_height_label']);
+        $this->assertSame([['height_agl_m' => 10, 'speed_kmh' => 18.0]], $wind['height_samples_agl_m']);
+        $this->assertSame(5.0, $precipitation['third_hour_probability_pct']);
+        $this->assertSame('DWD_MOSMIX', $precipitation['attribution']);
+        $this->assertSame('DWD_MOSMIX', $thunder['attribution']);
+        $this->assertNull($lowCloud['value']);
+        $this->assertSame('unknown', $lowCloud['status']);
+        $this->assertNull($lowCloud['cloud_layers']);
+        $this->assertSame([
+            'status' => 'unknown',
+            'base_height_m' => null,
+            'height_reference' => 'model_unspecified',
+            'aggregation' => null,
+            'sample_count' => 0,
+            'expected_sample_count' => 0,
+            'model_run_at' => null,
+            'valid_at' => null,
+            'attribution' => 'DWD_MOSMIX',
+        ], $lowCloud['cloud_base_forecast']);
+        $this->assertSame('orange', $forecast['overall_status']);
+        $this->assertStringContainsString('bovenwind', $forecast['scope_note']);
+        $this->assertStringContainsString('ontbrekende hoogte-', mb_strtolower($forecast['disclaimer']));
+    }
+
     public function test_overall_advice_uses_low_instead_of_total_cloud_cover(): void
     {
         $this->setForecastTestNow();
@@ -802,22 +894,32 @@ final class StubUavWeatherForecastProvider implements UavWeatherForecastProvider
         return [
             ...$this->reading,
             'cloud_base_sample_count' => $this->reading['cloud_base_m'] === null ? 0 : $sampleCount,
-            'cloud_base_expected_sample_count' => $sampleCount,
-            'cloud_base_complete' => $this->reading['cloud_base_m'] !== null
-                && ! (bool) ($this->reading['stale'] ?? false),
-            'cloud_base_aggregation' => $sampleCount === 12 ? 'minimum_of_province_samples' : 'single_grid_point',
+            'cloud_base_expected_sample_count' => array_key_exists('cloud_base_expected_sample_count', $this->reading)
+                ? $this->reading['cloud_base_expected_sample_count']
+                : $sampleCount,
+            'cloud_base_complete' => array_key_exists('cloud_base_complete', $this->reading)
+                ? (bool) $this->reading['cloud_base_complete']
+                : $this->reading['cloud_base_m'] !== null
+                    && ! (bool) ($this->reading['stale'] ?? false),
+            'cloud_base_aggregation' => array_key_exists('cloud_base_aggregation', $this->reading)
+                ? $this->reading['cloud_base_aggregation']
+                : ($sampleCount === 12 ? 'minimum_of_province_samples' : 'single_grid_point'),
             'sample_count' => $sampleCount,
             'expected_sample_count' => $sampleCount,
             'complete' => (bool) ($this->reading['complete'] ?? true),
             'stale' => (bool) ($this->reading['stale'] ?? false),
-            'model_run_at' => '2026-07-20T09:00:00+00:00',
-            'valid_at' => '2026-07-20T12:00:00+00:00',
-            'measured_at' => '2026-07-20T12:00:00+00:00',
-            'refreshed_at' => '2026-07-20T12:14:00+00:00',
-            'source' => [
-                'name' => $sampleCount === 12 ? 'DMI HARMONIE DINI (12 provincies)' : 'DMI HARMONIE DINI',
-                'url' => 'https://www.dmi.dk/friedata/dokumentation/forecast-data-edr-api',
-            ],
+            'model_run_at' => array_key_exists('model_run_at', $this->reading)
+                ? $this->reading['model_run_at']
+                : '2026-07-20T09:00:00+00:00',
+            'valid_at' => $this->reading['valid_at'] ?? '2026-07-20T12:00:00+00:00',
+            'measured_at' => $this->reading['measured_at'] ?? '2026-07-20T12:00:00+00:00',
+            'refreshed_at' => $this->reading['refreshed_at'] ?? '2026-07-20T12:14:00+00:00',
+            'source' => is_array($this->reading['source'] ?? null)
+                ? $this->reading['source']
+                : [
+                    'name' => $sampleCount === 12 ? 'DMI HARMONIE DINI (12 provincies)' : 'DMI HARMONIE DINI',
+                    'url' => 'https://www.dmi.dk/friedata/dokumentation/forecast-data-edr-api',
+                ],
         ];
     }
 }
