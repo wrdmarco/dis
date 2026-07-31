@@ -83,20 +83,24 @@ test('weather uses the fast live-radar endpoint without loading UAV forecast mod
   expect(weatherPage).toContain('locationControl={locationControl}');
   expect(radarSection).toContain('Buien- en bliksemradar');
   expect(radarSection).toContain("dynamic(() => import('./LiveRadarMap')");
-  expect(liveRadarMap).toContain('EPSG:3857/{z}/{x}/{y}.png');
-  expect(liveRadarMap).toContain('/pastel/EPSG:3857/');
+  expect(liveRadarMap).toContain('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+  expect(liveRadarMap).toContain('const REGIONAL_VIEW_BOUNDS: [number, number, number, number] = [1, 49, 10, 55];');
+  expect(liveRadarMap).toContain("transformExtent(REGIONAL_VIEW_BOUNDS, 'EPSG:4326', 'EPSG:3857')");
   expect(liveRadarMap).toContain('maxZoom: 11');
   expect(liveRadarMap).toContain('projection: bounds.crs');
   expect(liveRadarMap).toContain('bounds.west,');
   expect(liveRadarMap).not.toContain("projection: 'EPSG:3857',");
-  expect(liveRadarMap).toContain("const PDOK_ATTRIBUTION = 'Kaart: CC-BY Kadaster 2026';");
-  expect(liveRadarMap).toContain('https://www.kadaster.nl/zakelijk/registraties/basisregistraties/brt');
+  expect(liveRadarMap).toContain("const OPENSTREETMAP_ATTRIBUTION = 'Kaart: © OpenStreetMap-bijdragers';");
+  expect(liveRadarMap).toContain('https://www.openstreetmap.org/copyright');
   expect(styles).toContain(':global(.ol-viewport canvas)');
   expect(radarSection).toContain('RadarLicenseLink');
   expect(radarSection).toContain('source.attribution');
   expect(radarPlayback).not.toContain('Promise.all(renderUrls.map');
-  expect(radarPlayback).toContain('const RADAR_FRAME_START_INTERVAL_MS = 1_050;');
+  expect(radarPlayback).not.toContain('RADAR_FRAME_START_INTERVAL_MS');
+  expect(radarPlayback).not.toContain('waitForRadarFrameStart');
   expect(radarPlayback).toContain('radarBackgroundFrameOrder(');
+  expect(radarPlayback).toContain('playableFramePositions');
+  expect(radarSection).toContain("autoPlay={readOnly || layer?.status === 'available'}");
   expect(radarPlayback).toContain("image.src = '';");
   expect(radarPlayback).toContain('setImageFrameRenderUrls(renderUrls);');
   expect(radarPlayback).toContain('current.renderKey === requestedRenderKey');
@@ -320,10 +324,10 @@ test('radar normalization accepts bounded same-origin atlas and live-frame contr
     atlas_rows: 0,
     bounds: {
       crs: 'EPSG:4326',
-      west: 2.5,
-      south: 50.5,
-      east: 7.8,
-      north: 53.7,
+      west: 1,
+      south: 49,
+      east: 10,
+      north: 55,
     },
     source: {
       license_url: 'https://creativecommons.org/licenses/by/4.0/',
@@ -568,6 +572,8 @@ test('weather radar starts at now, exposes explicit controls and switches to tot
   await expect(page.getByRole('heading', { name: 'Buien- en bliksemradar' })).toBeVisible();
   const precipitationPanel = page.getByRole('tabpanel');
   await expect(precipitationPanel.getByText('Nu', { exact: true }).first()).toBeVisible();
+  await precipitationPanel.getByRole('button', { name: 'Radaranimatie pauzeren' }).click();
+  await precipitationPanel.getByRole('slider').fill('0');
   await expect(precipitationPanel.getByRole('slider')).toHaveValue('0');
   await expect(precipitationPanel.getByRole('button', { name: 'Radaranimatie afspelen' })).toBeEnabled();
 
@@ -575,7 +581,7 @@ test('weather radar starts at now, exposes explicit controls and switches to tot
   await page.getByRole('tab', { name: 'Regen' }).press('ArrowRight');
   await expect(page.getByRole('tab', { name: 'Bliksem' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('Recente bliksemdetectie voor operationele oriëntatie.')).toBeVisible();
-  await expect(precipitationPanel.getByRole('slider')).toHaveValue('6');
+  await precipitationPanel.getByRole('button', { name: 'Radaranimatie pauzeren' }).click();
   await precipitationPanel.getByRole('slider').fill('0');
   await expect(precipitationPanel.getByText('−30 min · gemeten').first()).toBeVisible();
   await expect(precipitationPanel.getByRole('button', { name: 'Naar nu' })).toBeEnabled();
@@ -583,7 +589,7 @@ test('weather radar starts at now, exposes explicit controls and switches to tot
   await expect(precipitationPanel.getByRole('slider')).toHaveValue('6');
 });
 
-test('live radar shows the reference frame before its sequential background queue completes', async ({ page }) => {
+test('live radar starts progressively while its background queue remains sequential', async ({ page }) => {
   const weather = currentWeather();
   (weather.radar as Record<string, unknown>).precipitation = livePrecipitationLayer();
   let releaseBackground: (() => void) | null = null;
@@ -639,12 +645,12 @@ test('live radar shows the reference frame before its sequential background queu
   releaseBackground?.();
 
   await expect(radar.getByText('Actueel beeld beschikbaar; animatie is niet compleet.')).toBeVisible();
-  await expect(map).toHaveAttribute('aria-label', referenceMapLabel ?? '');
+  await expect(radar.getByRole('button', { name: 'Radaranimatie pauzeren' })).toBeEnabled();
+  await expect(map).not.toHaveAttribute('aria-label', referenceMapLabel ?? '', { timeout: 3_000 });
   expect(maxInFlight).toBe(1);
-  expect(backgroundStarts).toHaveLength(2);
-  expect(backgroundStarts[1] - backgroundStarts[0]).toBeGreaterThanOrEqual(1_000);
-  expect(backgroundPaths[0]).toContain('0123456789abcdef');
-  expect(backgroundPaths[1]).toContain('abcdef0123456789');
+  expect(backgroundStarts.length).toBeGreaterThanOrEqual(2);
+  expect(backgroundPaths.some((path) => path.includes('0123456789abcdef'))).toBe(true);
+  expect(backgroundPaths.some((path) => path.includes('abcdef0123456789'))).toBe(true);
 });
 
 test('live radar keeps the previous map until a refreshed reference succeeds and retries safely', async ({ page }) => {
@@ -688,7 +694,7 @@ test('live radar keeps the previous map until a refreshed reference succeeds and
   await page.goto('/weather');
   const radar = page.locator('[data-radar-kind="precipitation"]');
   const map = radar.getByRole('application');
-  const attribution = radar.getByRole('link', { name: 'Kaart: CC-BY Kadaster 2026' });
+  const attribution = radar.getByRole('link', { name: 'Kaart: © OpenStreetMap-bijdragers' });
   const legend = radar.locator('[data-radar-legend]');
   const status = radar.locator('[data-radar-status]');
   const layers = radar.locator('[data-radar-layers]');
@@ -696,6 +702,7 @@ test('live radar keeps the previous map until a refreshed reference succeeds and
   await expectLocatorsNotToOverlap(status, legend);
   await expectLocatorsNotToOverlap(layers, attribution);
   await expectLocatorsNotToOverlap(legend, attribution);
+  await radar.getByRole('button', { name: 'Radaranimatie pauzeren' }).click();
   const previousMapLabel = await map.getAttribute('aria-label');
   expect(previousMapLabel).not.toBeNull();
 
@@ -717,7 +724,7 @@ test('live radar keeps the previous map until a refreshed reference succeeds and
   await expect(radar.getByText('Nieuwe beeldreeks niet geladen')).toHaveCount(0);
 });
 
-test('live radar keeps its location controls, time and Kadaster attribution separate at 1280px', async ({ page }) => {
+test('live radar keeps its location controls, time and OpenStreetMap attribution separate at 1280px', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   const weather = currentWeather();
   (weather.radar as Record<string, unknown>).precipitation = livePrecipitationLayer();
@@ -730,11 +737,11 @@ test('live radar keeps its location controls, time and Kadaster attribution sepa
   const locationForm = radar.getByRole('form', { name: 'Forecastgebied kiezen' });
   const moment = radar.locator('[data-radar-map-moment]');
   const legend = radar.locator('[data-radar-legend]');
-  const attribution = radar.getByRole('link', { name: 'Kaart: CC-BY Kadaster 2026' });
+  const attribution = radar.getByRole('link', { name: 'Kaart: © OpenStreetMap-bijdragers' });
   await expect(attribution).toBeVisible();
   await expect(attribution).toHaveAttribute(
     'href',
-    'https://www.kadaster.nl/zakelijk/registraties/basisregistraties/brt',
+    'https://www.openstreetmap.org/copyright',
   );
 
   const rectangles = await Promise.all([
@@ -833,6 +840,35 @@ test('a stale radar atlas stays inspectable and never presents itself as live', 
   await expect(play).toBeEnabled();
   await play.click();
   await expect(radar.getByRole('button', { name: 'Radaranimatie pauzeren' })).toBeEnabled();
+});
+
+test('automatic radar playback stops when a refresh marks the live series stale', async ({ page }) => {
+  let requestCount = 0;
+  const liveWeather = currentWeather();
+  const staleWeather = currentWeather();
+  staleWeather.data_status = 'partial';
+  const staleRadar = staleWeather.radar as Record<string, unknown>;
+  staleRadar.precipitation = {
+    ...(staleRadar.precipitation as Record<string, unknown>),
+    status: 'stale',
+    age_seconds: 3_600,
+    lag_seconds: 420,
+    availability_note: 'De laatst gevalideerde KNMI-reeks is ouder dan toegestaan.',
+  };
+
+  await mockForecastApi(page, 'dark', async (path) => {
+    if (path !== '/api/operational-weather/radar') return notFoundResponse();
+    requestCount += 1;
+    return successResponse(requestCount === 1 ? liveWeather : staleWeather);
+  });
+
+  await page.goto('/weather');
+  const radar = page.locator('[data-radar-kind="precipitation"]');
+  await expect(radar.getByRole('button', { name: 'Radaranimatie pauzeren' })).toBeEnabled();
+
+  await page.getByRole('button', { name: 'Verversen' }).click();
+  await expect(radar.getByText('Verouderd', { exact: true })).toBeVisible();
+  await expect(radar.getByRole('button', { name: 'Radaranimatie afspelen' })).toBeEnabled();
 });
 
 test('reduced motion keeps radar animation off while manual time steps remain available', async ({ page }) => {
@@ -1126,10 +1162,10 @@ function livePrecipitationLayer(
     render_mode: 'image_frames',
     bounds: {
       crs: 'EPSG:4326',
-      west: 2.5,
-      south: 50.5,
-      east: 7.8,
-      north: 53.7,
+      west: 1,
+      south: 49,
+      east: 10,
+      north: 55,
     },
     reference_time: referenceTime,
     observed_period_end: null,

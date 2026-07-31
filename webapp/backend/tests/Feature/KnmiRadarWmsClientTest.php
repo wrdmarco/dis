@@ -77,7 +77,7 @@ final class KnmiRadarWmsClientTest extends TestCase
 
     public function test_get_map_uses_phase_specific_fixed_datasets_and_a_global_one_second_gate(): void
     {
-        $png = $this->png(960, 580);
+        $png = $this->png(1200, 800);
         $requestStarts = [];
         Http::fake(function (Request $request) use ($png, &$requestStarts) {
             $requestStarts[] = microtime(true);
@@ -110,9 +110,9 @@ final class KnmiRadarWmsClientTest extends TestCase
                 'layers' => 'precipitation_real_time',
                 'styles' => 'rainrate-blue-to-purple/shaded',
                 'srs' => 'EPSG:4326',
-                'bbox' => '2.5,50.5,7.8,53.7',
-                'width' => 960,
-                'height' => 580,
+                'bbox' => '1,49,10,55',
+                'width' => 1200,
+                'height' => 800,
                 'format' => 'image/png',
                 'transparent' => 'true',
                 'time' => '2026-07-29T16:35:00Z',
@@ -129,9 +129,9 @@ final class KnmiRadarWmsClientTest extends TestCase
                 'layers' => 'precipitation_nowcast',
                 'styles' => 'rainrate-blue-to-purple/shaded',
                 'srs' => 'EPSG:4326',
-                'bbox' => '2.5,50.5,7.8,53.7',
-                'width' => 960,
-                'height' => 580,
+                'bbox' => '1,49,10,55',
+                'width' => 1200,
+                'height' => 800,
                 'format' => 'image/png',
                 'transparent' => 'true',
                 'time' => '2026-07-29T16:40:00Z',
@@ -272,7 +272,7 @@ final class KnmiRadarWmsClientTest extends TestCase
             (string) ((int) floor(microtime(true) * 1_000) - 2_000),
             60,
         );
-        $png = $this->png(960, 580);
+        $png = $this->png(1200, 800);
         Http::fake([
             '*' => Http::response($png, 200, ['Content-Type' => 'image/png']),
         ]);

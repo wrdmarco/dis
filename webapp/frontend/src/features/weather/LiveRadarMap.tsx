@@ -26,11 +26,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { OperationalWeatherRadarBounds, OperationalWeatherRadarKind } from '../../types/api';
 import styles from './OperationalForecast.module.css';
 
-const PDOK_PASTEL_TILE_URL = 'https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/pastel/EPSG:3857/{z}/{x}/{y}.png';
-const PDOK_ATTRIBUTION = 'Kaart: CC-BY Kadaster 2026';
-const PDOK_ATTRIBUTION_URL = 'https://www.kadaster.nl/zakelijk/registraties/basisregistraties/brt';
-const NETHERLANDS_CENTER: [number, number] = [5.35, 52.15];
-const NETHERLANDS_VIEW_BOUNDS: [number, number, number, number] = [2.5, 50.5, 7.8, 53.7];
+const OPENSTREETMAP_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const OPENSTREETMAP_ATTRIBUTION = 'Kaart: © OpenStreetMap-bijdragers';
+const OPENSTREETMAP_ATTRIBUTION_URL = 'https://www.openstreetmap.org/copyright';
+const REGIONAL_CENTER: [number, number] = [5.5, 52];
+const REGIONAL_VIEW_BOUNDS: [number, number, number, number] = [1, 49, 10, 55];
 
 interface LiveRadarMapProps {
   ariaLabel: string;
@@ -83,11 +83,11 @@ export default function LiveRadarMap({
     });
     const baseLayer = new TileLayer({
       source: new XYZ({
-        attributions: PDOK_ATTRIBUTION,
+        attributions: OPENSTREETMAP_ATTRIBUTION,
         crossOrigin: 'anonymous',
         maxZoom: 19,
         transition: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180,
-        url: PDOK_PASTEL_TILE_URL,
+        url: OPENSTREETMAP_TILE_URL,
       }),
     });
     const map = new Map({
@@ -96,8 +96,8 @@ export default function LiveRadarMap({
       layers: [baseLayer, radarLayer, markerLayer],
       target,
       view: new View({
-        center: fromLonLat(NETHERLANDS_CENTER),
-        zoom: 7.2,
+        center: fromLonLat(REGIONAL_CENTER),
+        zoom: 6.4,
         minZoom: 5,
         maxZoom: 11,
       }),
@@ -108,7 +108,7 @@ export default function LiveRadarMap({
     markerFeatureRef.current = markerFeature;
     setMapReady(true);
 
-    const initialExtent = transformExtent(NETHERLANDS_VIEW_BOUNDS, 'EPSG:4326', 'EPSG:3857');
+    const initialExtent = transformExtent(REGIONAL_VIEW_BOUNDS, 'EPSG:4326', 'EPSG:3857');
     window.requestAnimationFrame(() => {
       map.updateSize();
       map.getView().fit(initialExtent, { padding: [24, 24, 24, 24], maxZoom: 8.2 });
@@ -199,14 +199,10 @@ export default function LiveRadarMap({
       return;
     }
     view.fit(
-      transformExtent(
-        [bounds.west, bounds.south, bounds.east, bounds.north],
-        bounds.crs,
-        'EPSG:3857',
-      ),
+      transformExtent(REGIONAL_VIEW_BOUNDS, 'EPSG:4326', 'EPSG:3857'),
       { padding: [28, 28, 28, 28], duration: motionDuration(), maxZoom: 8.2 },
     );
-  }, [bounds, location]);
+  }, [location]);
 
   const toggleFullscreen = useCallback(async () => {
     const wrapper = wrapperRef.current;
@@ -247,7 +243,7 @@ export default function LiveRadarMap({
             type="button"
             aria-label={location?.latitude !== null && location?.longitude !== null && location !== null
               ? `Centreren op ${location.label}`
-              : 'Heel Nederland tonen'}
+              : 'Nederland en omliggende landen tonen'}
             disabled={!mapReady}
             onClick={centerMap}
           >
@@ -283,11 +279,11 @@ export default function LiveRadarMap({
 
       <a
         className={styles.radarMapAttribution}
-        href={PDOK_ATTRIBUTION_URL}
+        href={OPENSTREETMAP_ATTRIBUTION_URL}
         rel="noreferrer"
         target="_blank"
       >
-        {PDOK_ATTRIBUTION}
+        {OPENSTREETMAP_ATTRIBUTION}
       </a>
     </div>
   );

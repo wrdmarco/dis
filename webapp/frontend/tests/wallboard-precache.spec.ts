@@ -666,7 +666,7 @@ function radarLayer(
   return {
     status: 'available',
     render_mode: 'image_frames',
-    bounds: { crs: 'EPSG:4326', west: 2.5, south: 50.5, east: 7.8, north: 53.7 },
+    bounds: { crs: 'EPSG:4326', west: 1, south: 49, east: 10, north: 55 },
     reference_time: '2026-07-23T12:00:00Z',
     observed_period_end: null,
     age_seconds: 60,

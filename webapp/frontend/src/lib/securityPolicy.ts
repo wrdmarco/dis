@@ -44,7 +44,7 @@ export function buildContentSecurityPolicy(options: ContentSecurityPolicyOptions
     `style-src 'self' 'nonce-${options.nonce}'`,
     "style-src-attr 'none'",
     `connect-src ${connectSources.join(' ')}`,
-    "img-src 'self' data: https://server.arcgisonline.com https://service.pdok.nl",
+    "img-src 'self' data: https://server.arcgisonline.com https://service.pdok.nl https://tile.openstreetmap.org",
     "font-src 'self'",
     `frame-src ${frameSources.join(' ')}`,
     "worker-src 'self'",

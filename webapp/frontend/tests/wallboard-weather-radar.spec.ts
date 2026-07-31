@@ -96,7 +96,7 @@ test('normalizes first-party legacy atlases and live image frames for both authe
     status: 'available',
     render_mode: 'image_frames',
     atlas_url: null,
-    bounds: { crs: 'EPSG:4326', west: 2.5, south: 50.5, east: 7.8, north: 53.7 },
+    bounds: { crs: 'EPSG:4326', west: 1, south: 49, east: 10, north: 55 },
   });
   expect(live.precipitation?.frames).toMatchObject([
     { phase: 'observation', lead_minutes: -5 },
@@ -243,7 +243,7 @@ function livePrecipitationLayer(): Record<string, unknown> {
   return {
     status: 'available',
     render_mode: 'image_frames',
-    bounds: { crs: 'EPSG:4326', west: 2.5, south: 50.5, east: 7.8, north: 53.7 },
+    bounds: { crs: 'EPSG:4326', west: 1, south: 49, east: 10, north: 55 },
     reference_time: '2026-07-23T12:00:00Z',
     observed_period_end: null,
     age_seconds: 90,

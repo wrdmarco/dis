@@ -12,11 +12,11 @@ final class EumetsatLightningConfiguration
 
     private const CRS = 'CRS:84';
 
-    private const BBOX = [2.5, 50.5, 7.8, 53.7];
+    private const BBOX = [1.0, 49.0, 10.0, 55.0];
 
-    private const FRAME_WIDTH = 640;
+    private const FRAME_WIDTH = 960;
 
-    private const FRAME_HEIGHT = 384;
+    private const FRAME_HEIGHT = 640;
 
     private const FRAME_COUNT = 7;
 
@@ -74,6 +74,24 @@ final class EumetsatLightningConfiguration
     public function frameHeight(): int
     {
         return $this->fixedInt('frame_height', self::FRAME_HEIGHT);
+    }
+
+    /** @return array<string, mixed> */
+    public function renderContract(): array
+    {
+        return [
+            'endpoint' => $this->endpoint(),
+            'service' => 'WMS',
+            'version' => '1.3.0',
+            'layer' => $this->layer(),
+            'style' => $this->style(),
+            'crs' => $this->crs(),
+            'bbox' => $this->bbox(),
+            'width' => $this->frameWidth(),
+            'height' => $this->frameHeight(),
+            'format' => 'image/png',
+            'transparent' => true,
+        ];
     }
 
     public function frameCount(): int

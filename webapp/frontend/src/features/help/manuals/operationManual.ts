@@ -286,12 +286,12 @@ export const operationManualGuides = {
     {
       id: 'weather-read-live-map',
       title: 'De live radarkaart controleren',
-      intro: 'Controleer live KNMI-neerslagradar en EUMETSAT-bliksemdetectie voor Nederland of één gezocht adres.',
+      intro: 'Controleer live KNMI-neerslagradar en EUMETSAT-bliksemdetectie voor Nederland, België en westelijk Duitsland.',
       permissions: ['operational-weather.view'],
       steps: [
         { label: 'Open Weer', description: 'Kies Weer in het menu onder Operatie.' },
         { label: 'Kies het gebied', description: 'Laat UAV Nederland staan of kies Adres, vul een adres of plaatsnaam in en kies Toepassen.' },
-        { label: 'Gebruik de kaart', description: 'Sleep of zoom op de PDOK-achtergrondkaart. Gebruik de locatieknop om op het gekozen adres te centreren.' },
+        { label: 'Gebruik de kaart', description: 'Sleep of zoom op de OpenStreetMap-achtergrondkaart van Nederland en de omliggende landen. Gebruik de locatieknop om op het gekozen adres te centreren.' },
         { label: 'Lees de tijdlijn', description: 'De verticale NU-markering scheidt gemeten beelden van de verwachting. Gebruik de schuifregelaar, Vorige, Volgende of Afspelen.' },
         { label: 'Bekijk de bliksemradar', description: 'Kies Bliksem. EUMETSAT LI toont total lightning als geaccumuleerd bliksemflitsgebied en onderscheidt wolk-grond en wolk-wolk niet.' },
         { label: 'Controleer bron en tijd', description: 'Lees per laag de bronnaam, geldige of gemeten tijd en eventuele beschikbaarheidsmelding.' },

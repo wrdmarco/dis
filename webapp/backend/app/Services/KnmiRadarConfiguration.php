@@ -18,7 +18,7 @@ final class KnmiRadarConfiguration
 
     private const SRS = 'EPSG:4326';
 
-    private const BBOX = [2.5, 50.5, 7.8, 53.7];
+    private const BBOX = [1.0, 49.0, 10.0, 55.0];
 
     public function endpoint(): string
     {
@@ -73,12 +73,33 @@ final class KnmiRadarConfiguration
 
     public function frameWidth(): int
     {
-        return $this->fixedInt('frame_width', 960);
+        return $this->fixedInt('frame_width', 1200);
     }
 
     public function frameHeight(): int
     {
-        return $this->fixedInt('frame_height', 580);
+        return $this->fixedInt('frame_height', 800);
+    }
+
+    /** @return array<string, mixed> */
+    public function renderContract(): array
+    {
+        return [
+            'endpoint' => $this->endpoint(),
+            'service' => 'WMS',
+            'version' => '1.1.1',
+            'observation_dataset' => $this->observationDataset(),
+            'observation_layer' => $this->observationLayer(),
+            'forecast_dataset' => $this->forecastDataset(),
+            'forecast_layer' => $this->forecastLayer(),
+            'style' => $this->style(),
+            'srs' => $this->srs(),
+            'bbox' => $this->bbox(),
+            'width' => $this->frameWidth(),
+            'height' => $this->frameHeight(),
+            'format' => 'image/png',
+            'transparent' => true,
+        ];
     }
 
     public function historyMinutes(): int

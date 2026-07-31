@@ -506,7 +506,7 @@ final class OperationalRadarService implements OperationalRadarProvider
             'age_seconds' => max(0, (int) $observedPeriodEnd->diffInSeconds($now, false)),
             'lag_seconds' => max(0, (int) $observedPeriodEnd->diffInSeconds($refreshedAt, false)),
             'refreshed_at' => $refreshedAt->toIso8601String(),
-            'bounds' => $this->bounds(),
+            'bounds' => $this->bounds($kind),
             'atlas_url' => null,
             'atlas_columns' => 0,
             'atlas_rows' => 0,
@@ -548,7 +548,7 @@ final class OperationalRadarService implements OperationalRadarProvider
                 ? null
                 : max(0, (int) $observedPeriodEnd->diffInSeconds($refreshedAt, false)),
             'refreshed_at' => $refreshedAt?->toIso8601String(),
-            'bounds' => $this->bounds(),
+            'bounds' => $this->bounds($kind),
             'atlas_url' => null,
             'atlas_columns' => 0,
             'atlas_rows' => 0,
@@ -561,9 +561,13 @@ final class OperationalRadarService implements OperationalRadarProvider
     }
 
     /** @return array{crs: string, west: float, south: float, east: float, north: float} */
-    private function bounds(): array
+    private function bounds(string $kind): array
     {
-        [$west, $south, $east, $north] = $this->knmiConfiguration->bbox();
+        [$west, $south, $east, $north] = match ($kind) {
+            'precipitation' => $this->knmiConfiguration->bbox(),
+            'lightning' => $this->lightningConfiguration->bbox(),
+            default => throw new \InvalidArgumentException('The radar bounds kind is invalid.'),
+        };
 
         return [
             'crs' => 'EPSG:4326',
@@ -591,10 +595,11 @@ final class OperationalRadarService implements OperationalRadarProvider
         $hash = substr(hash_hmac(
             'sha256',
             implode('|', [
-                'live-radar-v3-knmi',
+                'operational-radar-frame',
                 $kind,
                 $validAt->toIso8601String(),
                 $context,
+                $this->frameRenderContract($kind),
             ]),
             $this->frameTokenKey(),
         ), 0, 16);
@@ -615,7 +620,21 @@ final class OperationalRadarService implements OperationalRadarProvider
             throw new \RuntimeException('The application key is invalid for radar frame tokens.');
         }
 
-        return hash_hmac('sha256', 'DIS operational radar frame tokens v2', $raw, true);
+        return hash_hmac('sha256', 'DIS operational radar frame tokens', $raw, true);
+    }
+
+    private function frameRenderContract(string $kind): string
+    {
+        $contract = match ($kind) {
+            'precipitation' => $this->knmiConfiguration->renderContract(),
+            'lightning' => $this->lightningConfiguration->renderContract(),
+            default => throw new \InvalidArgumentException('The radar render contract kind is invalid.'),
+        };
+
+        return json_encode(
+            $contract,
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION,
+        );
     }
 
     /**

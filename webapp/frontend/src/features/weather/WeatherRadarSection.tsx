@@ -167,7 +167,7 @@ export function WeatherRadarSection({
         kind={activeKind}
         layer={layer}
         active={active}
-        autoPlay={readOnly}
+        autoPlay={readOnly || layer?.status === 'available'}
         readOnly={readOnly}
         wallboard={wallboard}
         location={location}
@@ -451,8 +451,12 @@ function RadarTimeline({
             <button
               type="button"
               className={styles.radarPlayButton}
-              disabled={!playback.playing && !playback.canPlay}
-              aria-label={playback.playing ? 'Radaranimatie pauzeren' : 'Radaranimatie afspelen'}
+              disabled={!playback.playing && !playback.canRequestPlayback}
+              aria-label={playback.playing
+                ? 'Radaranimatie pauzeren'
+                : playback.seriesDeferred
+                  ? 'Radaranimatie laden en afspelen'
+                  : 'Radaranimatie afspelen'}
               aria-pressed={playback.playing}
               onClick={playback.playing ? playback.pause : playback.play}
             >
@@ -522,6 +526,11 @@ function RadarTimeline({
         <p className={styles.radarSeriesStatus} role="status" aria-live={readOnly ? 'off' : 'polite'}>
           <span className={styles.stateSpinner} aria-hidden />
           Animatie voorbereiden · {playback.loadedFrameCount} van {playback.totalFrameCount} beelden
+        </p>
+      ) : playback.seriesDeferred ? (
+        <p className={styles.radarSeriesStatus} role="status">
+          <Play aria-hidden size={17} />
+          Animatiebeelden laden pas wanneer u Afspelen kiest.
         </p>
       ) : playback.seriesFailed ? (
         <div className={`${styles.radarSeriesStatus} ${styles.radarSeriesStatusWarning}`} role="status">

@@ -44,14 +44,16 @@ final class LiveOperationalRadarServiceTest extends TestCase
         $this->assertSame(300, $precipitation['age_seconds']);
         $this->assertSame([
             'crs' => 'EPSG:4326',
-            'west' => 2.5,
-            'south' => 50.5,
-            'east' => 7.8,
-            'north' => 53.7,
+            'west' => 1.0,
+            'south' => 49.0,
+            'east' => 10.0,
+            'north' => 55.0,
         ], $precipitation['bounds']);
         $this->assertNull($precipitation['atlas_url']);
         $this->assertSame(0, $precipitation['atlas_columns']);
         $this->assertSame(0, $precipitation['atlas_rows']);
+        $this->assertSame(1200, $precipitation['frame_width']);
+        $this->assertSame(800, $precipitation['frame_height']);
         $this->assertCount(37, $precipitation['frames']);
         $this->assertSame(-60, $precipitation['frames'][0]['lead_minutes']);
         $this->assertSame('observation', $precipitation['frames'][0]['phase']);
@@ -75,6 +77,9 @@ final class LiveOperationalRadarServiceTest extends TestCase
         $this->assertSame('2026-07-29T16:35:00+00:00', $lightning['reference_time']);
         $this->assertSame('2026-07-29T16:40:00+00:00', $lightning['observed_period_end']);
         $this->assertSame(0, $lightning['age_seconds']);
+        $this->assertSame($precipitation['bounds'], $lightning['bounds']);
+        $this->assertSame(960, $lightning['frame_width']);
+        $this->assertSame(640, $lightning['frame_height']);
         $this->assertCount(7, $lightning['frames']);
         $this->assertSame(-30, $lightning['frames'][0]['lead_minutes']);
         $this->assertSame(0, $lightning['frames'][6]['lead_minutes']);
@@ -102,8 +107,8 @@ final class LiveOperationalRadarServiceTest extends TestCase
 
     public function test_frames_are_fetched_via_fixed_sources_cached_in_memory_and_never_written_to_disk(): void
     {
-        $knmiPng = $this->png(960, 580);
-        $lightningPng = $this->png(640, 384);
+        $knmiPng = $this->png(1200, 800);
+        $lightningPng = $this->png(960, 640);
         $knmiGetMapAttempts = 0;
         $lightningGetMapAttempts = 0;
         Http::fake(function (Request $request) use (
@@ -148,12 +153,22 @@ final class LiveOperationalRadarServiceTest extends TestCase
         $this->assertSame(1, $knmiGetMapAttempts);
         $this->assertSame(1, $lightningGetMapAttempts);
         Http::assertSentCount(5);
+        Http::assertSent(function (Request $request): bool {
+            $query = $request->data();
+
+            return str_contains($request->url(), 'view.eumetsat.int')
+                && ($query['request'] ?? null) === 'GetMap'
+                && ($query['crs'] ?? null) === 'CRS:84'
+                && ($query['bbox'] ?? null) === '1,49,10,55'
+                && ($query['width'] ?? null) === 960
+                && ($query['height'] ?? null) === 640;
+        });
     }
 
     public function test_earliest_observations_remain_resolvable_for_the_complete_stale_fallback_window(): void
     {
-        $knmiPng = $this->png(960, 580);
-        $lightningPng = $this->png(640, 384);
+        $knmiPng = $this->png(1200, 800);
+        $lightningPng = $this->png(960, 640);
         Http::fake(function (Request $request) use ($knmiPng, $lightningPng) {
             $query = $request->data();
             if (($query['request'] ?? null) === 'GetCapabilities') {
@@ -259,6 +274,75 @@ final class LiveOperationalRadarServiceTest extends TestCase
         $this->assertSame(25, $lightning->timelineLockSeconds());
         $this->assertSame(30, $lightning->frameLockSeconds());
         $this->assertSame(262_144, $lightning->maximumFrameBytes());
+    }
+
+    public function test_frame_render_contracts_cover_the_regional_bounds_and_immutable_image_parameters(): void
+    {
+        $knmi = app(KnmiRadarConfiguration::class);
+        $lightning = app(EumetsatLightningConfiguration::class);
+
+        $this->assertSame([1.0, 49.0, 10.0, 55.0], $knmi->bbox());
+        $this->assertSame([1.0, 49.0, 10.0, 55.0], $lightning->bbox());
+        $this->assertSame([
+            'srs' => 'EPSG:4326',
+            'bbox' => [1.0, 49.0, 10.0, 55.0],
+            'width' => 1200,
+            'height' => 800,
+        ], array_intersect_key($knmi->renderContract(), array_flip(['srs', 'bbox', 'width', 'height'])));
+        $this->assertSame([
+            'crs' => 'CRS:84',
+            'bbox' => [1.0, 49.0, 10.0, 55.0],
+            'width' => 960,
+            'height' => 640,
+        ], array_intersect_key($lightning->renderContract(), array_flip(['crs', 'bbox', 'width', 'height'])));
+    }
+
+    public function test_frame_tokens_are_bound_to_the_complete_render_contract(): void
+    {
+        $this->fakeCapabilities();
+
+        $frame = app(OperationalRadarService::class)->metadata()['precipitation']['frames'][13];
+        $contract = json_encode(
+            app(KnmiRadarConfiguration::class)->renderContract(),
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION,
+        );
+        $configuredKey = (string) config('app.key');
+        $rawKey = base64_decode(substr($configuredKey, 7), true);
+        $this->assertIsString($rawKey);
+        $tokenKey = hash_hmac('sha256', 'DIS operational radar frame tokens', $rawKey, true);
+        $context = 'f20260729T163500Z';
+        $digest = substr(hash_hmac(
+            'sha256',
+            implode('|', [
+                'operational-radar-frame',
+                'precipitation',
+                $frame['valid_at'],
+                $context,
+                $contract,
+            ]),
+            $tokenKey,
+        ), 0, 16);
+
+        $this->assertSame(
+            '20260729T164000Z-'.$context.'-'.$digest,
+            $this->tokenFromUrl($frame['image_url']),
+        );
+    }
+
+    public function test_knmi_render_dimensions_are_fixed_and_fail_closed_on_configuration_drift(): void
+    {
+        config()->set('dis.knmi_radar.frame_width', 1199);
+
+        $this->expectException(\RuntimeException::class);
+        app(KnmiRadarConfiguration::class)->renderContract();
+    }
+
+    public function test_lightning_render_dimensions_are_fixed_and_fail_closed_on_configuration_drift(): void
+    {
+        config()->set('dis.eumetsat_lightning.frame_height', 639);
+
+        $this->expectException(\RuntimeException::class);
+        app(EumetsatLightningConfiguration::class)->renderContract();
     }
 
     public function test_invalid_or_incomplete_remote_metadata_fails_closed_without_frame_urls(): void

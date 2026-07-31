@@ -55,7 +55,7 @@ export function WeatherPage() {
         <div>
           <span className={styles.sectionKicker}>Operationeel weerbeeld</span>
           <h1>Live weerkaart</h1>
-          <p>Landelijke neerslagradar en twee uur verwachting, rechtstreeks uit live open data. Dit kaartbeeld is geen vliegadvies.</p>
+          <p>Live buien en twee uur verwachting voor Nederland, België en westelijk Duitsland. Dit kaartbeeld is geen vliegadvies.</p>
         </div>
       </header>
 

@@ -7,7 +7,6 @@ import type {
 const RADAR_FRAME_INTERVAL_MS = 700;
 const RADAR_FINAL_FRAME_INTERVAL_MS = 1_650;
 const RADAR_ATLAS_LOAD_TIMEOUT_MS = 15_000;
-const RADAR_FRAME_START_INTERVAL_MS = 1_050;
 const RADAR_WALLBOARD_RETRY_MS = 30_000;
 
 export interface WeatherRadarPlayback {
@@ -21,12 +20,14 @@ export interface WeatherRadarPlayback {
   seriesReady: boolean;
   seriesLoading: boolean;
   seriesFailed: boolean;
+  seriesDeferred: boolean;
   loadedFrameCount: number;
   totalFrameCount: number;
   showingPreviousAtlas: boolean;
   playing: boolean;
   reducedMotion: boolean;
   canPlay: boolean;
+  canRequestPlayback: boolean;
   play: () => void;
   pause: () => void;
   previous: () => void;
@@ -50,6 +51,8 @@ export function useWeatherRadarPlayback(
   const [seriesReady, setSeriesReady] = useState(false);
   const [seriesLoading, setSeriesLoading] = useState(false);
   const [seriesFailed, setSeriesFailed] = useState(false);
+  const [seriesRequestKey, setSeriesRequestKey] = useState<string | null>(null);
+  const [loadedFramePositions, setLoadedFramePositions] = useState<number[]>([]);
   const [loadedFrameCount, setLoadedFrameCount] = useState(0);
   const [totalFrameCount, setTotalFrameCount] = useState(0);
   const [playbackRequested, setPlaybackRequested] = useState(autoPlay);
@@ -65,6 +68,8 @@ export function useWeatherRadarPlayback(
   );
   const requestedLayerRef = useRef(layer);
   const displayLayerRef = useRef(displayLayer);
+  const completedSeriesRenderKeyRef = useRef<string | null>(null);
+  const previousAutoPlayRef = useRef(autoPlay);
   requestedLayerRef.current = layer;
   displayLayerRef.current = displayLayer;
 
@@ -74,6 +79,18 @@ export function useWeatherRadarPlayback(
     ? null
     : radarLayerRenderKey(layer);
   const retryAttempt = retryRequest.renderKey === requestedRenderKey ? retryRequest.attempt : 0;
+  const seriesRequested = autoPlay
+    || playbackRequested
+    || (requestedRenderKey !== null && seriesRequestKey === requestedRenderKey);
+
+  useEffect(() => {
+    if (autoPlay && !previousAutoPlayRef.current) {
+      setPlaybackRequested(true);
+    } else if (!autoPlay && layer?.status !== 'available') {
+      setPlaybackRequested(false);
+    }
+    previousAutoPlayRef.current = autoPlay;
+  }, [autoPlay, layer?.status]);
 
   useEffect(() => {
     const requestedLayer = requestedLayerRef.current;
@@ -88,13 +105,18 @@ export function useWeatherRadarPlayback(
       setSeriesReady(false);
       setSeriesLoading(false);
       setSeriesFailed(false);
+      setLoadedFramePositions([]);
       setLoadedFrameCount(0);
       setTotalFrameCount(0);
       return;
     }
 
     const currentDisplayLayer = displayLayerRef.current;
-    if (retryAttempt === 0 && radarLayerRenderKey(currentDisplayLayer) === requestedRenderKey) {
+    if (
+      retryAttempt === 0
+      && radarLayerRenderKey(currentDisplayLayer) === requestedRenderKey
+      && (!seriesRequested || completedSeriesRenderKeyRef.current === requestedRenderKey)
+    ) {
       return;
     }
 
@@ -105,6 +127,7 @@ export function useWeatherRadarPlayback(
     setSeriesReady(false);
     setSeriesLoading(false);
     setSeriesFailed(false);
+    setLoadedFramePositions([]);
     setLoadedFrameCount(0);
     setTotalFrameCount(requestedLayer.frames.length);
 
@@ -114,7 +137,6 @@ export function useWeatherRadarPlayback(
           radarRenderAttemptUrl(frame.image_url ?? '', retryAttempt)
         ));
         const referencePosition = radarReferenceFramePosition(requestedLayer);
-        let previousStartTime = performance.now();
 
         try {
           await preloadRadarFrame(renderUrls[referencePosition], abortController.signal);
@@ -133,6 +155,7 @@ export function useWeatherRadarPlayback(
         setFramePosition(referencePosition);
         setLoadingAtlas(false);
         setAtlasFailed(false);
+        setLoadedFramePositions([referencePosition]);
         setLoadedFrameCount(1);
 
         const backgroundPositions = radarBackgroundFrameOrder(
@@ -140,20 +163,27 @@ export function useWeatherRadarPlayback(
           referencePosition,
         );
         if (backgroundPositions.length === 0) {
+          completedSeriesRenderKeyRef.current = requestedRenderKey;
           setSeriesReady(true);
           setRetryRequest({ renderKey: null, attempt: 0 });
           return;
         }
+        if (!seriesRequested) return;
 
         setSeriesLoading(true);
         let backgroundFailed = false;
+        // Keep one request in flight. The backend owns KNMI's upstream rate limit,
+        // so a client delay would also slow browser and Redis cache hits.
         for (const position of backgroundPositions) {
           try {
-            await waitForRadarFrameStart(previousStartTime, abortController.signal);
             if (cancelled) return;
-            previousStartTime = performance.now();
             await preloadRadarFrame(renderUrls[position], abortController.signal);
             if (cancelled) return;
+            setLoadedFramePositions((positions) => (
+              positions.includes(position)
+                ? positions
+                : [...positions, position].sort((left, right) => left - right)
+            ));
             setLoadedFrameCount((count) => count + 1);
           } catch (error) {
             if (cancelled || isAbortError(error)) return;
@@ -166,7 +196,7 @@ export function useWeatherRadarPlayback(
         setSeriesFailed(backgroundFailed);
         setSeriesReady(!backgroundFailed);
         if (!backgroundFailed) {
-          if (autoPlay && !reducedMotion) setFramePosition(0);
+          completedSeriesRenderKeyRef.current = requestedRenderKey;
           setRetryRequest({ renderKey: null, attempt: 0 });
         }
         return;
@@ -191,6 +221,8 @@ export function useWeatherRadarPlayback(
       setFramePosition(initialRadarFramePosition(requestedLayer, autoPlay && !reducedMotion));
       setLoadingAtlas(false);
       setAtlasFailed(false);
+      completedSeriesRenderKeyRef.current = requestedRenderKey;
+      setLoadedFramePositions(requestedLayer.frames.map((_, position) => position));
       setSeriesReady(true);
       setLoadedFrameCount(requestedLayer.frames.length);
       setRetryRequest({ renderKey: null, attempt: 0 });
@@ -202,7 +234,7 @@ export function useWeatherRadarPlayback(
       cancelled = true;
       abortController.abort();
     };
-  }, [autoPlay, reducedMotion, requestedRenderKey, retryAttempt]);
+  }, [autoPlay, reducedMotion, requestedRenderKey, retryAttempt, seriesRequested]);
 
   useEffect(() => {
     if (layer === null || requestedRenderKey === null) return;
@@ -253,14 +285,29 @@ export function useWeatherRadarPlayback(
   const showingPreviousAtlas = displayLayer !== null
     && layer !== null
     && radarLayerRenderKey(displayLayer) !== radarLayerRenderKey(layer);
-  const canPlay = active
+  const playableFramePositions = useMemo(() => {
+    if (displayLayer === null) return [];
+    if (seriesReady || displayLayer.render_mode !== 'image_frames') {
+      return displayLayer.frames.map((_, position) => position);
+    }
+    return loadedFramePositions.filter((position) => position < displayLayer.frames.length);
+  }, [displayLayer, loadedFramePositions, seriesReady]);
+  const playbackBaseAvailable = active
     && !reducedMotion
     && !loadingAtlas
     && !atlasFailed
-    && seriesReady
     && decodedCurrentAtlas
     && (layer.status === 'available' || (!autoPlay && layer.status === 'stale'))
     && displayLayer.frames.length > 1;
+  const seriesDeferred = displayLayer?.render_mode === 'image_frames'
+    && !seriesRequested
+    && !seriesReady
+    && !seriesLoading
+    && !seriesFailed
+    && decodedCurrentAtlas;
+  const canPlay = playbackBaseAvailable && playableFramePositions.length > 1;
+  const canRequestPlayback = playbackBaseAvailable
+    && (seriesDeferred || seriesReady || playableFramePositions.length > 1);
   const playing = playbackRequested && pageVisible && canPlay;
 
   useEffect(() => {
@@ -287,25 +334,33 @@ export function useWeatherRadarPlayback(
   ]);
 
   useEffect(() => {
-    if (!playing || !canPlay || displayLayer === null) return;
-    const frameCount = displayLayer.frames.length;
-    const delay = framePosition === frameCount - 1
+    if (!playing || !canPlay || displayLayer === null || playableFramePositions.length < 2) return;
+    const delay = seriesReady && framePosition === displayLayer.frames.length - 1
       ? RADAR_FINAL_FRAME_INTERVAL_MS
       : RADAR_FRAME_INTERVAL_MS;
     const timeout = window.setTimeout(() => {
-      setFramePosition((position) => (position + 1) % frameCount);
+      setFramePosition((position) => {
+        const currentPosition = playableFramePositions.indexOf(position);
+        return currentPosition < 0
+          ? playableFramePositions[0]
+          : playableFramePositions[(currentPosition + 1) % playableFramePositions.length];
+      });
     }, delay);
     return () => window.clearTimeout(timeout);
-  }, [canPlay, displayLayer, framePosition, playing]);
+  }, [canPlay, displayLayer, framePosition, playableFramePositions, playing, seriesReady]);
 
   const pause = useCallback(() => setPlaybackRequested(false), []);
   const play = useCallback(() => {
-    if (!canPlay) return;
+    if (!canRequestPlayback) return;
+    setPlaybackRequested(true);
+    if (!seriesReady) {
+      setSeriesRequestKey(requestedRenderKey);
+      return;
+    }
     setFramePosition((position) => displayLayer !== null && position === displayLayer.frames.length - 1
       ? 0
       : position);
-    setPlaybackRequested(true);
-  }, [canPlay, displayLayer]);
+  }, [canRequestPlayback, displayLayer, requestedRenderKey, seriesReady]);
   const seek = useCallback((position: number) => {
     setPlaybackRequested(false);
     setFramePosition(() => {
@@ -357,12 +412,14 @@ export function useWeatherRadarPlayback(
     seriesReady,
     seriesLoading,
     seriesFailed,
+    seriesDeferred,
     loadedFrameCount,
     totalFrameCount,
     showingPreviousAtlas,
     playing,
     reducedMotion,
     canPlay,
+    canRequestPlayback,
     play,
     pause,
     previous,
@@ -463,27 +520,6 @@ function radarBackgroundFrameOrder(frameCount: number, referencePosition: number
       Math.abs(left - referencePosition) - Math.abs(right - referencePosition)
       || left - right
     ));
-}
-
-function waitForRadarFrameStart(previousStartTime: number, signal: AbortSignal): Promise<void> {
-  const waitTime = Math.max(
-    0,
-    RADAR_FRAME_START_INTERVAL_MS - (performance.now() - previousStartTime),
-  );
-  if (waitTime === 0) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      signal.removeEventListener('abort', handleAbort);
-      resolve();
-    }, waitTime);
-    const handleAbort = () => {
-      window.clearTimeout(timeout);
-      signal.removeEventListener('abort', handleAbort);
-      reject(createAbortError());
-    };
-    signal.addEventListener('abort', handleAbort, { once: true });
-    if (signal.aborted) handleAbort();
-  });
 }
 
 function createAbortError(): Error {

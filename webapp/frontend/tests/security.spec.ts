@@ -32,6 +32,8 @@ test('CSP allows only supported frames plus same-origin and local-blob media', (
   expect(frameDirective).not.toContain('*.vimeo.com');
   expect(imageDirective).toContain('https://service.pdok.nl');
   expect(imageDirective).not.toContain('*.pdok.nl');
+  expect(imageDirective).toContain('https://tile.openstreetmap.org');
+  expect(imageDirective).not.toContain('*.openstreetmap.org');
   expect(mediaDirective).toBe("media-src 'self' blob:");
   expect(mediaDirective).not.toContain('data:');
   expect(mediaDirective).not.toContain('https:');
@@ -325,7 +327,7 @@ function assertSecurityHeaders(response: APIResponse): void {
   expect(csp).not.toMatch(/(?:^|\s)\*(?:\s|;|$)/);
 
   expect(headers['x-content-type-options']).toBe('nosniff');
-  expect(headers['referrer-policy']).toBeTruthy();
+  expect(headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
   expect(headers['permissions-policy']).toBe('geolocation=(), microphone=(), camera=()');
   expect(headers['cross-origin-opener-policy']).toBeTruthy();
   expect(headers['cross-origin-resource-policy']).toBeTruthy();
