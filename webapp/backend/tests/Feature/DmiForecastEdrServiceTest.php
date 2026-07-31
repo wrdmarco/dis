@@ -100,7 +100,7 @@ final class DmiForecastEdrServiceTest extends TestCase
         Http::assertSentCount(2);
     }
 
-    public function test_it_retries_a_busy_provider_twice_with_a_bound_and_fails_closed_without_cache(): void
+    public function test_it_does_not_immediately_retry_a_rate_limited_provider_and_fails_closed_without_cache(): void
     {
         Http::preventStrayRequests();
         Http::fake([
@@ -115,7 +115,30 @@ final class DmiForecastEdrServiceTest extends TestCase
         $this->assertFalse($reading['stale']);
         $this->assertSame(0, $reading['sample_count']);
         $this->assertStringContainsString('niet bereikbaar', $reading['availability_note']);
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
+    }
+
+    public function test_it_still_retries_a_server_failure_once(): void
+    {
+        $instanceRequests = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use (&$instanceRequests) {
+            if (str_ends_with($request->url(), '/collections/harmonie_dini_sf/instances')) {
+                $instanceRequests++;
+
+                return $instanceRequests === 1
+                    ? Http::response(['message' => 'temporarily unavailable'], 503)
+                    : Http::response($this->instancesPayload());
+            }
+
+            return Http::response($this->positionPayload(5.1214, 52.0907));
+        });
+
+        $reading = app(DmiForecastEdrService::class)->forResolution($this->resolution());
+
+        $this->assertTrue($reading['complete']);
+        $this->assertSame(2, $instanceRequests);
+        Http::assertSentCount(3);
     }
 
     public function test_national_busy_provider_is_bounded_by_a_probe_and_opens_the_circuit(): void
@@ -137,16 +160,16 @@ final class DmiForecastEdrServiceTest extends TestCase
 
         $this->assertFalse($first['complete']);
         $this->assertFalse($first['stale']);
-        $this->assertSame(2, $positionRequests);
-        Http::assertSentCount(3);
+        $this->assertSame(1, $positionRequests);
+        Http::assertSentCount(2);
 
         $second = $service->forResolution($this->provinceResolution());
 
         $this->assertFalse($second['complete']);
         $this->assertFalse($second['stale']);
         $this->assertStringContainsString('nieuwe live poging', $second['availability_note']);
-        $this->assertSame(2, $positionRequests);
-        Http::assertSentCount(3);
+        $this->assertSame(1, $positionRequests);
+        Http::assertSentCount(2);
     }
 
     public function test_provider_is_retried_after_the_sixty_second_circuit_expires(): void
@@ -169,19 +192,19 @@ final class DmiForecastEdrServiceTest extends TestCase
         $service = app(DmiForecastEdrService::class);
         $first = $service->forResolution($this->resolution());
         $this->assertFalse($first['complete']);
-        Http::assertSentCount(3);
+        Http::assertSentCount(2);
 
         $busy = false;
         $blocked = $service->forResolution($this->resolution());
         $this->assertFalse($blocked['complete']);
-        Http::assertSentCount(3);
+        Http::assertSentCount(2);
 
         CarbonImmutable::setTestNow('2026-07-20T12:16:01Z');
         $recovered = $service->forResolution($this->resolution());
 
         $this->assertTrue($recovered['complete']);
         $this->assertFalse($recovered['stale']);
-        Http::assertSentCount(5);
+        Http::assertSentCount(4);
     }
 
     public function test_failed_refresh_exposes_last_good_only_as_stale(): void
@@ -215,7 +238,7 @@ final class DmiForecastEdrServiceTest extends TestCase
         $this->assertSame(0, $fallback['cloud_base_sample_count']);
         $this->assertFalse($fallback['cloud_base_complete']);
         $this->assertStringContainsString('niet bereikbaar', $fallback['availability_note']);
-        Http::assertSentCount(4);
+        Http::assertSentCount(3);
 
         $blockedFallback = $service->forResolution($this->resolution());
 
@@ -224,7 +247,7 @@ final class DmiForecastEdrServiceTest extends TestCase
         $this->assertSame($first['valid_at'], $blockedFallback['valid_at']);
         $this->assertNull($blockedFallback['cloud_base_m']);
         $this->assertStringContainsString('nieuwe live poging', $blockedFallback['availability_note']);
-        Http::assertSentCount(4);
+        Http::assertSentCount(3);
     }
 
     public function test_invalid_or_incomplete_dmi_values_never_become_a_complete_reading(): void
@@ -433,7 +456,7 @@ final class DmiForecastEdrServiceTest extends TestCase
                 '/instances/2026-07-20T090000Z/position',
             ),
         );
-        Http::assertSentCount(3);
+        Http::assertSentCount(2);
     }
 
     public function test_invalid_temporal_extent_fails_closed_before_a_point_request(): void

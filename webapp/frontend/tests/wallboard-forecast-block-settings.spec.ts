@@ -54,6 +54,11 @@ test('upgrades the exact historical default while preserving custom selections',
       'precipitation_probability', 'cloud_cover', 'visibility', 'gnss_visible', 'kp_index', 'gnss_usable',
     ],
   })).visible_blocks).toEqual([...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS]);
+
+  expect(normalizeWallboardForecastPageOptions(forecastPage({
+    location_mode: 'netherlands',
+    visible_blocks: ['weather', 'gnss_visible', 'kp_index', 'gnss_usable'],
+  })).visible_blocks).toEqual(['weather', 'kp_index', 'gnss_visible', 'gnss_usable']);
 });
 
 test('keeps an explicitly empty selection and removes unknown or duplicate keys', () => {
@@ -85,4 +90,6 @@ test('offers block visibility controls while keeping the flight advice mandatory
   expect(editor).toContain('Vliegadvies blijft altijd zichtbaar.');
   expect(editor).toContain('ook wanneer je een informatieblok verbergt');
   expect(editor).not.toContain("key: 'advice'");
+  expect(editor).toContain("key: 'gnss_visible'");
+  expect(editor).toContain("key: 'gnss_usable'");
 });

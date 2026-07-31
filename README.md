@@ -373,12 +373,16 @@ HARMONIE DINI remains the primary live source through the tokenless
 incomplete, stale, rate-limited or unavailable, DIS automatically uses free, tokenless DWD MOSMIX forecasts
 through [Bright Sky](https://brightsky.dev/). This fallback supplies current model forecasts for temperature,
 dew point, 10-metre wind speed, gust and direction, precipitation amount and probability, total cloud cover,
-visibility and weather condition. Wind at 100 and 150 metres, separate low, medium and high cloud layers and the
-model cloud base remain explicitly unknown during fallback.
+visibility and weather condition. DIS additionally reads the `Nl` low-cloud layer below two kilometres and the
+`N05` cloud layer below 500 feet from the matching official DWD MOSMIX_L single-station KMZ, fully in memory.
+For the national view the highest percentage among the twelve province points remains conservatively leading.
+Wind at 100 and 150 metres, medium/high cloud layers and the exact model cloud base remain explicitly unknown
+during fallback; no cloud-base height is inferred from either DWD cloud-cover band.
 
-Both providers are cached only through the configured Laravel cache, Redis in production. A result remains fresh
-for at most fifteen minutes; the bounded last-good copy is retained for at most six hours and is always marked
-stale when used. DMI HARMONIE DINI follows the
+Both providers and the validated DWD `Nl`/`N05` station readings are cached only through the configured Laravel
+cache, Redis in production. An assembled weather result remains fresh for at most fifteen minutes; its bounded
+last-good copy is retained for at most six hours and is always marked stale when used. Every DWD station-cache
+key includes the exact forecast hour, and an invalid or stale model run is rejected. DMI HARMONIE DINI follows the
 [DMI CC BY 4.0 terms](https://www.dmi.dk/friedata/dokumentation/terms-of-use) and DWD MOSMIX follows the
 [DWD CC BY 4.0 terms](https://www.dwd.de/EN/service/legal_notice/legal_notice.html), each with its respective
 source attribution. Daylight is calculated server-side for the resolved position and the planetary Kp index comes
@@ -430,9 +434,14 @@ kilometres with two decimals at 10 km. Administrators may hide individual inform
 flight advice always evaluates the complete server-side metric set. Each full metric card is classified green,
 orange, red or unknown, while the advice bar shows one stable data-refresh time in `Europe/Amsterdam`. Source,
 observation time and stale state remain available in the server contract without repeated source rows on the
-display. Missing, incomplete, invalid or stale data is always unknown and can never become green. GNSS satellite
-availability remains explicitly unknown until a reliable location- and time-dependent source exists. Device limits,
-mission profile, local observations, airspace rules and operational authority always override this indicative forecast.
+display. Missing, incomplete, invalid or stale data is always unknown and can never become green. The two optional
+GNSS cards calculate open-sky GPS/Galileo visibility and PDOP from free official IGS broadcast ephemerides hosted by
+BKG. The validated RINEX source and five-minute calculations are shared through the application cache (Redis in
+production) and are never written to local files. They remain planning values: buildings, trees, multipath, local
+interference and the receiver's actual fix are not measured. GNSS therefore does not determine the mandatory weather
+advice. Device limits, mission profile, local observations, airspace rules and operational authority always override
+this indicative forecast. IGS data is used under the
+[IGS Data and Product Terms of Use](https://igs.org/wp-content/uploads/2020/09/IGS-Data-and-Product-Disclaimer-and-Terms-of-Use-200805.pdf).
 
 Each drone-news page can enable the fixed Nationaal Drone Team and Dronewatch sources, add up to eight named
 custom HTTPS RSS or Atom sources and show between one and twelve items across all enabled sources. At least one

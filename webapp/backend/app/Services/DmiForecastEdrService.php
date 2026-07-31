@@ -392,8 +392,7 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
                 fn (int $attempt): int => $this->retryDelay($attempt),
                 static fn (Throwable $exception): bool => $exception instanceof ConnectionException
                     || ($exception instanceof RequestException
-                        && ($exception->response->status() === 429
-                            || $exception->response->serverError())),
+                        && $exception->response->serverError()),
                 false,
             );
     }
@@ -1060,8 +1059,7 @@ final class DmiForecastEdrService implements UavWeatherForecastProvider
                 fn (int $attempt): int => $this->retryDelay($attempt),
                 static fn (Throwable $exception): bool => $exception instanceof ConnectionException
                     || ($exception instanceof RequestException
-                        && ($exception->response->status() === 429
-                            || $exception->response->serverError())),
+                        && $exception->response->serverError()),
                 false,
             );
     }

@@ -5,6 +5,10 @@ import {
   normalizeOperationalWeatherRadarPage,
   uavForecastIsDegraded,
 } from '../src/features/weather/forecastNormalization';
+import {
+  FORECAST_RETRY_INTERVAL_MS,
+  forecastRefreshDeadline,
+} from '../src/features/weather/useForecastResource';
 
 const weatherPage = readFileSync(
   new URL('../src/features/weather/WeatherPage.tsx', import.meta.url),
@@ -70,13 +74,25 @@ test('radar-only responses keep strict location and timestamp validation', () =>
 test('incomplete UAV data stays visible as degraded and schedules the short retry path', () => {
   const incomplete = {
     aggregation: { complete: false, fresh: false },
+    metrics: [],
   } as WallboardForecastPageState;
   const complete = {
     aggregation: { complete: true, fresh: true },
+    metrics: [{ key: 'low_cloud_cover_pct', status: 'green' }],
+  } as WallboardForecastPageState;
+  const incompleteLowCloud = {
+    aggregation: { complete: true, fresh: true },
+    metrics: [{ key: 'low_cloud_cover_pct', status: 'unknown' }],
   } as WallboardForecastPageState;
 
   expect(uavForecastIsDegraded(incomplete)).toBe(true);
   expect(uavForecastIsDegraded(complete)).toBe(false);
+  expect(uavForecastIsDegraded(incompleteLowCloud)).toBe(true);
+  expect(forecastRefreshDeadline(
+    1_000,
+    2_000,
+    uavForecastIsDegraded(incompleteLowCloud),
+  )).toBe(2_000 + FORECAST_RETRY_INTERVAL_MS);
   expect(uavPage).toContain('uavForecastIsDegraded');
   expect(uavPage).toContain('binnen een minuut volgt automatisch een nieuwe poging');
   expect(resourceHook).toContain('lastAttemptFailed.current = responseIsDegraded');

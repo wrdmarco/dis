@@ -95,6 +95,7 @@ final class WallboardForecastClassifier
                 $this->threshold('kp_index', 'green_max_exclusive', 4),
                 $this->threshold('kp_index', 'orange_max_exclusive', 6),
             ),
+            'gnss_pdop' => $this->gnssPdop((float) $value),
             'wind_direction_degrees' => [
                 'status' => self::STATUS_GREEN,
                 'explanation' => 'Actuele windrichting; dit is informatief en heeft zonder windsnelheid geen zelfstandige veiligheidsdrempel.',
@@ -250,6 +251,17 @@ final class WallboardForecastClassifier
         return [
             'status' => $status,
             'explanation' => "Groen onder Kp {$greenBelow}, oranje tot onder Kp {$orangeBelow}, vanaf Kp {$orangeBelow} rood.",
+        ];
+    }
+
+    /** @return array{status: string, explanation: string} */
+    private function gnssPdop(float $value): array
+    {
+        $adequateMaximum = max(1, $this->threshold('gnss_pdop', 'adequate_max', 6));
+
+        return [
+            'status' => $value <= $adequateMaximum ? self::STATUS_GREEN : self::STATUS_RED,
+            'explanation' => "Groen bij een berekende PDOP van maximaal {$adequateMaximum}; daarboven rood. Dit is open-skygeometrie en geen lokale receiver-fix.",
         ];
     }
 

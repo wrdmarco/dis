@@ -330,15 +330,7 @@ function RadarViewport({
             {kind === 'precipitation' ? <PrecipitationLegend /> : <LightningLegend />}
           </details>
 
-          {playback.loadingAtlas ? (
-            <div className={styles.radarOverlay} data-radar-overlay role="status">
-              <span className={styles.stateSpinner} aria-hidden />
-              <span>
-                <strong>Nieuwe beeldreeks laden</strong>
-                <small>Het laatst geldige beeld blijft zichtbaar.</small>
-              </span>
-            </div>
-          ) : playback.atlasFailed ? (
+          {playback.atlasFailed ? (
             <div
               className={`${styles.radarOverlay} ${styles.radarOverlayError}`}
               data-radar-overlay

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\GnssForecastProvider;
 use App\Contracts\UavWeatherForecastProvider;
 use App\Http\Requests\Admin\StoreWallboardPlaylistRequest;
 use App\Http\Requests\Admin\UpdateWallboardPlaylistRequest;
@@ -21,12 +22,16 @@ final class WallboardForecastTest extends TestCase
 {
     private StubUavWeatherForecastProvider $weatherForecasts;
 
+    private StubGnssForecastProvider $gnssForecasts;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->weatherForecasts = new StubUavWeatherForecastProvider;
         $this->app->instance(UavWeatherForecastProvider::class, $this->weatherForecasts);
+        $this->gnssForecasts = new StubGnssForecastProvider;
+        $this->app->instance(GnssForecastProvider::class, $this->gnssForecasts);
     }
 
     protected function tearDown(): void
@@ -44,6 +49,8 @@ final class WallboardForecastTest extends TestCase
         $this->assertSame('red', $classifier->classify('visibility_m', 1999)['status']);
         $this->assertSame('orange', $classifier->classify('kp_index', 4)['status']);
         $this->assertSame('red', $classifier->classify('kp_index', 6)['status']);
+        $this->assertSame('green', $classifier->classify('gnss_pdop', 6)['status']);
+        $this->assertSame('red', $classifier->classify('gnss_pdop', 6.01)['status']);
         $this->assertSame('green', $classifier->classify('weather_code', 2)['status']);
         $this->assertSame('orange', $classifier->classify('weather_code', 45)['status']);
         $this->assertSame('red', $classifier->classify('weather_code', 95)['status']);
@@ -152,15 +159,72 @@ final class WallboardForecastTest extends TestCase
         $this->assertSame('9000', $metrics['visibility_m']['display_value']);
         $this->assertSame('m', $metrics['visibility_m']['display_unit']);
         $this->assertSame('NOAA SWPC Kp (1 minuut)', $metrics['kp_index']['source']['name']);
-        $this->assertSame('unknown', $metrics['gnss_satellites']['status']);
-        $this->assertSame('unknown', $metrics['gnss_satellites_fix']['status']);
-        $this->assertStringContainsString('GNSS-ontvanger', $metrics['gnss_satellites']['explanation']);
+        $this->assertSame(22, $metrics['gnss_satellites']['value']);
+        $this->assertSame(17, $metrics['gnss_satellites_fix']['value']);
+        $this->assertSame('green', $metrics['gnss_satellites']['status']);
+        $this->assertSame('BKG / International GNSS Service (IGS)', $metrics['gnss_satellites']['source']['name']);
+        $this->assertStringContainsString('geen receiver-fix', $metrics['gnss_satellites_fix']['explanation']);
+        $this->assertStringContainsString('PDOP 1,37', $metrics['gnss_satellites_fix']['source_height_label']);
         $this->assertSame(0.0, $metrics['precipitation_outlook']['precipitation_outlook']['radar_peak_mm_h']);
         $this->assertNull($metrics['precipitation_outlook']['precipitation_outlook']['third_hour_probability_pct']);
         $this->assertFalse($metrics['thunderstorm_forecast']['thunderstorm_outlook']['expected']);
 
         Http::assertSentCount(2);
         $this->assertSame(1, $this->weatherForecasts->calls);
+    }
+
+    public function test_unavailable_gnss_does_not_make_the_forecast_composition_time_look_newer(): void
+    {
+        $this->setForecastTestNow();
+        $this->gnssForecasts->reading['stale'] = true;
+        $this->gnssForecasts->reading['measured_at'] = '2026-07-20T12:25:00+00:00';
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 2.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metrics = collect($forecast['metrics'])->keyBy('key');
+
+        $this->assertSame('unknown', $metrics['gnss_satellites']['status']);
+        $this->assertSame('2026-07-20T12:15:00+00:00', $forecast['generated_at']);
+    }
+
+    public function test_complete_but_rank_deficient_gnss_geometry_is_red_instead_of_unknown(): void
+    {
+        $this->setForecastTestNow();
+        $this->gnssForecasts->reading['pdop'] = [
+            'value' => null,
+            'complete' => true,
+            'geometry_sufficient' => false,
+            'sample_count' => 1,
+        ];
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 2.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metrics = collect($forecast['metrics'])->keyBy('key');
+
+        $this->assertSame(22, $metrics['gnss_satellites']['value']);
+        $this->assertSame(17, $metrics['gnss_satellites_fix']['value']);
+        $this->assertSame('red', $metrics['gnss_satellites']['status']);
+        $this->assertSame('red', $metrics['gnss_satellites_fix']['status']);
+        $this->assertStringContainsString(
+            'onvoldoende geometrische rang',
+            $metrics['gnss_satellites_fix']['source_height_label'],
+        );
     }
 
     public function test_low_cloud_card_fails_closed_when_model_cloud_base_is_missing(): void
@@ -256,9 +320,10 @@ final class WallboardForecastTest extends TestCase
         $this->assertStringContainsString('geen verzonnen neerslagkans', $metric['explanation']);
     }
 
-    public function test_dwd_fallback_keeps_available_uav_metrics_live_and_missing_height_data_unknown(): void
+    public function test_dwd_fallback_uses_real_nl_and_n05_bands_without_fabricating_cloud_base(): void
     {
         $this->setForecastTestNow();
+        $this->gnssForecasts->reading['complete'] = false;
         $this->weatherForecasts->reading = [
             ...$this->weatherForecasts->reading,
             'provider_identifier' => 'dwd_mosmix_bright_sky',
@@ -277,7 +342,22 @@ final class WallboardForecastTest extends TestCase
             'precipitation_mm' => 0.0,
             'precipitation_rate_mm_h' => 0.0,
             'cloud_cover_pct' => 55.0,
-            'cloud_cover_low_pct' => null,
+            'cloud_cover_low_pct' => 64.0,
+            'cloud_cover_low_sample_count' => 1,
+            'cloud_cover_low_expected_sample_count' => 1,
+            'cloud_cover_low_complete' => true,
+            'cloud_cover_low_aggregation' => 'single_dwd_station',
+            'cloud_cover_low_model_run_at' => '2026-07-20T09:00:00+00:00',
+            'cloud_cover_low_valid_at' => '2026-07-20T13:00:00+00:00',
+            'cloud_cover_below_500ft_pct' => 18.0,
+            'cloud_cover_below_500ft_sample_count' => 1,
+            'cloud_cover_below_500ft_expected_sample_count' => 1,
+            'cloud_cover_below_500ft_complete' => true,
+            'cloud_cover_below_500ft_aggregation' => 'single_dwd_station',
+            'cloud_cover_low_source' => [
+                'name' => 'DWD MOSMIX_L lage bewolking',
+                'url' => 'https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/',
+            ],
             'cloud_cover_mid_pct' => null,
             'cloud_cover_high_pct' => null,
             'cloud_base_m' => null,
@@ -329,8 +409,11 @@ final class WallboardForecastTest extends TestCase
         $this->assertSame(5.0, $precipitation['third_hour_probability_pct']);
         $this->assertSame('DWD_MOSMIX', $precipitation['attribution']);
         $this->assertSame('DWD_MOSMIX', $thunder['attribution']);
-        $this->assertNull($lowCloud['value']);
-        $this->assertSame('unknown', $lowCloud['status']);
+        $this->assertSame(64.0, $lowCloud['value']);
+        $this->assertSame(18.0, $lowCloud['cloud_cover_below_500ft_pct']);
+        $this->assertSame('orange', $lowCloud['status']);
+        $this->assertSame('DWD MOSMIX_L lage bewolking', $lowCloud['source']['name']);
+        $this->assertSame('2026-07-20T13:00:00+00:00', $lowCloud['measured_at']);
         $this->assertNull($lowCloud['cloud_layers']);
         $this->assertSame([
             'status' => 'unknown',
@@ -344,8 +427,41 @@ final class WallboardForecastTest extends TestCase
             'attribution' => 'DWD_MOSMIX',
         ], $lowCloud['cloud_base_forecast']);
         $this->assertSame('orange', $forecast['overall_status']);
+        $this->assertSame('unknown', $metrics['gnss_satellites']['status']);
+        $this->assertSame('unknown', $metrics['gnss_satellites_fix']['status']);
         $this->assertStringContainsString('bovenwind', $forecast['scope_note']);
-        $this->assertStringContainsString('ontbrekende hoogte-', mb_strtolower($forecast['disclaimer']));
+        $this->assertStringContainsString('rechtstreeks uit dwd mosmix_l', mb_strtolower($forecast['scope_note']));
+        $this->assertStringContainsString('onder 500 ft', mb_strtolower($forecast['disclaimer']));
+        $this->assertStringContainsString('geen exacte wolkenbasis', mb_strtolower($lowCloud['source_height_label']));
+    }
+
+    public function test_dwd_fallback_without_complete_low_cloud_bands_stays_fail_closed(): void
+    {
+        $this->setForecastTestNow();
+        $this->weatherForecasts->reading = [
+            ...$this->weatherForecasts->reading,
+            'provider_identifier' => 'dwd_mosmix_bright_sky',
+            'cloud_cover_low_pct' => null,
+            'cloud_base_m' => null,
+            'cloud_base_expected_sample_count' => 0,
+        ];
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 2.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metric = collect($forecast['metrics'])->firstWhere('key', 'low_cloud_cover_pct');
+
+        $this->assertNull($metric['value']);
+        $this->assertNull($metric['cloud_cover_below_500ft_pct']);
+        $this->assertSame('unknown', $metric['status']);
+        $this->assertStringContainsString('niet volledig', $metric['explanation']);
     }
 
     public function test_overall_advice_uses_low_instead_of_total_cloud_cover(): void
@@ -378,8 +494,8 @@ final class WallboardForecastTest extends TestCase
 
         $this->assertSame('red', $metrics['cloud_cover_pct']['status']);
         $this->assertSame('green', $metrics['low_cloud_cover_pct']['status']);
-        // GNSS remains deliberately unknown. If total cloud cover still counted,
-        // the overall result would be red instead of fail-closed unknown.
+        // Total cloud cover is context. Other genuinely missing required inputs
+        // still keep this fixture fail-closed instead of making it red.
         $this->assertSame('unknown', $forecast['overall_status']);
     }
 
@@ -745,9 +861,38 @@ final class WallboardForecastTest extends TestCase
         $unknown['options']['visible_blocks'] = ['weather', 'provider_url'];
         $this->assertConfigurationError($unknown, 'configuration.pages.0.options.visible_blocks.1');
 
-        $tooMany = $this->netherlandsPage();
-        $tooMany['options']['visible_blocks'] = WallboardConfiguration::FORECAST_VISIBLE_BLOCKS;
-        $this->assertConfigurationError($tooMany, 'configuration.pages.0.options.visible_blocks');
+        $customGnss = $this->netherlandsPage();
+        $customGnss['options']['visible_blocks'] = ['weather', 'gnss_visible', 'kp_index', 'gnss_usable'];
+        $normalized = WallboardConfiguration::normalize(['pages' => [$customGnss]]);
+        $this->assertSame(
+            ['weather', 'kp_index', 'gnss_visible', 'gnss_usable'],
+            $normalized['pages'][0]['options']['visible_blocks'],
+        );
+
+        $historicalDefault = $this->netherlandsPage();
+        $historicalDefault['options']['visible_blocks'] = [
+            'weather',
+            'daylight',
+            'temperature',
+            'wind_speed',
+            'wind_gust',
+            'wind_direction',
+            'precipitation_probability',
+            'cloud_cover',
+            'visibility',
+            'gnss_visible',
+            'kp_index',
+            'gnss_usable',
+        ];
+        $normalized = WallboardConfiguration::normalize(['pages' => [$historicalDefault]]);
+        $this->assertSame(
+            WallboardConfiguration::DEFAULT_FORECAST_VISIBLE_BLOCKS,
+            $normalized['pages'][0]['options']['visible_blocks'],
+        );
+
+        $allSupported = $this->netherlandsPage();
+        $allSupported['options']['visible_blocks'] = WallboardConfiguration::FORECAST_VISIBLE_BLOCKS;
+        $this->assertConfigurationError($allSupported, 'configuration.pages.0.options.visible_blocks');
     }
 
     public function test_shared_playlist_requests_accept_the_complete_forecast_contract(): void
@@ -834,6 +979,68 @@ final class WallboardForecastTest extends TestCase
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey($field, $exception->errors());
         }
+    }
+}
+
+final class StubGnssForecastProvider implements GnssForecastProvider
+{
+    /** @var array<string, mixed> */
+    public array $reading = [
+        'complete' => true,
+        'stale' => false,
+        'measured_at' => '2026-07-20T12:15:00+00:00',
+        'location_count' => 1,
+        'elevation_mask_deg' => 10.0,
+        'counts' => [
+            'visible' => 22,
+            'usable' => 17,
+            'visible_by_constellation' => ['gps' => 12, 'galileo' => 10],
+            'usable_by_constellation' => ['gps' => 10, 'galileo' => 7],
+        ],
+        'pdop' => ['value' => 1.37, 'complete' => true, 'sample_count' => 1],
+        'ephemeris' => [
+            'satellite_count' => 62,
+            'gps' => 32,
+            'galileo' => 30,
+            'maximum_age_seconds' => 14400,
+        ],
+        'source' => [
+            'name' => 'BKG / International GNSS Service (IGS)',
+            'url' => 'https://igs.bkg.bund.de/root_ftp/IGS/BRDC/',
+            'attribution' => 'BKG / International GNSS Service (IGS)',
+            'terms_url' => 'https://igs.org/wp-content/uploads/2020/09/IGS-Data-and-Product-Disclaimer-and-Terms-of-Use-200805.pdf',
+        ],
+        'provenance' => 'Test open-sky calculation.',
+    ];
+
+    public int $calls = 0;
+
+    public function forResolution(array $resolution): array
+    {
+        $this->calls++;
+        if (($resolution['complete'] ?? false) !== true || ($this->reading['complete'] ?? false) !== true) {
+            return [
+                ...$this->reading,
+                'complete' => false,
+                'stale' => false,
+                'measured_at' => null,
+                'counts' => null,
+                'pdop' => null,
+                'ephemeris' => null,
+                'availability_note' => 'GNSS-testbron niet compleet.',
+            ];
+        }
+
+        $locationCount = count((array) ($resolution['locations'] ?? []));
+
+        return [
+            ...$this->reading,
+            'location_count' => $locationCount,
+            'pdop' => [
+                ...(array) $this->reading['pdop'],
+                'sample_count' => $locationCount,
+            ],
+        ];
     }
 }
 

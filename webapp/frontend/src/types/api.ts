@@ -1010,6 +1010,7 @@ export interface WallboardForecastMetric {
   height_samples_agl_m: WallboardForecastWindSample[];
   max_non_red_wind_height_agl_m: number | null;
   cloud_layers: WallboardForecastCloudLayers | null;
+  cloud_cover_below_500ft_pct: number | null;
   cloud_base_forecast: WallboardForecastCloudBaseForecast | null;
   cloud_base_observation: WallboardForecastCloudBaseObservation | null;
   precipitation_outlook: WallboardForecastPrecipitationOutlook | null;

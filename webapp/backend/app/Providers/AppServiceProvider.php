@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Contracts\DispatchNotificationQueue;
+use App\Contracts\GnssForecastProvider;
 use App\Contracts\OperationalRadarProvider;
 use App\Contracts\PushProvider;
 use App\Contracts\QueueTransportMetrics;
@@ -14,6 +15,7 @@ use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
 use App\Repositories\LaravelQueueTransportMetrics;
+use App\Services\BkgGnssForecastService;
 use App\Services\BrightSkyDwdForecastService;
 use App\Services\DmiForecastEdrService;
 use App\Services\FailoverUavWeatherForecastProvider;
@@ -46,6 +48,7 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(WallboardContentProvider::class, SecureWallboardContentProvider::class);
         $this->app->singleton(DmiForecastEdrService::class);
         $this->app->singleton(BrightSkyDwdForecastService::class);
+        $this->app->singleton(GnssForecastProvider::class, BkgGnssForecastService::class);
         $this->app->singleton(
             UavWeatherForecastProvider::class,
             fn ($app): UavWeatherForecastProvider => new FailoverUavWeatherForecastProvider(

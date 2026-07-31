@@ -245,6 +245,10 @@ final class WallboardDemoPlaylistTest extends TestCase
                 'DEMO: deze fictieve waarden mogen nooit voor een vliegbeslissing worden gebruikt.',
             );
         $forecastMetrics = collect($state->json('data.forecast.pages.forecast.metrics'))->keyBy('key');
+        $this->assertSame(22, $forecastMetrics->get('gnss_satellites')['value']);
+        $this->assertSame(17, $forecastMetrics->get('gnss_satellites_fix')['value']);
+        $this->assertSame('green', $forecastMetrics->get('gnss_satellites')['status']);
+        $this->assertStringContainsString('PDOP', $forecastMetrics->get('gnss_satellites_fix')['source_height_label']);
         $this->assertSame(
             'DIS_DEMO',
             data_get($forecastMetrics->get('low_cloud_cover_pct'), 'cloud_base_observation.attribution'),

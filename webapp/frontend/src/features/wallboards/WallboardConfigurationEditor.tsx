@@ -162,9 +162,9 @@ const FORECAST_BLOCK_OPTIONS: ReadonlyArray<{
   { key: 'thunderstorm_forecast', label: 'Onweer +3 uur', help: 'WMO-modelverwachting in stappen; geen live bliksemdetectie.' },
   { key: 'cloud_cover', label: 'Bewolking', help: 'Totale bewolkingsgraad.' },
   { key: 'visibility', label: 'Zichtbaarheid', help: 'Horizontaal zicht.' },
-  { key: 'gnss_visible', label: 'Zichtbare satellieten', help: 'Satellieten boven de lokale horizon.' },
+  { key: 'gnss_visible', label: 'GNSS boven horizon', help: 'Berekende GPS- en Galileo-satellieten boven de lokale horizon.' },
   { key: 'kp_index', label: 'Kp-index', help: 'Actuele geomagnetische activiteit.' },
-  { key: 'gnss_usable', label: 'Bruikbare satellieten', help: 'Satellieten bruikbaar voor navigatie.' },
+  { key: 'gnss_usable', label: 'Bruikbare GNSS-geometrie', help: 'Berekende satellieten boven het elevatiemasker en indicatieve PDOP.' },
 ];
 
 const KPI_CATEGORIES: ReadonlyArray<{

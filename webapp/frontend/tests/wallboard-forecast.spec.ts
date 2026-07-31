@@ -50,6 +50,7 @@ function metric(
     height_samples_agl_m: [],
     max_non_red_wind_height_agl_m: null,
     cloud_layers: null,
+    cloud_cover_below_500ft_pct: null,
     cloud_base_forecast: null,
     cloud_base_observation: null,
     precipitation_outlook: null,
@@ -188,8 +189,16 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
         display_unit: 'km',
       }),
       metric('kp_index', 'green', 2, { unit: 'Kp' }),
-      metric('gnss_satellites', 'unknown', null, { unit: null }),
-      metric('gnss_satellites_fix', 'unknown', null, { unit: null }),
+      metric('gnss_satellites', 'green', 22, {
+        label: 'Berekende GNSS-satellieten boven horizon',
+        unit: 'satellieten',
+        source_height_label: 'GPS 12 · Galileo 10 · open-skyberekening',
+      }),
+      metric('gnss_satellites_fix', 'green', 17, {
+        label: 'Berekende GNSS-satellieten boven 10°',
+        unit: 'satellieten',
+        source_height_label: 'GPS 10 · Galileo 7 · PDOP 1,37 · elevatiemasker 10°',
+      }),
     ],
     scope_note: 'Rekenkundig gemiddelde van exact alle 12 Nederlandse provincies.',
     disclaimer: 'Operationele limieten gaan voor.',
@@ -203,7 +212,6 @@ function greenBackendForecast() {
   payload.metrics = payload.metrics.map((candidate) => ({
     ...candidate,
     status: 'green',
-    value: candidate.value ?? (candidate.key === 'gnss_satellites_fix' ? 8 : 12),
     measured_at: '2026-07-20T12:10:00Z',
   }));
   return payload;
@@ -350,6 +358,8 @@ test('accepts a complete fresh DWD MOSMIX fallback without claiming cloud-base v
     attribution: 'DWD_MOSMIX',
   };
   lowCloud.cloud_base_observation = null;
+  lowCloud.cloud_cover_below_500ft_pct = 0;
+  lowCloud.source_height_label = 'DWD MOSMIX_L Nl (onder 2 km) en N05 (onder 500 ft); geen exacte wolkenbasis afgeleid';
 
   const forecast = normalizeUavForecastPage(payload);
 
@@ -372,6 +382,13 @@ test('accepts a complete fresh DWD MOSMIX fallback without claiming cloud-base v
       sample_count: 0,
       attribution: 'DWD_MOSMIX',
     });
+  const cloudBlock = forecast === null || forecast === undefined
+    ? undefined
+    : wallboardForecastAllDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
+  expect(cloudBlock?.details).toEqual([
+    'DWD MOSMIX_L: laag onder 2 km 20%; onder 500 ft 0%',
+    'De hoogteband onder 500 ft wordt rechtstreeks beoordeeld; er wordt geen exacte wolkenbasishoogte afgeleid.',
+  ]);
 });
 
 test('rejects unknown structured forecast attributions fail-closed', () => {
@@ -697,7 +714,7 @@ test('caps malformed server visibility settings at the supported card limit', ()
   expect(state.pages.forecast.visible_blocks).toHaveLength(MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS);
 });
 
-test('stale values remain fail-closed while GNSS stays explicitly unknown', () => {
+test('stale values remain fail-closed while computed GNSS stays available', () => {
   const forecastPayload = backendForecast();
   forecastPayload.overall_status = 'unknown';
   forecastPayload.metrics = forecastPayload.metrics.map((candidate) => candidate.key === 'wind_speed_kmh'
@@ -707,8 +724,22 @@ test('stale values remain fail-closed while GNSS stays explicitly unknown', () =
 
   expect(forecast.overall_status).toBe('unknown');
   expect(forecast.metrics.find((candidate) => candidate.key === 'wind_speed_kmh')?.status).toBe('unknown');
-  expect(forecast.metrics.find((candidate) => candidate.key === 'gnss_satellites')?.status).toBe('unknown');
-  expect(forecast.metrics.find((candidate) => candidate.key === 'gnss_satellites_fix')?.status).toBe('unknown');
+  expect(forecast.metrics.find((candidate) => candidate.key === 'gnss_satellites')?.value).toBe(22);
+  expect(forecast.metrics.find((candidate) => candidate.key === 'gnss_satellites_fix')?.value).toBe(17);
+  expect(forecast.metrics).toHaveLength(16);
+});
+
+test('optional GNSS planning does not turn complete green weather advice unknown', () => {
+  const payload = greenBackendForecast();
+  payload.metrics = payload.metrics.map((candidate) => candidate.key.startsWith('gnss_')
+    ? { ...candidate, value: null, status: 'unknown' as const, measured_at: null }
+    : candidate);
+
+  const forecast = normalizeUavForecastPage(payload);
+
+  expect(forecast?.overall_status).toBe('green');
+  expect(forecast?.metrics.find((candidate) => candidate.key === 'gnss_satellites')?.status).toBe('unknown');
+  expect(forecast?.metrics.find((candidate) => candidate.key === 'gnss_satellites_fix')?.status).toBe('unknown');
 });
 
 test('formats provider timestamps once in Europe/Amsterdam without a double UTC offset', () => {

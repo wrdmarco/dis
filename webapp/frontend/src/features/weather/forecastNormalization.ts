@@ -36,7 +36,7 @@ const WALLBOARD_FORECAST_METRIC_KEYS = [
 ] as const satisfies readonly WallboardForecastMetric['key'][];
 
 const WALLBOARD_FORECAST_ADVICE_METRIC_KEYS = WALLBOARD_FORECAST_METRIC_KEYS.filter(
-  (key) => key !== 'cloud_cover_pct',
+  (key) => !['cloud_cover_pct', 'gnss_satellites', 'gnss_satellites_fix'].includes(key),
 );
 
 type ForecastPrecipitationAttribution = NonNullable<
@@ -76,7 +76,11 @@ export function normalizeUavForecastPage(value: unknown): WallboardForecastPageS
 }
 
 export function uavForecastIsDegraded(forecast: WallboardForecastPageState): boolean {
-  return !forecast.aggregation.complete || !forecast.aggregation.fresh;
+  return !forecast.aggregation.complete
+    || !forecast.aggregation.fresh
+    || forecast.metrics.some(
+      (metric) => metric.key === 'low_cloud_cover_pct' && metric.status === 'unknown',
+    );
 }
 
 export function normalizeWallboardForecastState(value: unknown): WallboardForecastState {
@@ -809,6 +813,7 @@ function normalizeWallboardForecastMetric(value: unknown): WallboardForecastMetr
     height_samples_agl_m: normalizeForecastWindSamples(value.height_samples_agl_m),
     max_non_red_wind_height_agl_m: normalizeBoundedInteger(value.max_non_red_wind_height_agl_m, 0, 500),
     cloud_layers: normalizeForecastCloudLayers(value.cloud_layers),
+    cloud_cover_below_500ft_pct: boundedNumber(value.cloud_cover_below_500ft_pct, 0, 100),
     cloud_base_forecast: normalizeForecastCloudBaseForecast(value.cloud_base_forecast),
     cloud_base_observation: normalizeForecastCloudBaseObservation(value.cloud_base_observation),
     precipitation_outlook: precipitationOutlook,

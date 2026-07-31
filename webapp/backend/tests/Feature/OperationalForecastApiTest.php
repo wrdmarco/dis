@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\GnssForecastProvider;
 use App\Contracts\OperationalRadarProvider;
 use App\Contracts\UavWeatherForecastProvider;
 use App\Models\Permission;
@@ -34,6 +35,7 @@ final class OperationalForecastApiTest extends TestCase
         $this->weather = new OperationalWeatherForecastProviderStub;
         $this->radar = new OperationalRadarProviderStub;
         $this->app->instance(UavWeatherForecastProvider::class, $this->weather);
+        $this->app->instance(GnssForecastProvider::class, new OperationalGnssForecastProviderStub);
         $this->app->instance(OperationalRadarProvider::class, $this->radar);
     }
 
@@ -665,6 +667,30 @@ final class OperationalForecastApiTest extends TestCase
         $user->roles()->syncWithoutDetaching([
             $role->id => ['created_at' => now()],
         ]);
+    }
+}
+
+final class OperationalGnssForecastProviderStub implements GnssForecastProvider
+{
+    public function forResolution(array $resolution): array
+    {
+        return [
+            'complete' => false,
+            'stale' => false,
+            'measured_at' => null,
+            'location_count' => count((array) ($resolution['locations'] ?? [])),
+            'elevation_mask_deg' => 10.0,
+            'counts' => null,
+            'pdop' => null,
+            'ephemeris' => null,
+            'source' => [
+                'name' => 'BKG / International GNSS Service (IGS)',
+                'url' => 'https://igs.bkg.bund.de/root_ftp/IGS/BRDC/',
+                'attribution' => 'BKG / International GNSS Service (IGS)',
+                'terms_url' => 'https://igs.org/wp-content/uploads/2020/09/IGS-Data-and-Product-Disclaimer-and-Terms-of-Use-200805.pdf',
+            ],
+            'availability_note' => 'GNSS-testbron niet compleet.',
+        ];
     }
 }
 

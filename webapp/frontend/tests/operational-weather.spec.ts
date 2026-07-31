@@ -90,6 +90,11 @@ test('weather uses the fast live-radar endpoint without loading UAV forecast mod
   expect(liveRadarMap).toContain('projection: bounds.crs');
   expect(liveRadarMap).toContain('bounds.west,');
   expect(liveRadarMap).not.toContain("projection: 'EPSG:3857',");
+  expect(liveRadarMap).toContain('const hasRenderedImageRef = useRef(false);');
+  expect(liveRadarMap).toContain('if (!hasRenderedImageRef.current) setImageLoading(true);');
+  expect(liveRadarMap).not.toContain('VectorLayer');
+  expect(liveRadarMap).not.toContain('markerFeature');
+  expect(liveRadarMap).toContain('center: fromLonLat([location.longitude, location.latitude])');
   expect(liveRadarMap).toContain("const OPENSTREETMAP_ATTRIBUTION = 'Kaart: © OpenStreetMap-bijdragers';");
   expect(liveRadarMap).toContain('https://www.openstreetmap.org/copyright');
   expect(styles).toContain(':global(.ol-viewport canvas)');
@@ -707,20 +712,22 @@ test('live radar keeps the previous map until a refreshed reference succeeds and
   expect(previousMapLabel).not.toBeNull();
 
   await page.getByRole('button', { name: 'Verversen' }).click();
-  await expect(radar.getByText('Nieuwe beeldreeks laden')).toBeVisible();
-  await expectLocatorsNotToOverlap(radar.locator('[data-radar-overlay]'), attribution);
+  await expect(radar.getByText('Nieuwe beeldreeks laden')).toHaveCount(0);
+  await expect(radar.locator('[data-radar-overlay]')).toHaveCount(0);
+  await expect(radar.getByText('Radarbeeld laden')).toHaveCount(0);
   await expectLocatorsNotToOverlap(status, legend);
-  await expect(map).toHaveAttribute('aria-label', previousMapLabel ?? '');
+  await expect(map).toBeVisible();
 
   releaseFailedSeries?.();
   await expect(radar.getByText('Nieuwe beeldreeks niet geladen')).toBeVisible();
   await expectLocatorsNotToOverlap(radar.locator('[data-radar-overlay]'), attribution);
   await expect(radar.getByText('Het vorige geldige beeld blijft beschikbaar.')).toBeVisible();
-  await expect(map).toHaveAttribute('aria-label', previousMapLabel ?? '');
+  await expect(map).toBeVisible();
+  await expect(radar.getByText('Radarbeeld laden')).toHaveCount(0);
 
   await radar.getByRole('button', { name: 'Opnieuw laden' }).click();
   await expect.poll(() => retryRequests).toBeGreaterThanOrEqual(1);
-  await expect(map).not.toHaveAttribute('aria-label', previousMapLabel ?? '');
+  await expect(map).toBeVisible();
   await expect(radar.getByText('Nieuwe beeldreeks niet geladen')).toHaveCount(0);
 });
 
@@ -786,6 +793,38 @@ test('weather radar keeps its loading state honest until the atlas has decoded',
   releaseAtlas?.();
   await expect(radar.getByRole('img', { name: /KNMI RTCOR \+ radar forecast 2\.0 · neerslagradar/ })).toBeVisible();
   await expect(radar.getByText('Actueel', { exact: true })).toBeVisible();
+});
+
+test('weather radar never brings the loader back between decoded animation frames', async ({ page }) => {
+  const weather = currentWeather();
+  (weather.radar as Record<string, unknown>).precipitation = livePrecipitationLayer();
+  await mockForecastApi(page, 'dark', async (path) => path === '/api/operational-weather/radar'
+    ? successResponse(weather)
+    : notFoundResponse());
+
+  await page.goto('/weather');
+  const radar = page.locator('[data-radar-kind="precipitation"]');
+  const map = radar.getByRole('application');
+  await expect(map).toBeVisible();
+  await expect(radar.getByText('Radarbeeld laden')).toHaveCount(0);
+  const initialLabel = await map.getAttribute('aria-label');
+
+  await page.evaluate(() => {
+    const radarElement = document.querySelector('[data-radar-kind="precipitation"]');
+    const observedWindow = window as typeof window & { __radarLoaderReappeared?: boolean };
+    observedWindow.__radarLoaderReappeared = false;
+    if (radarElement === null) return;
+    new MutationObserver(() => {
+      if (radarElement.textContent?.includes('Radarbeeld laden') === true) {
+        observedWindow.__radarLoaderReappeared = true;
+      }
+    }).observe(radarElement, { childList: true, subtree: true });
+  });
+
+  await expect.poll(() => map.getAttribute('aria-label')).not.toBe(initialLabel);
+  expect(await page.evaluate(() => (
+    window as typeof window & { __radarLoaderReappeared?: boolean }
+  ).__radarLoaderReappeared)).toBe(false);
 });
 
 test('weather radar retries a failed atlas without discarding the page data', async ({ page }) => {
@@ -934,8 +973,8 @@ for (const scenario of [
     ).toBeLessThanOrEqual(widths.viewport);
 
     if (scenario.path === '/uav-forecast') {
-      await expect(page.getByText('Zichtbare satellieten', { exact: true })).toBeVisible();
-      await expect(page.getByText('Bruikbare satellieten', { exact: true })).toBeVisible();
+      await expect(page.getByText('Berekende GNSS-satellieten boven horizon', { exact: true })).toBeVisible();
+      await expect(page.getByText('Berekende GNSS-satellieten boven 10°', { exact: true })).toBeVisible();
       const normalized = normalizeUavForecastPage(staleUav);
       expect(normalized?.overall_status).toBe('unknown');
     }
@@ -1334,8 +1373,14 @@ function greenUavForecast(): Record<string, unknown> {
       }),
       metric('visibility_m', 'Zichtbaarheid', 15_000, { unit: 'm' }),
       metric('kp_index', 'Kp-index', 2, { unit: 'Kp' }),
-      metric('gnss_satellites', 'Zichtbare satellieten', 14),
-      metric('gnss_satellites_fix', 'Bruikbare satellieten', 11),
+      metric('gnss_satellites', 'Berekende GNSS-satellieten boven horizon', 22, {
+        unit: 'satellieten',
+        source_height_label: 'GPS 12 · Galileo 10 · open-skyberekening',
+      }),
+      metric('gnss_satellites_fix', 'Berekende GNSS-satellieten boven 10°', 17, {
+        unit: 'satellieten',
+        source_height_label: 'GPS 10 · Galileo 7 · PDOP 1,37 · elevatiemasker 10°',
+      }),
     ],
     scope_note: 'Landelijk overzicht op basis van twaalf provinciepunten.',
     disclaimer: 'Operationele en wettelijke limieten gaan altijd voor.',

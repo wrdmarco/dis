@@ -21,7 +21,9 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
 
     private const LICENSE_URL = 'https://creativecommons.org/licenses/by/4.0/';
 
-    private const CACHE_NAMESPACE = 'wallboard:uav-forecast:bright-sky-dwd:v1';
+    // v2 adds directly validated MOSMIX_L Nl/N05 bands. Do not reuse a v1
+    // payload that can remain cached without the new completeness contract.
+    private const CACHE_NAMESPACE = 'wallboard:uav-forecast:bright-sky-dwd:v2';
 
     private const MAX_RESPONSE_BYTES = 1_048_576;
 
@@ -63,6 +65,10 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
         'hail',
         'thunderstorm',
     ];
+
+    public function __construct(
+        private readonly DwdMosmixLowCloudService $lowCloudForecasts,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $resolution
@@ -148,7 +154,59 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
             throw new \UnexpectedValueException('Bright Sky returned an incomplete point set.');
         }
 
+        $points = $this->withLowCloudForecasts($points, $anchor);
+
         return $this->aggregate($points, $expected, $anchor, $now);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $points
+     * @return list<array<string, mixed>>
+     */
+    private function withLowCloudForecasts(
+        array $points,
+        CarbonImmutable $validAt,
+    ): array {
+        $stationIds = array_values(array_unique(array_filter(
+            array_column($points, 'dwd_station_id'),
+            static fn (mixed $stationId): bool => is_string($stationId),
+        )));
+        $readings = $stationIds === []
+            ? []
+            : $this->lowCloudForecasts->forStations($stationIds, $validAt);
+
+        foreach ($points as &$point) {
+            $stationId = $point['dwd_station_id'] ?? null;
+            $reading = is_string($stationId) ? ($readings[$stationId] ?? null) : null;
+            $complete = is_array($reading)
+                && is_numeric($reading['cloud_cover_low_pct'] ?? null)
+                && is_numeric($reading['cloud_cover_below_500ft_pct'] ?? null)
+                && ($reading['valid_at'] ?? null) === $validAt->toIso8601String();
+
+            $point['cloud_cover_low_pct'] = $complete
+                ? (float) $reading['cloud_cover_low_pct']
+                : null;
+            $point['cloud_cover_low_sample_count'] = $complete ? 1 : 0;
+            $point['cloud_cover_low_expected_sample_count'] = 1;
+            $point['cloud_cover_low_complete'] = $complete;
+            $point['cloud_cover_low_aggregation'] = 'single_dwd_station';
+            $point['cloud_cover_below_500ft_pct'] = $complete
+                ? (float) $reading['cloud_cover_below_500ft_pct']
+                : null;
+            $point['cloud_cover_below_500ft_sample_count'] = $complete ? 1 : 0;
+            $point['cloud_cover_below_500ft_expected_sample_count'] = 1;
+            $point['cloud_cover_below_500ft_complete'] = $complete;
+            $point['cloud_cover_below_500ft_aggregation'] = 'single_dwd_station';
+            $point['cloud_cover_low_model_run_at'] = $complete
+                ? $reading['model_run_at']
+                : null;
+            $point['cloud_cover_low_valid_at'] = $complete
+                ? $reading['valid_at']
+                : null;
+        }
+        unset($point);
+
+        return $points;
     }
 
     /**
@@ -331,6 +389,19 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
             'visibility_m' => $current['visibility'],
             'cloud_cover_pct' => $current['cloud_cover'],
             'cloud_cover_low_pct' => null,
+            'cloud_cover_low_sample_count' => 0,
+            'cloud_cover_low_expected_sample_count' => 1,
+            'cloud_cover_low_complete' => false,
+            'cloud_cover_low_aggregation' => 'single_dwd_station',
+            'cloud_cover_low_model_run_at' => null,
+            'cloud_cover_low_valid_at' => null,
+            'cloud_cover_below_500ft_pct' => null,
+            'cloud_cover_below_500ft_sample_count' => 0,
+            'cloud_cover_below_500ft_expected_sample_count' => 1,
+            'cloud_cover_below_500ft_complete' => false,
+            'cloud_cover_below_500ft_aggregation' => 'single_dwd_station',
+            'cloud_cover_low_attribution' => 'DWD_MOSMIX_L_NL_N05',
+            'cloud_cover_low_source' => $this->lowCloudSource(),
             'cloud_cover_mid_pct' => null,
             'cloud_cover_high_pct' => null,
             'cloud_base_m' => null,
@@ -361,6 +432,9 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
             'sample_count' => 1,
             'expected_sample_count' => 1,
             'complete' => true,
+            // Kept internal to the provider aggregation. It is never exposed
+            // as a user-selected or client-supplied station identifier.
+            'dwd_station_id' => $current['dwd_station_id'],
         ];
     }
 
@@ -368,7 +442,8 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
      * @param  array{label: string, latitude: float, longitude: float}  $location
      * @return array<int, array{
      *     first_record: CarbonImmutable,
-     *     last_record: CarbonImmutable
+     *     last_record: CarbonImmutable,
+     *     dwd_station_id: string|null
      * }>|null
      */
     private function validatedSources(mixed $rawSources, array $location): ?array
@@ -402,12 +477,17 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
             );
             $firstRecord = $this->timestamp($rawSource['first_record'] ?? null);
             $lastRecord = $this->timestamp($rawSource['last_record'] ?? null);
+            $wmoStationId = $rawSource['wmo_station_id'] ?? null;
+            $nativeDwdStationId = $rawSource['dwd_station_id'] ?? null;
+            $stationId = $wmoStationId ?? $nativeDwdStationId;
             if ($latitude === null
                 || $longitude === null
                 || $distance === null
                 || $firstRecord === null
                 || $lastRecord === null
                 || $lastRecord->lessThan($firstRecord)
+                || ! $this->validOptionalDwdStationId($wmoStationId)
+                || ! $this->validOptionalDwdStationId($nativeDwdStationId)
                 || $this->distanceMetres(
                     $location['latitude'],
                     $location['longitude'],
@@ -420,17 +500,26 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
             $sources[$id] = [
                 'first_record' => $firstRecord,
                 'last_record' => $lastRecord,
+                'dwd_station_id' => $stationId,
             ];
         }
 
         return $sources;
     }
 
+    private function validOptionalDwdStationId(mixed $stationId): bool
+    {
+        return $stationId === null
+            || (is_string($stationId)
+                && preg_match('/\A[A-Z0-9]{5}\z/D', $stationId) === 1);
+    }
+
     /**
      * @param  array<string, mixed>  $rawRow
      * @param  array<int, array{
      *     first_record: CarbonImmutable,
-     *     last_record: CarbonImmutable
+     *     last_record: CarbonImmutable,
+     *     dwd_station_id: string|null
      * }>  $sources
      * @return array{
      *     timestamp: CarbonImmutable,
@@ -444,7 +533,8 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
      *     wind_gust_speed: float,
      *     condition: string,
      *     precipitation_probability: float,
-     *     icon: string
+     *     icon: string,
+     *     dwd_station_id: string|null
      * }
      */
     private function validatedWeatherRow(array $rawRow, array $sources): array
@@ -507,6 +597,7 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
                 100,
             ),
             'icon' => $icon,
+            'dwd_station_id' => $sources[$sourceId]['dwd_station_id'],
         ];
     }
 
@@ -666,6 +757,42 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
         usort($sunrises, static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a <=> $b);
         usort($sunsets, static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a <=> $b);
 
+        $lowCloudValues = array_values(array_filter(
+            array_column($points, 'cloud_cover_low_pct'),
+            static fn (mixed $value): bool => is_numeric($value)
+                && is_finite((float) $value)
+                && (float) $value >= 0
+                && (float) $value <= 100,
+        ));
+        $below500Values = array_values(array_filter(
+            array_column($points, 'cloud_cover_below_500ft_pct'),
+            static fn (mixed $value): bool => is_numeric($value)
+                && is_finite((float) $value)
+                && (float) $value >= 0
+                && (float) $value <= 100,
+        ));
+        $lowCloudComplete = count($lowCloudValues) === $expected
+            && count($below500Values) === $expected
+            && collect($points)->every(
+                static fn (array $point): bool => ($point['cloud_cover_low_complete'] ?? false) === true
+                    && ($point['cloud_cover_below_500ft_complete'] ?? false) === true,
+            );
+        $lowCloudModelRuns = [];
+        if ($lowCloudComplete) {
+            foreach ($points as $point) {
+                $lowCloudModelRuns[] = $this->requiredTimestamp(
+                    $point['cloud_cover_low_model_run_at'] ?? null,
+                );
+            }
+            usort(
+                $lowCloudModelRuns,
+                static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a <=> $b,
+            );
+        }
+        $lowCloudAggregation = $expected === 1
+            ? 'single_dwd_station'
+            : 'maximum_across_province_points';
+
         return [
             'provider_identifier' => 'dwd_mosmix_bright_sky',
             'structured_attribution' => 'DWD_MOSMIX',
@@ -676,7 +803,28 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
             'wind_speed_150m_kmh' => null,
             'wind_reference_height_agl_m' => 10,
             'wind_direction_degrees' => $windDirection,
-            'cloud_cover_low_pct' => null,
+            // For the national view the highest cover is retained. An
+            // average could hide a local low-cloud hazard in one province.
+            'cloud_cover_low_pct' => $lowCloudComplete
+                ? max(array_map('floatval', $lowCloudValues))
+                : null,
+            'cloud_cover_low_sample_count' => count($lowCloudValues),
+            'cloud_cover_low_expected_sample_count' => $expected,
+            'cloud_cover_low_complete' => $lowCloudComplete,
+            'cloud_cover_low_aggregation' => $lowCloudAggregation,
+            'cloud_cover_low_model_run_at' => $lowCloudComplete
+                ? $lowCloudModelRuns[0]->toIso8601String()
+                : null,
+            'cloud_cover_low_valid_at' => $lowCloudComplete ? $validAt : null,
+            'cloud_cover_below_500ft_pct' => $lowCloudComplete
+                ? max(array_map('floatval', $below500Values))
+                : null,
+            'cloud_cover_below_500ft_sample_count' => count($below500Values),
+            'cloud_cover_below_500ft_expected_sample_count' => $expected,
+            'cloud_cover_below_500ft_complete' => $lowCloudComplete,
+            'cloud_cover_below_500ft_aggregation' => $lowCloudAggregation,
+            'cloud_cover_low_attribution' => 'DWD_MOSMIX_L_NL_N05',
+            'cloud_cover_low_source' => $this->lowCloudSource($expected),
             'cloud_cover_mid_pct' => null,
             'cloud_cover_high_pct' => null,
             'cloud_base_m' => null,
@@ -838,9 +986,37 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
         ];
     }
 
+    /**
+     * @return array{
+     *     name: string,
+     *     url: string,
+     *     license: string,
+     *     license_url: string,
+     *     attribution: string,
+     *     modified: bool,
+     *     processed_by: string,
+     *     processing_note: string
+     * }
+     */
+    private function lowCloudSource(?int $expected = null): array
+    {
+        return [
+            'name' => $expected === WallboardForecastLocationService::NETHERLANDS_PROVINCE_COUNT
+                ? 'DWD MOSMIX_L lage bewolking (12 provinciepunten)'
+                : 'DWD MOSMIX_L lage bewolking',
+            'url' => 'https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/',
+            'license' => 'CC BY 4.0',
+            'license_url' => self::LICENSE_URL,
+            'attribution' => 'Lage bewolking: Deutscher Wetterdienst (DWD) MOSMIX_L, parameters Nl en N05',
+            'modified' => true,
+            'processed_by' => 'DIS',
+            'processing_note' => 'DIS leest Nl (lage bewolking onder 2 km) en N05 (bewolking onder 500 ft) rechtstreeks uit het actuele DWD-stationsproduct. Voor Nederland blijft per hoogteband het hoogste provinciepercentage leidend.',
+        ];
+    }
+
     private function processingNote(): string
     {
-        return 'Live DWD MOSMIX-uurverwachting via Bright Sky; DIS aggregeert modelpunten en berekent daglicht. Alleen 10 m AGL-wind is beschikbaar; de oorspronkelijke MOSMIX model-run-tijd wordt niet gepubliceerd.';
+        return 'Live DWD MOSMIX-uurverwachting via Bright Sky; Nl (onder 2 km) en N05 (onder 500 ft) komen rechtstreeks uit het officiële DWD MOSMIX_L-stationsproduct. DIS verwerkt deze bestanden uitsluitend in memory, deelt gevalideerde waarden via applicatiecache en aggregeert provinciepunten conservatief. Alleen 10 m AGL-wind is beschikbaar; er wordt geen wolkenbasishoogte afgeleid.';
     }
 
     private function request(): PendingRequest
@@ -1143,6 +1319,24 @@ final class BrightSkyDwdForecastService implements UavWeatherForecastProvider
             'refreshed_at' => null,
             'sample_count' => 0,
             'expected_sample_count' => $expected,
+            'cloud_cover_low_pct' => null,
+            'cloud_cover_low_sample_count' => 0,
+            'cloud_cover_low_expected_sample_count' => $expected,
+            'cloud_cover_low_complete' => false,
+            'cloud_cover_low_aggregation' => $expected === 1
+                ? 'single_dwd_station'
+                : ($expected > 1 ? 'maximum_across_province_points' : null),
+            'cloud_cover_low_model_run_at' => null,
+            'cloud_cover_low_valid_at' => null,
+            'cloud_cover_below_500ft_pct' => null,
+            'cloud_cover_below_500ft_sample_count' => 0,
+            'cloud_cover_below_500ft_expected_sample_count' => $expected,
+            'cloud_cover_below_500ft_complete' => false,
+            'cloud_cover_below_500ft_aggregation' => $expected === 1
+                ? 'single_dwd_station'
+                : ($expected > 1 ? 'maximum_across_province_points' : null),
+            'cloud_cover_low_attribution' => 'DWD_MOSMIX_L_NL_N05',
+            'cloud_cover_low_source' => $this->lowCloudSource($expected),
             'cloud_base_m' => null,
             'cloud_base_sample_count' => 0,
             'cloud_base_expected_sample_count' => 0,

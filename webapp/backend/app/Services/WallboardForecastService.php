@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\GnssForecastProvider;
 use App\Contracts\UavWeatherForecastProvider;
 use App\Support\WallboardConfiguration;
 use Carbon\CarbonImmutable;
@@ -23,6 +24,7 @@ final class WallboardForecastService
         private readonly WallboardForecastClassifier $classifier,
         private readonly WallboardForecastLocationService $locations,
         private readonly UavWeatherForecastProvider $weatherForecasts,
+        private readonly GnssForecastProvider $gnssForecasts,
         private readonly KnmiCloudBaseObservationService $cloudBaseObservations,
     ) {}
 
@@ -80,6 +82,8 @@ final class WallboardForecastService
 
         foreach ($resolvedPages as $pageId => ['options' => $options, 'resolution' => $resolution]) {
             $weather = $this->weatherForecasts->forResolution($resolution);
+            $gnss = $this->gnssForecasts->forResolution($resolution);
+            [$gnssVisibleMetric, $gnssUsableMetric] = $this->gnssMetrics($gnss);
             $cloudForecast = $weather;
             $condition = $this->condition($weather);
             $windReferenceHeight = $this->windReferenceHeight($weather);
@@ -112,6 +116,13 @@ final class WallboardForecastService
                 $cloudForecast,
                 0,
             );
+            $dwdLowCloudBand = $this->dwdLowCloudBand($cloudForecast);
+            $lowCloudMetric['cloud_cover_below_500ft_pct'] = $dwdLowCloudBand['below_500ft_pct'] ?? null;
+            if ($dwdLowCloudBand !== null) {
+                $lowCloudMetric['source'] = $dwdLowCloudBand['source'];
+                $lowCloudMetric['measured_at'] = $dwdLowCloudBand['valid_at'];
+                $lowCloudMetric['source_height_label'] = 'DWD MOSMIX_L Nl (onder 2 km) en N05 (onder 500 ft); geen exacte wolkenbasis afgeleid';
+            }
             $cloudLayers = [
                 'low_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_low_pct'] ?? null, 0),
                 'mid_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_mid_pct'] ?? null, 0),
@@ -131,12 +142,32 @@ final class WallboardForecastService
             $lowCloudMetric['cloud_base_forecast'] = $cloudBaseForecast;
             $lowCloudMetric['cloud_base_observation'] = $this->cloudBaseObservations->forResolution($resolution);
             if ($cloudBaseForecast['status'] !== 'forecast') {
-                // A missing cloud base must prevent a reassuring green result,
-                // but it must never hide a known orange/red low-cloud hazard.
-                if ($lowCloudMetric['status'] === WallboardForecastClassifier::STATUS_GREEN) {
-                    $lowCloudMetric['status'] = WallboardForecastClassifier::STATUS_UNKNOWN;
+                if ($dwdLowCloudBand !== null) {
+                    // MOSMIX N05 evaluates the operationally relevant band
+                    // below 500 ft directly. It is not converted into a fake
+                    // cloud-base height; both real cover percentages retain
+                    // the configured low-cloud classification.
+                    $below500Classification = $this->classifier->classify(
+                        'low_cloud_cover_pct',
+                        $dwdLowCloudBand['below_500ft_pct'],
+                        false,
+                    );
+                    $lowCloudMetric['status'] = $this->classifier->overall([
+                        ['status' => $lowCloudMetric['status']],
+                        $below500Classification,
+                    ]);
+                    $lowCloudMetric['explanation'] .= sprintf(
+                        ' DWD N05 meldt %.0f%% bewolking onder 500 ft; DIS leidt hier geen exacte wolkenbasishoogte uit af.',
+                        $dwdLowCloudBand['below_500ft_pct'],
+                    );
+                } else {
+                    // A missing cloud base must prevent a reassuring green
+                    // result, but never hide a known orange/red hazard.
+                    if ($lowCloudMetric['status'] === WallboardForecastClassifier::STATUS_GREEN) {
+                        $lowCloudMetric['status'] = WallboardForecastClassifier::STATUS_UNKNOWN;
+                    }
+                    $lowCloudMetric['explanation'] .= ' De modelwolkenbasis is niet volledig en actueel beschikbaar.';
                 }
-                $lowCloudMetric['explanation'] .= ' De modelwolkenbasis is niet volledig en actueel beschikbaar.';
             }
             $metrics = [
                 $condition,
@@ -175,8 +206,8 @@ final class WallboardForecastService
                 $lowCloudMetric,
                 $this->metric('visibility_m', 'Zicht', $weather['visibility_m'] ?? null, 'm', $weather, 0),
                 $this->metric('kp_index', 'Geomagnetische activiteit', $kp['value'] ?? null, 'Kp', $kp, 2),
-                $this->unknownGnssMetric('gnss_satellites', 'Zichtbare GNSS-satellieten'),
-                $this->unknownGnssMetric('gnss_satellites_fix', 'GNSS-satellieten in fix'),
+                $gnssVisibleMetric,
+                $gnssUsableMetric,
             ];
             $adviceMetrics = array_values(array_filter(
                 $metrics,
@@ -184,7 +215,11 @@ final class WallboardForecastService
                 // The forward-looking rain and thunder cards are operational
                 // safety inputs and therefore remain part of the advice even
                 // when an administrator hides them from the visual grid.
-                static fn (array $metric): bool => ($metric['key'] ?? null) !== 'cloud_cover_pct',
+                static fn (array $metric): bool => ! in_array(
+                    $metric['key'] ?? null,
+                    ['cloud_cover_pct', 'gnss_satellites', 'gnss_satellites_fix'],
+                    true,
+                ),
             ));
 
             $centre = $resolution['complete']
@@ -208,7 +243,7 @@ final class WallboardForecastService
                 ],
                 'visible_blocks' => array_values((array) ($options['visible_blocks'] ?? WallboardConfiguration::DEFAULT_FORECAST_VISIBLE_BLOCKS)),
                 'overall_status' => $this->classifier->overall($adviceMetrics),
-                'generated_at' => $this->forecastGeneratedAt($weather, $kp, $cloudForecast),
+                'generated_at' => $this->forecastGeneratedAt($weather, $kp, $cloudForecast, $gnss),
                 'condition' => [
                     'code' => $condition['value'],
                     'label' => $condition['display_value'],
@@ -308,6 +343,180 @@ final class WallboardForecastService
         }
 
         return $metric;
+    }
+
+    /**
+     * Convert calculated BKG/IGS open-sky geometry into the two legacy GNSS
+     * card keys. The second key keeps its wire name for backwards
+     * compatibility, but deliberately no longer claims receiver “in fix”
+     * telemetry.
+     *
+     * @param  array<string, mixed>  $reading
+     * @return array{0: array<string, mixed>, 1: array<string, mixed>}
+     */
+    private function gnssMetrics(array $reading): array
+    {
+        $counts = is_array($reading['counts'] ?? null) ? $reading['counts'] : [];
+        $visibleByConstellation = is_array($counts['visible_by_constellation'] ?? null)
+            ? $counts['visible_by_constellation']
+            : [];
+        $usableByConstellation = is_array($counts['usable_by_constellation'] ?? null)
+            ? $counts['usable_by_constellation']
+            : [];
+        $pdop = is_array($reading['pdop'] ?? null) ? $reading['pdop'] : [];
+        $visible = $this->boundedGnssCount($counts['visible'] ?? null);
+        $usable = $this->boundedGnssCount($counts['usable'] ?? null);
+        $visibleGps = $this->boundedGnssCount($visibleByConstellation['gps'] ?? null);
+        $visibleGalileo = $this->boundedGnssCount($visibleByConstellation['galileo'] ?? null);
+        $usableGps = $this->boundedGnssCount($usableByConstellation['gps'] ?? null);
+        $usableGalileo = $this->boundedGnssCount($usableByConstellation['galileo'] ?? null);
+        $pdopValue = is_numeric($pdop['value'] ?? null) && is_finite((float) $pdop['value'])
+            ? round((float) $pdop['value'], 2)
+            : null;
+        $pdopComplete = ($pdop['complete'] ?? false) === true;
+        $geometrySufficient = is_bool($pdop['geometry_sufficient'] ?? null)
+            ? $pdop['geometry_sufficient']
+            : $pdopValue !== null;
+        $locationCount = is_int($reading['location_count'] ?? null)
+            ? $reading['location_count']
+            : null;
+        $mask = is_numeric($reading['elevation_mask_deg'] ?? null)
+            && is_finite((float) $reading['elevation_mask_deg'])
+            ? round((float) $reading['elevation_mask_deg'], 1)
+            : null;
+        $measuredAt = is_string($reading['measured_at'] ?? null) ? $reading['measured_at'] : null;
+        $source = $this->gnssSource($reading['source'] ?? null);
+
+        $timestampIsFresh = false;
+        if ($measuredAt !== null) {
+            try {
+                $timestampIsFresh = ! $this->isStale($this->timestamp($measuredAt), 900);
+            } catch (Throwable) {
+                $timestampIsFresh = false;
+            }
+        }
+
+        $complete = ($reading['complete'] ?? false) === true
+            && ($reading['stale'] ?? true) === false
+            && $timestampIsFresh
+            && $visible !== null
+            && $usable !== null
+            && $visibleGps !== null
+            && $visibleGalileo !== null
+            && $usableGps !== null
+            && $usableGalileo !== null
+            && $visible === $visibleGps + $visibleGalileo
+            && $usable === $usableGps + $usableGalileo
+            && $usable <= $visible
+            && $pdopComplete
+            && ($geometrySufficient
+                ? $pdopValue !== null && $pdopValue > 0 && $pdopValue <= 100
+                : $pdopValue === null)
+            && is_int($pdop['sample_count'] ?? null)
+            && $locationCount !== null
+            && $locationCount >= 1
+            && $locationCount <= WallboardForecastLocationService::NETHERLANDS_PROVINCE_COUNT
+            && $pdop['sample_count'] === $locationCount
+            && $mask !== null
+            && $mask >= 0
+            && $mask <= 30
+            && $source['name'] !== 'Onbekend';
+        $classification = ! $complete
+            ? $this->classifier->classify('gnss_pdop', null, true)
+            : ($geometrySufficient
+                ? $this->classifier->classify('gnss_pdop', $pdopValue)
+                : [
+                    'status' => WallboardForecastClassifier::STATUS_RED,
+                    'explanation' => 'Rood: de berekende GPS/Galileo-geometrie heeft onvoldoende rang voor een volledige positie- en klokoplossing.',
+                ]);
+        $maskLabel = $mask === null
+            ? 'het ingestelde masker'
+            : rtrim(rtrim(number_format($mask, 1, ',', ''), '0'), ',').'°';
+        $caveat = ' Berekend uit GPS- en Galileo-broadcastbanen voor open hemel. Gebouwen, bomen, multipath, lokale storing en de ontvanger van de drone worden niet gemeten; dit is geen receiver-fix.';
+        $availabilityNote = is_string($reading['availability_note'] ?? null)
+            ? ' '.trim($reading['availability_note'])
+            : '';
+        $visibleDetail = $complete
+            ? "GPS {$visibleGps} · Galileo {$visibleGalileo} · open-sky boven horizon"
+            : null;
+        $usableDetail = $complete
+            ? sprintf(
+                'GPS %d · Galileo %d · %s · elevatiemasker %s',
+                $usableGps,
+                $usableGalileo,
+                $geometrySufficient
+                    ? 'PDOP '.number_format($pdopValue, 2, ',', '')
+                    : 'PDOP niet berekenbaar: onvoldoende geometrische rang',
+                $maskLabel,
+            )
+            : null;
+
+        return [
+            [
+                'key' => 'gnss_satellites',
+                'label' => 'Berekende GNSS-satellieten boven horizon',
+                'value' => $complete ? $visible : null,
+                'unit' => 'satellieten',
+                'display_value' => null,
+                'display_unit' => null,
+                'status' => $classification['status'],
+                'stale' => (bool) ($reading['stale'] ?? false),
+                'source' => $source,
+                'measured_at' => $complete ? $measuredAt : null,
+                'explanation' => $complete
+                    ? $classification['explanation'].$caveat
+                    : 'De actuele GNSS-open-skyberekening is niet volledig beschikbaar.'.$availabilityNote,
+                'altitude_m' => null,
+                'source_height_label' => $visibleDetail,
+            ],
+            [
+                'key' => 'gnss_satellites_fix',
+                'label' => $mask === null
+                    ? 'Berekende GNSS-satellieten boven elevatiemasker'
+                    : "Berekende GNSS-satellieten boven {$maskLabel}",
+                'value' => $complete ? $usable : null,
+                'unit' => 'satellieten',
+                'display_value' => null,
+                'display_unit' => null,
+                'status' => $classification['status'],
+                'stale' => (bool) ($reading['stale'] ?? false),
+                'source' => $source,
+                'measured_at' => $complete ? $measuredAt : null,
+                'explanation' => $complete
+                    ? $classification['explanation'].$caveat
+                    : 'De actuele GNSS-geometrie en PDOP zijn niet volledig beschikbaar.'.$availabilityNote,
+                'altitude_m' => null,
+                'source_height_label' => $usableDetail,
+            ],
+        ];
+    }
+
+    private function boundedGnssCount(mixed $value): ?int
+    {
+        return is_int($value) && $value >= 0 && $value <= 100 ? $value : null;
+    }
+
+    /** @return array<string, mixed> */
+    private function gnssSource(mixed $value): array
+    {
+        if (! is_array($value) || ! is_string($value['name'] ?? null) || trim($value['name']) === '') {
+            return ['name' => 'Onbekend', 'url' => null];
+        }
+
+        $termsUrl = is_string($value['terms_url'] ?? null) ? $value['terms_url'] : null;
+
+        return [
+            'name' => trim($value['name']),
+            'url' => is_string($value['url'] ?? null) ? $value['url'] : null,
+            'license' => 'IGS Terms of Use',
+            'license_url' => $termsUrl,
+            'attribution' => is_string($value['attribution'] ?? null)
+                ? $value['attribution']
+                : 'BKG / International GNSS Service (IGS)',
+            'modified' => true,
+            'processed_by' => 'DIS',
+            'processing_note' => 'GPS + Galileo broadcast-ephemeriden · open-skyberekening',
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -466,24 +675,6 @@ final class WallboardForecastService
                 'expected_sample_count' => $expectedSampleCount,
                 'attribution' => $this->structuredAttribution($weather),
             ] : null,
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function unknownGnssMetric(string $key, string $label): array
-    {
-        return [
-            'key' => $key,
-            'label' => $label,
-            'value' => null,
-            'unit' => null,
-            'status' => WallboardForecastClassifier::STATUS_UNKNOWN,
-            'stale' => false,
-            'source' => ['name' => 'Geen receiverdata beschikbaar', 'url' => null],
-            'measured_at' => null,
-            'explanation' => 'Zonder gevalideerde receiverdata van een lokale GNSS-ontvanger blijft deze waarde fail-closed onbekend.',
-            'altitude_m' => null,
-            'source_height_label' => null,
         ];
     }
 
@@ -763,6 +954,72 @@ final class WallboardForecastService
         return ($reading['provider_identifier'] ?? null) === 'dwd_mosmix_bright_sky';
     }
 
+    /**
+     * @param  array<string, mixed>  $reading
+     * @return array{below_500ft_pct: float, valid_at: string, source: array<string, mixed>}|null
+     */
+    private function dwdLowCloudBand(array $reading): ?array
+    {
+        if (! $this->isDwdFallback($reading)
+            || ($reading['complete'] ?? false) !== true
+            || ($reading['stale'] ?? true) === true
+            || ($reading['cloud_cover_low_complete'] ?? false) !== true
+            || ($reading['cloud_cover_below_500ft_complete'] ?? false) !== true) {
+            return null;
+        }
+
+        $low = $this->roundedOrNull($reading['cloud_cover_low_pct'] ?? null, 0);
+        $below500 = $this->roundedOrNull($reading['cloud_cover_below_500ft_pct'] ?? null, 0);
+        $lowSamples = $reading['cloud_cover_low_sample_count'] ?? null;
+        $lowExpected = $reading['cloud_cover_low_expected_sample_count'] ?? null;
+        $belowSamples = $reading['cloud_cover_below_500ft_sample_count'] ?? null;
+        $belowExpected = $reading['cloud_cover_below_500ft_expected_sample_count'] ?? null;
+        $validAt = $reading['cloud_cover_low_valid_at'] ?? null;
+        $weatherValidAt = $reading['valid_at'] ?? null;
+        $modelRunAt = $reading['cloud_cover_low_model_run_at'] ?? null;
+        $source = $reading['cloud_cover_low_source'] ?? null;
+        if ($low === null
+            || $below500 === null
+            || $low < 0
+            || $low > 100
+            || $below500 < 0
+            || $below500 > 100
+            || ! is_int($lowSamples)
+            || ! is_int($lowExpected)
+            || ! is_int($belowSamples)
+            || ! is_int($belowExpected)
+            || $lowExpected < 1
+            || $lowExpected > WallboardForecastLocationService::NETHERLANDS_PROVINCE_COUNT
+            || $lowSamples !== $lowExpected
+            || $belowSamples !== $belowExpected
+            || $belowExpected !== $lowExpected
+            || ! is_string($validAt)
+            || ! is_string($weatherValidAt)
+            || $validAt !== $weatherValidAt
+            || ! is_string($modelRunAt)
+            || ! is_array($source)
+            || ! is_string($source['name'] ?? null)
+            || trim($source['name']) === '') {
+            return null;
+        }
+
+        try {
+            $valid = $this->timestamp($validAt);
+            $modelRun = $this->timestamp($modelRunAt);
+        } catch (Throwable) {
+            return null;
+        }
+        if (! $modelRun->lessThan($valid)) {
+            return null;
+        }
+
+        return [
+            'below_500ft_pct' => $below500,
+            'valid_at' => $validAt,
+            'source' => $source,
+        ];
+    }
+
     /** @param array<string, mixed> $reading */
     private function structuredAttribution(array $reading): string
     {
@@ -773,7 +1030,9 @@ final class WallboardForecastService
     private function nationalScopeNote(array $reading): string
     {
         if ($this->isDwdFallback($reading)) {
-            return 'Rekenkundig gemiddelde van actuele DWD MOSMIX-modelwaarden via Bright Sky voor exact alle 12 Nederlandse provinciepunten; de zwaarste weersconditie en hoogste neerslagpiek blijven conservatief leidend. Alleen 10 m-oppervlaktewind is in deze fallback beschikbaar; bovenwind, afzonderlijke wolkenlagen en modelwolkenbasis blijven onbekend.';
+            return $this->dwdLowCloudBand($reading) !== null
+                ? 'Rekenkundig gemiddelde van actuele DWD MOSMIX-modelwaarden via Bright Sky voor exact alle 12 Nederlandse provinciepunten; de zwaarste weersconditie, hoogste neerslagpiek en hoogste Nl/N05-bewolking blijven conservatief leidend. Alleen 10 m-oppervlaktewind is beschikbaar; bovenwind, middelbare/hoge wolkenlagen en een exacte modelwolkenbasis blijven onbekend.'
+                : 'Rekenkundig gemiddelde van actuele DWD MOSMIX-modelwaarden via Bright Sky voor exact alle 12 Nederlandse provinciepunten; de zwaarste weersconditie en hoogste neerslagpiek blijven conservatief leidend. Alleen 10 m-oppervlaktewind is beschikbaar; bovenwind, lage/middelbare/hoge wolkenlagen en modelwolkenbasis blijven onbekend.';
         }
 
         return 'Rekenkundig gemiddelde van actuele DMI-modelwaarden voor exact alle 12 Nederlandse provincies; windrichting is een circulair gemiddelde, de modelwolkenbasis is het laagste geldige provinciepunt en zonopkomst/-ondergang worden als landelijke tijdsrange getoond.';
@@ -783,7 +1042,9 @@ final class WallboardForecastService
     private function addressScopeNote(array $reading): string
     {
         if ($this->isDwdFallback($reading)) {
-            return 'Actuele DWD MOSMIX-modelwaarden via Bright Sky voor het server-side opgeloste adres. Alleen 10 m-oppervlaktewind is in deze fallback beschikbaar; bovenwind, afzonderlijke wolkenlagen en modelwolkenbasis blijven onbekend.';
+            return $this->dwdLowCloudBand($reading) !== null
+                ? 'Actuele DWD MOSMIX-modelwaarden via Bright Sky voor het server-side opgeloste adres. Lage bewolking onder 2 km en onder 500 ft komt rechtstreeks uit DWD MOSMIX_L; alleen 10 m-oppervlaktewind is beschikbaar, bovenwind blijft onbekend en een exacte modelwolkenbasis wordt niet afgeleid.'
+                : 'Actuele DWD MOSMIX-modelwaarden via Bright Sky voor het server-side opgeloste adres. Alleen 10 m-oppervlaktewind is beschikbaar; bovenwind, afzonderlijke wolkenlagen en modelwolkenbasis blijven onbekend.';
         }
 
         return 'Actuele DMI-modelwaarden voor het server-side opgeloste adres; KNMI-stationsmetingen van de wolkenbasis blijven afzonderlijke puntmetingen.';
@@ -793,7 +1054,11 @@ final class WallboardForecastService
     private function disclaimer(array $reading): string
     {
         if ($this->isDwdFallback($reading)) {
-            return 'Indicatief vliegadvies op basis van DWD MOSMIX. Modelwind is tijdens deze fallback alleen op 10 m boven maaiveld beschikbaar; ontbrekende hoogte- en wolkenbasisdata blijven onbekend. Toestellimieten, missieprofiel, lokale weerswaarneming, luchtruimregels en gezaghebbende operationele beoordeling gaan altijd voor.';
+            $cloudNote = $this->dwdLowCloudBand($reading) !== null
+                ? ' Lage bewolking wordt rechtstreeks beoordeeld voor de banden onder 2 km en onder 500 ft; daaruit wordt geen exacte wolkenbasishoogte afgeleid.'
+                : ' Ontbrekende hoogte- en wolkenbasisdata blijven onbekend.';
+
+            return 'Indicatief vliegadvies op basis van DWD MOSMIX.'.$cloudNote.' Modelwind is alleen op 10 m boven maaiveld beschikbaar. Toestellimieten, missieprofiel, lokale weerswaarneming, luchtruimregels en gezaghebbende operationele beoordeling gaan altijd voor.';
         }
 
         return 'Indicatief vliegadvies. Modelwind wordt expliciet op 10, 100 en 150 m boven maaiveld getoond; windstoten zijn alleen als 10 m-grondwaarde beschikbaar. Toestellimieten, missieprofiel, lokale weerswaarneming, luchtruimregels en gezaghebbende operationele beoordeling gaan altijd voor.';
@@ -829,18 +1094,26 @@ final class WallboardForecastService
 
     /** @param array<string, mixed> $weather
      * @param  array<string, mixed>  $kp
+     * @param  array<string, mixed>  $cloudForecast
+     * @param  array<string, mixed>  $gnss
      */
     private function forecastGeneratedAt(
         array $weather,
         array $kp,
         array $cloudForecast,
+        array $gnss,
     ): string {
         $latest = null;
-        foreach ([
+        $timestamps = [
             $weather['refreshed_at'] ?? null,
             $kp['refreshed_at'] ?? null,
             $cloudForecast['refreshed_at'] ?? null,
-        ] as $value) {
+        ];
+        if (($gnss['complete'] ?? false) === true && ($gnss['stale'] ?? true) === false) {
+            $timestamps[] = $gnss['measured_at'] ?? null;
+        }
+
+        foreach ($timestamps as $value) {
             if (! is_string($value)) {
                 continue;
             }

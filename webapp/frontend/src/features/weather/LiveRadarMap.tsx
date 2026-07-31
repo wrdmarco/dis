@@ -1,18 +1,13 @@
 'use client';
 
-import Feature from 'ol/Feature.js';
 import Map from 'ol/Map.js';
 import View from 'ol/View.js';
-import Point from 'ol/geom/Point.js';
 import { defaults as defaultInteractions } from 'ol/interaction/defaults.js';
 import ImageLayer from 'ol/layer/Image.js';
 import TileLayer from 'ol/layer/Tile.js';
-import VectorLayer from 'ol/layer/Vector.js';
 import { fromLonLat, transformExtent } from 'ol/proj.js';
 import ImageStatic from 'ol/source/ImageStatic.js';
-import VectorSource from 'ol/source/Vector.js';
 import XYZ from 'ol/source/XYZ.js';
-import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style.js';
 import {
   AlertTriangle,
   LocateFixed,
@@ -57,7 +52,7 @@ export default function LiveRadarMap({
   const targetRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const radarLayerRef = useRef<ImageLayer<ImageStatic> | null>(null);
-  const markerFeatureRef = useRef<Feature<Point> | null>(null);
+  const hasRenderedImageRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
   const [imageFailed, setImageFailed] = useState(false);
@@ -68,19 +63,6 @@ export default function LiveRadarMap({
     if (targetRef.current === null) return;
     const target = targetRef.current;
     const radarLayer = new ImageLayer<ImageStatic>({ opacity: kind === 'precipitation' ? 0.9 : 0.94 });
-    const markerFeature = new Feature<Point>();
-    markerFeature.setStyle(new Style({
-      image: new CircleStyle({
-        radius: 8,
-        fill: new Fill({ color: '#0b6fae' }),
-        stroke: new Stroke({ color: '#ffffff', width: 3 }),
-      }),
-    }));
-
-    const markerLayer = new VectorLayer({
-      source: new VectorSource({ features: [markerFeature] }),
-      zIndex: 20,
-    });
     const baseLayer = new TileLayer({
       source: new XYZ({
         attributions: OPENSTREETMAP_ATTRIBUTION,
@@ -93,7 +75,7 @@ export default function LiveRadarMap({
     const map = new Map({
       controls: [],
       interactions: interactive ? defaultInteractions() : [],
-      layers: [baseLayer, radarLayer, markerLayer],
+      layers: [baseLayer, radarLayer],
       target,
       view: new View({
         center: fromLonLat(REGIONAL_CENTER),
@@ -105,7 +87,9 @@ export default function LiveRadarMap({
 
     mapRef.current = map;
     radarLayerRef.current = radarLayer;
-    markerFeatureRef.current = markerFeature;
+    hasRenderedImageRef.current = false;
+    setImageLoading(true);
+    setImageFailed(false);
     setMapReady(true);
 
     const initialExtent = transformExtent(REGIONAL_VIEW_BOUNDS, 'EPSG:4326', 'EPSG:3857');
@@ -122,7 +106,7 @@ export default function LiveRadarMap({
       map.dispose();
       mapRef.current = null;
       radarLayerRef.current = null;
-      markerFeatureRef.current = null;
+      hasRenderedImageRef.current = false;
     };
   }, [interactive, kind]);
 
@@ -130,7 +114,7 @@ export default function LiveRadarMap({
     const radarLayer = radarLayerRef.current;
     if (radarLayer === null) return;
     let active = true;
-    setImageLoading(true);
+    if (!hasRenderedImageRef.current) setImageLoading(true);
     setImageFailed(false);
 
     const imageExtent: [number, number, number, number] = [
@@ -149,6 +133,7 @@ export default function LiveRadarMap({
     });
     source.on('imageloadend', () => {
       if (!active) return;
+      hasRenderedImageRef.current = true;
       setImageLoading(false);
       setImageFailed(false);
     });
@@ -162,16 +147,6 @@ export default function LiveRadarMap({
       active = false;
     };
   }, [bounds, imageUrl, retryAttempt]);
-
-  useEffect(() => {
-    const marker = markerFeatureRef.current;
-    if (marker === null) return;
-    if (location?.latitude === null || location?.longitude === null || location === null) {
-      marker.setGeometry(undefined);
-      return;
-    }
-    marker.setGeometry(new Point(fromLonLat([location.longitude, location.latitude])));
-  }, [location]);
 
   useEffect(() => {
     const handleFullscreenChange = () => setFullscreen(document.fullscreenElement === wrapperRef.current);

@@ -105,9 +105,9 @@ export function wallboardForecastDisplayBlocks(
     ['thunderstorm_forecast', forecastThunderstormDisplayBlock(thunderstormForecast)],
     ['cloud_cover', forecastCloudCoverDisplayBlock(lowCloudCover, totalCloudCover)],
     ['visibility', simple('visibility', 'visibility_m', 'Zichtbaarheid')],
-    ['gnss_visible', simple('gnss_visible', 'gnss_satellites', 'Zichtbare satellieten')],
+    ['gnss_visible', simple('gnss_visible', 'gnss_satellites', 'GNSS boven horizon')],
     ['kp_index', simple('kp_index', 'kp_index', 'Kp-index')],
-    ['gnss_usable', simple('gnss_usable', 'gnss_satellites_fix', 'Bruikbare satellieten')],
+    ['gnss_usable', simple('gnss_usable', 'gnss_satellites_fix', 'GNSS boven elevatiemasker')],
   ]);
   const selected = new Set(forecast.visible_blocks);
 
@@ -213,8 +213,21 @@ function forecastCloudCoverDisplayBlock(
   if (lowCloudCover === undefined) return block;
 
   const layers = lowCloudCover.cloud_layers;
+  const below500Feet = lowCloudCover.cloud_cover_below_500ft_pct;
   const forecast = lowCloudCover.cloud_base_forecast;
   const observation = lowCloudCover.cloud_base_observation;
+  if (below500Feet !== null && lowCloudCover.value !== null) {
+    return {
+      ...block,
+      details: [
+        `DWD MOSMIX_L: laag onder 2 km ${formatForecastNumber(lowCloudCover.value)}%; onder 500 ft ${formatForecastNumber(below500Feet)}%`,
+        'De hoogteband onder 500 ft wordt rechtstreeks beoordeeld; er wordt geen exacte wolkenbasishoogte afgeleid.',
+        ...(observation === null || observation.status === 'unknown'
+          ? []
+          : forecastCloudBaseObservationDetails(observation)),
+      ],
+    };
+  }
   return {
     ...block,
     details: [

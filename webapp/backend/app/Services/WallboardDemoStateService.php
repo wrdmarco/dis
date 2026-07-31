@@ -159,8 +159,8 @@ final class WallboardDemoStateService
             $this->forecastMetric('low_cloud_cover_pct', 'Lage bewolking', 28, '%', 'green', $source, $generatedAt, '28'),
             $this->forecastMetric('visibility_m', 'Zicht', 18000, 'm', 'green', $source, $generatedAt, '18,00', null, 'km'),
             $this->forecastMetric('kp_index', 'Geomagnetische activiteit', 2.3, 'Kp', 'green', $source, $generatedAt, '2,30'),
-            $this->forecastMetric('gnss_satellites', 'Zichtbare GNSS-satellieten', null, null, 'unknown', $source, $generatedAt, null),
-            $this->forecastMetric('gnss_satellites_fix', 'GNSS-satellieten in fix', null, null, 'unknown', $source, $generatedAt, null),
+            $this->forecastMetric('gnss_satellites', 'Berekende GNSS-satellieten boven horizon', 22, 'satellieten', 'green', $source, $generatedAt, '22'),
+            $this->forecastMetric('gnss_satellites_fix', 'Berekende GNSS-satellieten boven 10°', 17, 'satellieten', 'green', $source, $generatedAt, '17'),
         ];
         $metrics[3]['height_samples_agl_m'] = [
             ['height_agl_m' => 10, 'speed_kmh' => 14.2],
@@ -168,6 +168,8 @@ final class WallboardDemoStateService
             ['height_agl_m' => 150, 'speed_kmh' => 24.8],
         ];
         $metrics[3]['max_non_red_wind_height_agl_m'] = 150;
+        $metrics[14]['source_height_label'] = 'GPS 12 · Galileo 10 · open-skyberekening (demo)';
+        $metrics[15]['source_height_label'] = 'GPS 10 · Galileo 7 · PDOP 1,37 · elevatiemasker 10° (demo)';
         $metrics[8]['precipitation_outlook'] = [
             'radar_peak_mm_h' => 0.4,
             'radar_status' => 'orange',

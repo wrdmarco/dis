@@ -34,11 +34,13 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
 
     public function test_it_returns_a_complete_live_single_point_dwd_forecast(): void
     {
+        $this->seedLowCloudReading('06260', 72.0, 35.0);
         Http::preventStrayRequests();
         Http::fake(fn (Request $request) => Http::response(
             $this->weatherPayload(
                 latitude: (float) $request['lat'],
                 longitude: (float) $request['lon'],
+                stationId: '06260',
             ),
         ));
         $filesBefore = Storage::disk('local')->allFiles();
@@ -91,7 +93,19 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
         );
         $this->assertNull($reading['model_run_at']);
         $this->assertSame('2026-07-20T13:00:00+00:00', $reading['valid_at']);
-        $this->assertNull($reading['cloud_cover_low_pct']);
+        $this->assertSame(72.0, $reading['cloud_cover_low_pct']);
+        $this->assertSame(1, $reading['cloud_cover_low_sample_count']);
+        $this->assertSame(1, $reading['cloud_cover_low_expected_sample_count']);
+        $this->assertTrue($reading['cloud_cover_low_complete']);
+        $this->assertSame('single_dwd_station', $reading['cloud_cover_low_aggregation']);
+        $this->assertSame(35.0, $reading['cloud_cover_below_500ft_pct']);
+        $this->assertSame(1, $reading['cloud_cover_below_500ft_sample_count']);
+        $this->assertTrue($reading['cloud_cover_below_500ft_complete']);
+        $this->assertSame('DWD_MOSMIX_L_NL_N05', $reading['cloud_cover_low_attribution']);
+        $this->assertStringContainsString(
+            'DWD MOSMIX_L',
+            $reading['cloud_cover_low_source']['name'],
+        );
         $this->assertNull($reading['cloud_base_m']);
         $this->assertSame(0, $reading['cloud_base_expected_sample_count']);
         $this->assertFalse($reading['cloud_base_complete']);
@@ -123,6 +137,13 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
     public function test_it_aggregates_exactly_twelve_province_points(): void
     {
         $requestCount = 0;
+        for ($index = 0; $index < 12; $index++) {
+            $this->seedLowCloudReading(
+                sprintf('P%04d', $index),
+                10.0 + $index,
+                20.0 + $index,
+            );
+        }
         Http::preventStrayRequests();
         Http::fake(function (Request $request) use (&$requestCount) {
             $index = $requestCount++;
@@ -131,6 +152,7 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
                 longitude: (float) $request['lon'],
                 temperature: 10.0 + $index,
                 windDirection: $index % 2 === 0 ? 350.0 : 10.0,
+                stationId: sprintf('P%04d', $index),
             );
             if ($index === 11) {
                 $payload['weather'][0]['condition'] = 'hail';
@@ -154,6 +176,19 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
                 || $reading['wind_direction_degrees'] > 359,
         );
         $this->assertSame(77, $reading['weather_code']);
+        $this->assertSame(21.0, $reading['cloud_cover_low_pct']);
+        $this->assertSame(31.0, $reading['cloud_cover_below_500ft_pct']);
+        $this->assertSame(12, $reading['cloud_cover_low_sample_count']);
+        $this->assertSame(12, $reading['cloud_cover_low_expected_sample_count']);
+        $this->assertTrue($reading['cloud_cover_low_complete']);
+        $this->assertSame(
+            'maximum_across_province_points',
+            $reading['cloud_cover_low_aggregation'],
+        );
+        $this->assertSame(
+            'maximum_across_province_points',
+            $reading['cloud_cover_below_500ft_aggregation'],
+        );
         $this->assertSame(0, $reading['cloud_base_sample_count']);
         $this->assertSame(0, $reading['cloud_base_expected_sample_count']);
         $this->assertFalse($reading['cloud_base_complete']);
@@ -236,6 +271,25 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
 
         $this->assertFalse($reading['complete']);
         $this->assertSame(0, $reading['sample_count']);
+    }
+
+    public function test_native_dwd_station_id_is_used_when_wmo_id_is_missing(): void
+    {
+        $this->seedLowCloudReading('E5305', 64.0, 18.0);
+        Http::preventStrayRequests();
+        Http::fake([
+            self::weatherUrlPattern() => Http::response($this->weatherPayload(
+                nativeDwdStationId: 'E5305',
+            )),
+        ]);
+
+        $reading = app(BrightSkyDwdForecastService::class)
+            ->forResolution($this->resolution());
+
+        $this->assertTrue($reading['complete']);
+        $this->assertTrue($reading['cloud_cover_low_complete']);
+        $this->assertSame(64.0, $reading['cloud_cover_low_pct']);
+        $this->assertSame(18.0, $reading['cloud_cover_below_500ft_pct']);
     }
 
     public function test_failed_refresh_returns_last_good_only_as_stale(): void
@@ -328,6 +382,8 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
         float $longitude = 5.1214,
         float $temperature = 20.0,
         float $windDirection = 350.0,
+        ?string $stationId = null,
+        ?string $nativeDwdStationId = null,
     ): array {
         $steps = [
             ['2026-07-20T13:00:00+00:00', 0.0, 10, 'dry', 'clear-day'],
@@ -365,6 +421,8 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
                     'first_record' => '2026-07-20T10:00:00+00:00',
                     'last_record' => '2026-07-21T10:00:00+00:00',
                     'distance' => 0,
+                    'wmo_station_id' => $stationId,
+                    'dwd_station_id' => $nativeDwdStationId,
                 ],
                 [
                     'id' => 101,
@@ -374,8 +432,29 @@ final class BrightSkyDwdForecastServiceTest extends TestCase
                     'first_record' => '2026-07-20T10:00:00+00:00',
                     'last_record' => '2026-07-21T10:00:00+00:00',
                     'distance' => 1300,
+                    'wmo_station_id' => null,
+                    'dwd_station_id' => null,
                 ],
             ],
         ];
+    }
+
+    private function seedLowCloudReading(
+        string $stationId,
+        float $low,
+        float $below500,
+    ): void {
+        Cache::put(
+            'wallboard:uav-forecast:dwd-mosmix-low-cloud:v1:'
+                .$stationId.':2026072013:fresh',
+            [
+                'station_id' => $stationId,
+                'model_run_at' => '2026-07-20T09:00:00+00:00',
+                'valid_at' => '2026-07-20T13:00:00+00:00',
+                'cloud_cover_low_pct' => $low,
+                'cloud_cover_below_500ft_pct' => $below500,
+            ],
+            900,
+        );
     }
 }
