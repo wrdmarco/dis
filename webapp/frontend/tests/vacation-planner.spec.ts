@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from 'playwright/test';
 
 const vacationPlanner = readSource('../src/features/vacations/VacationPlanner.tsx');
+const modalDialog = readSource('../src/components/ModalDialog.tsx');
 const profilePage = readSource('../src/features/profile/ProfilePage.tsx');
 const userDetails = readSource('../src/features/users/UserDetailPage.tsx');
 const operationalDetails = readSource('../src/features/users/UserOperationalDetails.tsx');
@@ -42,7 +43,13 @@ test('supports create, edit and confirmed deletion for both endpoint scopes', ()
   expect(vacationPlanner).toContain('is_available: form.isAvailable');
   expect(vacationPlanner).toContain('Periode definitief verwijderen');
   expect(vacationPlanner).toContain('Annuleren');
-  expect(vacationPlanner).toContain('role="dialog"');
+  expect(vacationPlanner).toContain('<ModalDialog');
+  expect(vacationPlanner).toContain('title={editingId === null ? \'Periode toevoegen\' : \'Periode aanpassen\'}');
+  expect(vacationPlanner).toContain('data-dialog-initial="true"');
+  expect(modalDialog).toContain('role="dialog"');
+  expect(modalDialog).toContain('aria-modal="true"');
+  expect(modalDialog).toContain("if (event.key === 'Escape')");
+  expect(modalDialog).toContain('previouslyFocused.focus()');
   expect(vacationPlanner).toContain('{deleteError ? <p className="form-error" role="alert">{deleteError}</p> : null}');
   expect(vacationPlanner).not.toContain('Intrekken');
 });

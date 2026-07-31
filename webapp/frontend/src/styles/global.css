@@ -1344,6 +1344,16 @@ a:hover {
   background: var(--dis-blue-soft);
 }
 
+.profile-panel-feedback {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px 0;
+}
+
+.profile-panel-feedback > * {
+  margin: 0;
+}
+
 .admin-tabs {
   display: flex;
   gap: 8px;
@@ -3819,58 +3829,15 @@ select[multiple] {
   gap: 16px;
 }
 
-.vacation-planner__form {
-  display: grid;
-  gap: 14px;
-  border: 1px solid var(--dis-border);
-  border-radius: 8px;
-  background: var(--dis-field);
-  padding: 14px;
-}
-
-.vacation-planner__form-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.vacation-planner__form-heading > div,
-.vacation-planner__form-heading span {
-  display: grid;
-  gap: 3px;
-}
-
-.vacation-planner__form-heading strong,
 .vacation-planner__empty strong,
 .vacation-card strong {
   color: var(--dis-text-strong);
 }
 
-.vacation-planner__form-heading span,
 .vacation-planner__empty span,
 .vacation-card__date span {
   color: var(--dis-muted);
   font-size: 0.88rem;
-}
-
-.vacation-planner__fields {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.vacation-planner__fields label {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-  color: var(--dis-muted-strong);
-  font-weight: 650;
-}
-
-.vacation-planner__submit {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .vacation-planner__empty {
@@ -4267,6 +4234,13 @@ select[multiple] {
 .modal__header h2 {
   margin: 0;
   font-size: 1rem;
+}
+
+.modal__description {
+  margin: 0;
+  padding: 16px 16px 0;
+  color: var(--dis-muted);
+  line-height: 1.5;
 }
 
 .modal .form-grid,
@@ -13487,10 +13461,6 @@ pre {
     display: grid;
   }
 
-  .vacation-planner__fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .vacation-card {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -13535,15 +13505,11 @@ pre {
 }
 
 @media (max-width: 680px) {
-  .vacation-planner__form-heading,
-  .vacation-planner__fields,
   .vacation-card {
     display: grid;
     grid-template-columns: 1fr;
   }
 
-  .vacation-planner__form-heading .secondary-button,
-  .vacation-planner__submit .primary-button,
   .vacation-card__actions,
   .vacation-card__actions .secondary-button,
   .vacation-card__actions .danger-button {

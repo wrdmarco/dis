@@ -1,6 +1,7 @@
 import { useSearchParams } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { KeyRound, Plus, RefreshCw, ShieldCheck, Smartphone, Tablet, Trash2, X } from 'lucide-react';
+import { KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Smartphone, Tablet, Trash2, X } from 'lucide-react';
+import { ModalDialog } from '../../components/ModalDialog';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -85,6 +86,8 @@ export function ProfilePage() {
   const [profileForm, setProfileForm] = useState<ProfileFormState>(emptyProfileForm);
   const [assetForm, setAssetForm] = useState(emptyAssetForm());
   const [certificationForm, setCertificationForm] = useState(emptyCertificationForm());
+  const [assetEditorOpen, setAssetEditorOpen] = useState(false);
+  const [certificationEditorOpen, setCertificationEditorOpen] = useState(false);
   const [pairingClientType, setPairingClientType] = useState<MobilePairingClientType | ''>('');
   const [pairing, setPairing] = useState<MobilePairingCode | null>(null);
   const [pairingSecondsLeft, setPairingSecondsLeft] = useState(0);
@@ -117,6 +120,9 @@ export function ProfilePage() {
   const pairingOptions = pairingClientOptions(user);
 
   const mfaRequired = user?.mfa_required === true;
+  const requiresMfaSetup = mfaRequired && user?.two_factor_enabled !== true;
+  const hasWebAdministration = user?.roles?.some((role) => role.can_use_admin_app) === true;
+  const showMfaManagement = hasWebAdministration || requiresMfaSetup || setup !== null || recoveryCodes.length > 0;
   const canDisableMfa = user?.two_factor_enabled === true && !mfaRequired;
   const mfaDescription = mfaRequired
     ? user?.two_factor_enabled
@@ -344,6 +350,7 @@ export function ProfilePage() {
       }
       setAssetForm(emptyAssetForm());
       await assets.reload();
+      setAssetEditorOpen(false);
     } catch (err) {
       setAssetError(err instanceof ApiClientError ? err.message : 'Asset kon niet worden opgeslagen.');
     } finally {
@@ -385,6 +392,24 @@ export function ProfilePage() {
       maintenanceDueAt: normalizeDate(asset.maintenance_due_at),
       notes: asset.notes ?? '',
     });
+    setAssetEditorOpen(true);
+  }
+
+  function openNewAssetEditor() {
+    setAssetForm(emptyAssetForm());
+    setAssetError(null);
+    setAssetMessage(null);
+    setAssetEditorOpen(true);
+  }
+
+  function closeAssetEditor() {
+    if (savingAsset) {
+      return;
+    }
+
+    setAssetEditorOpen(false);
+    setAssetError(null);
+    setAssetForm(emptyAssetForm());
   }
 
   async function submitCertification(event: FormEvent<HTMLFormElement>) {
@@ -411,6 +436,7 @@ export function ProfilePage() {
       }
       setCertificationForm(emptyCertificationForm());
       await userCertifications.reload();
+      setCertificationEditorOpen(false);
     } catch (err) {
       setCertificationError(err instanceof ApiClientError ? err.message : 'Certificaat kon niet worden opgeslagen.');
     } finally {
@@ -505,6 +531,24 @@ export function ProfilePage() {
       certificateNumber: certification.certificate_number ?? '',
       status: certification.status === 'pending' ? 'active' : certification.status,
     });
+    setCertificationEditorOpen(true);
+  }
+
+  function openNewCertificationEditor() {
+    setCertificationForm(emptyCertificationForm());
+    setCertificationError(null);
+    setCertificationMessage(null);
+    setCertificationEditorOpen(true);
+  }
+
+  function closeCertificationEditor() {
+    if (savingCertification) {
+      return;
+    }
+
+    setCertificationEditorOpen(false);
+    setCertificationError(null);
+    setCertificationForm(emptyCertificationForm());
   }
 
   return (
@@ -517,10 +561,14 @@ export function ProfilePage() {
           <dd>{user?.email ?? '-'}</dd>
           <dt>Rollen</dt>
           <dd>{user?.roles?.map((role) => role.display_name).join(', ') || '-'}</dd>
-          <dt>MFA status</dt>
-          <dd>{user?.two_factor_enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
-          <dt>MFA verplicht</dt>
-          <dd>{mfaRequired ? 'Ja, systeemwijd' : 'Nee'}</dd>
+          {showMfaManagement ? (
+            <>
+              <dt>MFA status</dt>
+              <dd>{user?.two_factor_enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
+              <dt>MFA verplicht</dt>
+              <dd>{mfaRequired ? 'Ja' : 'Nee'}</dd>
+            </>
+          ) : null}
           <dt>Weergave</dt>
           <dd>
             <div className="segmented-control" role="group" aria-label="Weergave">
@@ -747,135 +795,138 @@ export function ProfilePage() {
         onChanged={() => setAvailabilityScheduleVersion((current) => current + 1)}
       />
 
-      <Panel title="Mijn assets">
-        <form className="form-grid" onSubmit={submitAsset}>
-          <label>
-            Naam
-            <input value={assetForm.name} onChange={(event) => setAssetForm((current) => ({ ...current, name: event.target.value }))} required disabled={!assetForm.canEditIdentity} />
-          </label>
-          <label>
-            Type
-            <select value={assetForm.type} onChange={(event) => setAssetForm((current) => ({ ...current, type: event.target.value, droneTypeId: '', hasSpotlight: false, hasSpeaker: false }))} disabled={!assetForm.canEditIdentity}>
-              <option value="drone">Drone</option>
-              <option value="battery">Batterij</option>
-              <option value="sensor">Sensor</option>
-              <option value="vehicle">Voertuig</option>
-              <option value="support_equipment">Ondersteunend materieel</option>
-            </select>
-          </label>
-          {assetForm.type === 'drone' ? (
-            <label>
-              Drone type
-              <select
-                value={assetForm.droneTypeId}
-                onChange={(event) => {
-                  const nextDroneType = droneTypes.data?.find((type) => type.id === event.target.value) ?? null;
-                  setAssetForm((current) => ({
-                    ...current,
-                    droneTypeId: event.target.value,
-                    hasSpotlight: nextDroneType?.has_spotlight === true ? current.hasSpotlight : false,
-                    hasSpeaker: nextDroneType?.has_speaker === true ? current.hasSpeaker : false,
-                  }));
-                }}
-                required
-                disabled={!assetForm.canEditIdentity}
-              >
-                <option value="">Kies drone type</option>
-                {droneTypes.data?.filter((type) => type.is_active || type.id === assetForm.droneTypeId).map((type) => (
-                  <option key={type.id} value={type.id}>{droneTypeLabel(type)}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label>
-            Status
-            <select value={assetForm.status} onChange={(event) => setAssetForm((current) => ({ ...current, status: event.target.value as OwnAssetStatus }))}>
-              <option value="ready">Gereed</option>
-              <option value="maintenance">Onderhoud</option>
-              <option value="unavailable">Niet beschikbaar</option>
-            </select>
-          </label>
-          <label>
-            Serienummer
-            <input value={assetForm.serialNumber} onChange={(event) => setAssetForm((current) => ({ ...current, serialNumber: event.target.value }))} disabled={!assetForm.canEditIdentity} />
-          </label>
-          <label>
-            Onderhoud voor
-            <input type="date" value={assetForm.maintenanceDueAt} onChange={(event) => setAssetForm((current) => ({ ...current, maintenanceDueAt: event.target.value }))} />
-          </label>
-          {assetSupportsSpotlight ? (
-            <label className="check-label">
-              <input type="checkbox" checked={assetForm.hasSpotlight} onChange={(event) => setAssetForm((current) => ({ ...current, hasSpotlight: event.target.checked }))} />
-              Externe lamp
-            </label>
-          ) : null}
-          {assetSupportsSpeaker ? (
-            <label className="check-label">
-              <input type="checkbox" checked={assetForm.hasSpeaker} onChange={(event) => setAssetForm((current) => ({ ...current, hasSpeaker: event.target.checked }))} />
-              Speaker
-            </label>
-          ) : null}
-          <label className="form-grid__wide">
-            Notities
-            <textarea value={assetForm.notes} onChange={(event) => setAssetForm((current) => ({ ...current, notes: event.target.value }))} />
-          </label>
-          {assetError ? <p className="form-error form-grid__wide">{assetError}</p> : null}
-          {assetMessage ? <p className="form-note form-grid__wide">{assetMessage}</p> : null}
-          <div className="actions-row form-grid__wide">
-            {assetForm.id !== null ? <button className="secondary-button" type="button" onClick={() => setAssetForm(emptyAssetForm())}>Nieuw</button> : null}
-            <button className="primary-button" type="submit" disabled={savingAsset || assetForm.name === '' || (assetForm.type === 'drone' && assetForm.droneTypeId === '')}>
-              {savingAsset ? 'Opslaan...' : assetForm.id === null ? 'Asset toevoegen' : 'Asset aanpassen'}
-            </button>
+      <Panel
+        title="Mijn assets"
+        action={(
+          <button className="primary-button" type="button" onClick={openNewAssetEditor}>
+            <Plus aria-hidden size={16} /> Asset toevoegen
+          </button>
+        )}
+      >
+        {!assetEditorOpen && (assetError || assetMessage) ? (
+          <div className="profile-panel-feedback">
+            {assetError ? <p className="form-error" role="alert">{assetError}</p> : null}
+            {assetMessage ? <p className="form-note" role="status">{assetMessage}</p> : null}
           </div>
-        </form>
+        ) : null}
         <AssetTable assets={assets.data ?? []} loading={assets.loading || droneTypes.loading} error={assets.error ?? droneTypes.error} onEdit={setAssetFormFromAsset} onDelete={deleteAsset} />
       </Panel>
 
-      <Panel title="Mijn certificaten">
-        <form className="form-grid" onSubmit={submitCertification}>
-          <label>
-            Certificaat
-            <select
-              value={certificationForm.certificationId}
-              onChange={(event) => setCertificationForm((current) => ({ ...current, certificationId: event.target.value }))}
-              required
-              disabled={certificationForm.id !== null}
-            >
-              <option value="">Kies certificaat</option>
-              {certificationOptions.data?.map((certification) => (
-                <option key={certification.id} value={certification.id}>{certification.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Afgifte
-            <input type="date" value={certificationForm.issuedAt} onChange={(event) => setCertificationForm((current) => ({ ...current, issuedAt: event.target.value }))} required />
-          </label>
-          <label>
-            Verloopt
-            <input type="date" value={certificationForm.expiresAt} onChange={(event) => setCertificationForm((current) => ({ ...current, expiresAt: event.target.value }))} />
-          </label>
-          <label>
-            Nummer
-            <input value={certificationForm.certificateNumber} onChange={(event) => setCertificationForm((current) => ({ ...current, certificateNumber: event.target.value }))} />
-          </label>
-          <label>
-            Status
-            <select value={certificationForm.status} onChange={(event) => setCertificationForm((current) => ({ ...current, status: event.target.value as UserCertification['status'] }))}>
-              <option value="active">Actief</option>
-              <option value="expired">Verlopen</option>
-              <option value="revoked">Ingetrokken</option>
-            </select>
-          </label>
-          {certificationError ? <p className="form-error form-grid__wide">{certificationError}</p> : null}
-          {certificationMessage ? <p className="form-note form-grid__wide">{certificationMessage}</p> : null}
-          <div className="actions-row form-grid__wide">
-            {certificationForm.id !== null ? <button className="secondary-button" type="button" onClick={() => setCertificationForm(emptyCertificationForm())}>Nieuw</button> : null}
-            <button className="primary-button" type="submit" disabled={savingCertification || certificationForm.certificationId === '' || certificationForm.issuedAt === ''}>
-              {savingCertification ? 'Opslaan...' : certificationForm.id === null ? 'Certificaat toevoegen' : 'Certificaat aanpassen'}
-            </button>
+      {assetEditorOpen ? (
+        <ModalDialog
+          eyebrow="Mijn assets"
+          title={assetForm.id === null ? 'Asset toevoegen' : 'Asset aanpassen'}
+          closeDisabled={savingAsset}
+          onClose={closeAssetEditor}
+        >
+          <form className="form-grid" onSubmit={submitAsset}>
+            <label>
+              Naam
+              <input
+                data-dialog-initial={assetForm.canEditIdentity ? 'true' : undefined}
+                value={assetForm.name}
+                onChange={(event) => setAssetForm((current) => ({ ...current, name: event.target.value }))}
+                required
+                disabled={!assetForm.canEditIdentity}
+              />
+            </label>
+            <label>
+              Type
+              <select value={assetForm.type} onChange={(event) => setAssetForm((current) => ({ ...current, type: event.target.value, droneTypeId: '', hasSpotlight: false, hasSpeaker: false }))} disabled={!assetForm.canEditIdentity}>
+                <option value="drone">Drone</option>
+                <option value="battery">Batterij</option>
+                <option value="sensor">Sensor</option>
+                <option value="vehicle">Voertuig</option>
+                <option value="support_equipment">Ondersteunend materieel</option>
+              </select>
+            </label>
+            {assetForm.type === 'drone' ? (
+              <label>
+                Drone type
+                <select
+                  value={assetForm.droneTypeId}
+                  onChange={(event) => {
+                    const nextDroneType = droneTypes.data?.find((type) => type.id === event.target.value) ?? null;
+                    setAssetForm((current) => ({
+                      ...current,
+                      droneTypeId: event.target.value,
+                      hasSpotlight: nextDroneType?.has_spotlight === true ? current.hasSpotlight : false,
+                      hasSpeaker: nextDroneType?.has_speaker === true ? current.hasSpeaker : false,
+                    }));
+                  }}
+                  required
+                  disabled={!assetForm.canEditIdentity}
+                >
+                  <option value="">Kies drone type</option>
+                  {droneTypes.data?.filter((type) => type.is_active || type.id === assetForm.droneTypeId).map((type) => (
+                    <option key={type.id} value={type.id}>{droneTypeLabel(type)}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label>
+              Status
+              <select
+                data-dialog-initial={!assetForm.canEditIdentity ? 'true' : undefined}
+                value={assetForm.status}
+                onChange={(event) => setAssetForm((current) => ({ ...current, status: event.target.value as OwnAssetStatus }))}
+              >
+                <option value="ready">Gereed</option>
+                <option value="maintenance">Onderhoud</option>
+                <option value="unavailable">Niet beschikbaar</option>
+              </select>
+            </label>
+            <label>
+              Serienummer
+              <input value={assetForm.serialNumber} onChange={(event) => setAssetForm((current) => ({ ...current, serialNumber: event.target.value }))} disabled={!assetForm.canEditIdentity} />
+            </label>
+            <label>
+              Onderhoud voor
+              <input type="date" value={assetForm.maintenanceDueAt} onChange={(event) => setAssetForm((current) => ({ ...current, maintenanceDueAt: event.target.value }))} />
+            </label>
+            {assetSupportsSpotlight ? (
+              <label className="check-label">
+                <input type="checkbox" checked={assetForm.hasSpotlight} onChange={(event) => setAssetForm((current) => ({ ...current, hasSpotlight: event.target.checked }))} />
+                Externe lamp
+              </label>
+            ) : null}
+            {assetSupportsSpeaker ? (
+              <label className="check-label">
+                <input type="checkbox" checked={assetForm.hasSpeaker} onChange={(event) => setAssetForm((current) => ({ ...current, hasSpeaker: event.target.checked }))} />
+                Speaker
+              </label>
+            ) : null}
+            <label className="form-grid__wide">
+              Notities
+              <textarea value={assetForm.notes} onChange={(event) => setAssetForm((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+            {assetError ? <p className="form-error form-grid__wide" role="alert">{assetError}</p> : null}
+            <div className="actions-row form-grid__wide">
+              <button className="secondary-button" type="button" onClick={closeAssetEditor} disabled={savingAsset}>
+                Annuleren
+              </button>
+              <button className="primary-button" type="submit" disabled={savingAsset || assetForm.name === '' || (assetForm.type === 'drone' && assetForm.droneTypeId === '')}>
+                {savingAsset ? 'Opslaan...' : assetForm.id === null ? 'Asset toevoegen' : 'Wijzigingen opslaan'}
+              </button>
+            </div>
+          </form>
+        </ModalDialog>
+      ) : null}
+
+      <Panel
+        title="Mijn certificaten"
+        action={(
+          <button className="primary-button" type="button" onClick={openNewCertificationEditor}>
+            <Plus aria-hidden size={16} /> Certificaat toevoegen
+          </button>
+        )}
+      >
+        {!certificationEditorOpen && (certificationError || certificationMessage) ? (
+          <div className="profile-panel-feedback">
+            {certificationError ? <p className="form-error" role="alert">{certificationError}</p> : null}
+            {certificationMessage ? <p className="form-note" role="status">{certificationMessage}</p> : null}
           </div>
-        </form>
+        ) : null}
         <CertificationTable
           certifications={userCertifications.data ?? []}
           loading={userCertifications.loading || certificationOptions.loading}
@@ -885,67 +936,132 @@ export function ProfilePage() {
         />
       </Panel>
 
-      <Panel title="Multi-factor authenticatie">
-        <div className="mfa-card">
-          <div className="mfa-card__icon"><ShieldCheck size={22} /></div>
-          <div>
-            <strong>{user?.two_factor_enabled ? 'MFA actief' : 'MFA niet actief'}</strong>
-            <p>{mfaDescription}</p>
+      {certificationEditorOpen ? (
+        <ModalDialog
+          eyebrow="Mijn certificaten"
+          title={certificationForm.id === null ? 'Certificaat toevoegen' : 'Certificaat aanpassen'}
+          narrow
+          closeDisabled={savingCertification}
+          onClose={closeCertificationEditor}
+        >
+          <form className="form-grid" onSubmit={submitCertification}>
+            <label>
+              Certificaat
+              <select
+                data-dialog-initial={certificationForm.id === null ? 'true' : undefined}
+                value={certificationForm.certificationId}
+                onChange={(event) => setCertificationForm((current) => ({ ...current, certificationId: event.target.value }))}
+                required
+                disabled={certificationForm.id !== null}
+              >
+                <option value="">Kies certificaat</option>
+                {certificationOptions.data?.map((certification) => (
+                  <option key={certification.id} value={certification.id}>{certification.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Afgifte
+              <input
+                data-dialog-initial={certificationForm.id !== null ? 'true' : undefined}
+                type="date"
+                value={certificationForm.issuedAt}
+                onChange={(event) => setCertificationForm((current) => ({ ...current, issuedAt: event.target.value }))}
+                required
+              />
+            </label>
+            <label>
+              Verloopt
+              <input type="date" value={certificationForm.expiresAt} onChange={(event) => setCertificationForm((current) => ({ ...current, expiresAt: event.target.value }))} />
+            </label>
+            <label>
+              Nummer
+              <input value={certificationForm.certificateNumber} onChange={(event) => setCertificationForm((current) => ({ ...current, certificateNumber: event.target.value }))} />
+            </label>
+            <label>
+              Status
+              <select value={certificationForm.status} onChange={(event) => setCertificationForm((current) => ({ ...current, status: event.target.value as UserCertification['status'] }))}>
+                <option value="active">Actief</option>
+                <option value="expired">Verlopen</option>
+                <option value="revoked">Ingetrokken</option>
+              </select>
+            </label>
+            {certificationError ? <p className="form-error form-grid__wide" role="alert">{certificationError}</p> : null}
+            <div className="actions-row form-grid__wide">
+              <button className="secondary-button" type="button" onClick={closeCertificationEditor} disabled={savingCertification}>
+                Annuleren
+              </button>
+              <button className="primary-button" type="submit" disabled={savingCertification || certificationForm.certificationId === '' || certificationForm.issuedAt === ''}>
+                {savingCertification ? 'Opslaan...' : certificationForm.id === null ? 'Certificaat toevoegen' : 'Wijzigingen opslaan'}
+              </button>
+            </div>
+          </form>
+        </ModalDialog>
+      ) : null}
+
+      {showMfaManagement ? (
+        <Panel title="Multi-factor authenticatie">
+          <div className="mfa-card">
+            <div className="mfa-card__icon"><ShieldCheck size={22} /></div>
+            <div>
+              <strong>{user?.two_factor_enabled ? 'MFA actief' : 'MFA niet actief'}</strong>
+              <p>{mfaDescription}</p>
+            </div>
+            {!user?.two_factor_enabled ? (
+              <button className="primary-button" type="button" onClick={startSetup} disabled={busy}>
+                <KeyRound size={16} /> MFA instellen
+              </button>
+            ) : null}
           </div>
-          {!user?.two_factor_enabled ? (
-            <button className="primary-button" type="button" onClick={startSetup} disabled={busy}>
-              <KeyRound size={16} /> MFA instellen
-            </button>
+
+          {setup?.secret ? (
+            <form className="form-grid" onSubmit={confirmSetup}>
+              <div className="form-grid__wide">
+                <TotpQrCode value={setup.provisioning_uri} alt="MFA QR-code voor Authenticator app" helpText="Scan deze QR-code met je Authenticator app." />
+              </div>
+              <label className="form-grid__wide">
+                Secret
+                <input className="mono" value={setup.secret} readOnly />
+              </label>
+              <label className="form-grid__wide">
+                Authenticator URI
+                <textarea className="mono" value={setup.provisioning_uri ?? ''} readOnly />
+              </label>
+              <label>
+                6-cijferige code
+                <input inputMode="numeric" pattern="[0-9]{6}" value={enableCode} onChange={(event) => setEnableCode(event.target.value)} required />
+              </label>
+              <div className="actions-row form-grid__wide">
+                <button className="primary-button" type="submit" disabled={busy || enableCode.length !== 6}>
+                  MFA bevestigen
+                </button>
+              </div>
+            </form>
           ) : null}
-        </div>
 
-        {setup?.secret ? (
-          <form className="form-grid" onSubmit={confirmSetup}>
-            <div className="form-grid__wide">
-              <TotpQrCode value={setup.provisioning_uri} alt="MFA QR-code voor Authenticator app" helpText="Scan deze QR-code met je Authenticator app." />
-            </div>
-            <label className="form-grid__wide">
-              Secret
-              <input className="mono" value={setup.secret} readOnly />
-            </label>
-            <label className="form-grid__wide">
-              Authenticator URI
-              <textarea className="mono" value={setup.provisioning_uri ?? ''} readOnly />
-            </label>
-            <label>
-              6-cijferige code
-              <input inputMode="numeric" pattern="[0-9]{6}" value={enableCode} onChange={(event) => setEnableCode(event.target.value)} required />
-            </label>
-            <div className="actions-row form-grid__wide">
-              <button className="primary-button" type="submit" disabled={busy || enableCode.length !== 6}>
-                MFA bevestigen
-              </button>
-            </div>
-          </form>
-        ) : null}
+          {canDisableMfa ? (
+            <form className="form-grid" onSubmit={disable}>
+              <label>
+                Huidig wachtwoord
+                <input type="password" value={disablePassword} onChange={(event) => setDisablePassword(event.target.value)} required />
+              </label>
+              <label>
+                6-cijferige MFA-code
+                <input inputMode="numeric" pattern="[0-9]{6}" value={disableCode} onChange={(event) => setDisableCode(event.target.value)} required />
+              </label>
+              <div className="actions-row form-grid__wide">
+                <button className="secondary-button" type="submit" disabled={busy}>
+                  MFA uitzetten
+                </button>
+              </div>
+            </form>
+          ) : null}
+          {error ? <p className="error-text">{error}</p> : null}
+          {message ? <p className="success-text">{message}</p> : null}
+        </Panel>
+      ) : null}
 
-        {canDisableMfa ? (
-          <form className="form-grid" onSubmit={disable}>
-            <label>
-              Huidig wachtwoord
-              <input type="password" value={disablePassword} onChange={(event) => setDisablePassword(event.target.value)} required />
-            </label>
-            <label>
-              6-cijferige MFA-code
-              <input inputMode="numeric" pattern="[0-9]{6}" value={disableCode} onChange={(event) => setDisableCode(event.target.value)} required />
-            </label>
-            <div className="actions-row form-grid__wide">
-              <button className="secondary-button" type="submit" disabled={busy}>
-                MFA uitzetten
-              </button>
-            </div>
-          </form>
-        ) : null}
-        {error ? <p className="error-text">{error}</p> : null}
-        {message ? <p className="success-text">{message}</p> : null}
-      </Panel>
-
-      {recoveryCodes.length > 0 ? (
+      {showMfaManagement && recoveryCodes.length > 0 ? (
         <Panel title="Recovery codes">
           <pre>{recoveryCodes.join('\n')}</pre>
         </Panel>
@@ -1139,7 +1255,9 @@ function AssetTable({
               <td>{formatDate(asset.maintenance_due_at)}</td>
               <td>
                 <div className="actions-row">
-                  <button className="secondary-button" type="button" onClick={() => onEdit(asset)}>Aanpassen</button>
+                  <button className="secondary-button" type="button" onClick={() => onEdit(asset)}>
+                    <Pencil aria-hidden size={16} /> Aanpassen
+                  </button>
                   <button className="secondary-button" type="button" onClick={() => void onDelete(asset)}><Trash2 size={16} /> Verwijderen</button>
                 </div>
               </td>
@@ -1192,7 +1310,9 @@ function CertificationTable({
               <td>{formatDate(certification.expires_at)}</td>
               <td>
                 <div className="actions-row">
-                  <button className="secondary-button" type="button" onClick={() => onEdit(certification)}>Aanpassen</button>
+                  <button className="secondary-button" type="button" onClick={() => onEdit(certification)}>
+                    <Pencil aria-hidden size={16} /> Aanpassen
+                  </button>
                   <button className="secondary-button" type="button" onClick={() => void onDelete(certification)}><Trash2 size={16} /> Verwijderen</button>
                 </div>
               </td>

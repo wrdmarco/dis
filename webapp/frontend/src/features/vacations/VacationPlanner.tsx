@@ -1,7 +1,8 @@
 'use client';
 
-import { FormEvent, useEffect, useRef, useState } from 'react';
-import { CalendarDays, Pencil, Trash2, X } from 'lucide-react';
+import { FormEvent, useEffect, useState } from 'react';
+import { CalendarDays, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ModalDialog } from '../../components/ModalDialog';
 import { Panel } from '../../components/Panel';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
@@ -37,6 +38,7 @@ export function VacationPlanner({
   const [vacations, setVacations] = useState<UserVacation[]>([]);
   const [form, setForm] = useState<VacationFormState>(emptyVacationForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [vacationToDelete, setVacationToDelete] = useState<UserVacation | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -44,7 +46,6 @@ export function VacationPlanner({
   const [error, setError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const startsAtRef = useRef<HTMLInputElement>(null);
   const enabled = canView && (scope === 'mine' || userId !== undefined);
   const listPath = scope === 'mine'
     ? '/vacations/mine'
@@ -60,6 +61,7 @@ export function VacationPlanner({
     let cancelled = false;
     setVacations([]);
     setEditingId(null);
+    setEditorOpen(false);
     setVacationToDelete(null);
     setLoading(true);
     setError(null);
@@ -122,6 +124,7 @@ export function VacationPlanner({
       ]));
       setMessage(editingId === null ? 'Periode toegevoegd.' : 'Periode aangepast.');
       resetForm();
+      setEditorOpen(false);
       await onChanged?.();
     } catch (err) {
       setError(errorMessage(err, editingId === null ? 'Periode toevoegen mislukt.' : 'Periode aanpassen mislukt.'));
@@ -144,12 +147,29 @@ export function VacationPlanner({
     });
     setError(null);
     setMessage(null);
-    window.requestAnimationFrame(() => startsAtRef.current?.focus());
+    setEditorOpen(true);
   }
 
   function resetForm() {
     setEditingId(null);
     setForm(emptyVacationForm());
+  }
+
+  function openVacationEditor() {
+    resetForm();
+    setError(null);
+    setMessage(null);
+    setEditorOpen(true);
+  }
+
+  function closeVacationEditor() {
+    if (saving) {
+      return;
+    }
+
+    setEditorOpen(false);
+    setError(null);
+    resetForm();
   }
 
   function openDeleteModal(vacation: UserVacation) {
@@ -185,82 +205,16 @@ export function VacationPlanner({
 
   return (
     <>
-      <Panel title={scope === 'mine' ? 'Mijn vakantieplanning' : 'Vakantieplanning'}>
+      <Panel
+        title={scope === 'mine' ? 'Mijn vakantieplanning' : 'Vakantieplanning'}
+        action={canManage ? (
+          <button className="primary-button" type="button" onClick={openVacationEditor}>
+            <Plus aria-hidden size={16} /> Periode toevoegen
+          </button>
+        ) : undefined}
+      >
         <div className="panel-body vacation-planner">
-          {canManage ? (
-            <form className="vacation-planner__form" onSubmit={submitVacation}>
-              <div className="vacation-planner__form-heading">
-                <div>
-                  <strong>{editingId === null ? 'Periode toevoegen' : 'Periode aanpassen'}</strong>
-                  <span>
-                    {scope === 'mine'
-                      ? 'Leg vast of je tijdens deze periode wel of niet beschikbaar bent.'
-                      : 'Leg vast of deze gebruiker tijdens deze periode wel of niet beschikbaar is.'}
-                  </span>
-                </div>
-                {editingId !== null ? (
-                  <button className="secondary-button" type="button" onClick={resetForm} disabled={saving}>
-                    Annuleren
-                  </button>
-                ) : null}
-              </div>
-              <div className="vacation-planner__fields">
-                <label>
-                  Begindatum
-                  <input
-                    ref={startsAtRef}
-                    type="date"
-                    value={form.startsAt}
-                    required
-                    onChange={(event) => setForm((current) => ({ ...current, startsAt: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  Einddatum
-                  <input
-                    type="date"
-                    value={form.endsAt}
-                    min={form.startsAt || undefined}
-                    required
-                    onChange={(event) => setForm((current) => ({ ...current, endsAt: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  Beschikbaarheid
-                  <select
-                    value={form.isAvailable ? 'available' : 'unavailable'}
-                    onChange={(event) => setForm((current) => ({
-                      ...current,
-                      isAvailable: event.target.value === 'available',
-                    }))}
-                  >
-                    <option value="unavailable">Niet beschikbaar</option>
-                    <option value="available">Wel beschikbaar</option>
-                  </select>
-                </label>
-                <label>
-                  Notitie
-                  <input
-                    value={form.note}
-                    maxLength={1000}
-                    placeholder="Optioneel"
-                    onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
-                  />
-                </label>
-              </div>
-              <div className="vacation-planner__submit">
-                <button
-                  className="primary-button"
-                  type="submit"
-                  disabled={saving || form.startsAt === '' || form.endsAt === ''}
-                >
-                  {saving ? 'Opslaan...' : editingId === null ? 'Periode toevoegen' : 'Wijzigingen opslaan'}
-                </button>
-              </div>
-            </form>
-          ) : null}
-
-          {error ? <p className="form-error" role="alert">{error}</p> : null}
+          {!editorOpen && error ? <p className="form-error" role="alert">{error}</p> : null}
           {message ? <p className="form-note" role="status">{message}</p> : null}
           {loading ? <p className="muted-text">Vakantieplanning laden...</p> : null}
           {!loading && vacations.length === 0 ? (
@@ -270,7 +224,7 @@ export function VacationPlanner({
                 <strong>Nog geen periodes gepland</strong>
                 <span>
                   {canManage
-                    ? scope === 'mine' ? 'Voeg hierboven je eerste periode toe.' : 'Voeg hierboven een eerste periode toe.'
+                    ? scope === 'mine' ? 'Voeg je eerste periode toe.' : 'Voeg een eerste periode toe.'
                     : 'Er zijn geen periodes geregistreerd.'}
                 </span>
               </div>
@@ -311,44 +265,106 @@ export function VacationPlanner({
         </div>
       </Panel>
 
-      {vacationToDelete !== null ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal modal--narrow" role="dialog" aria-modal="true" aria-labelledby="delete-vacation-title">
-            <header className="modal__header">
-              <div>
-                <span className="modal__eyebrow">Vakantieplanning</span>
-                <h2 id="delete-vacation-title">Periode verwijderen?</h2>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                onClick={() => setVacationToDelete(null)}
-                aria-label="Sluiten"
-                disabled={deleting}
+      {editorOpen ? (
+        <ModalDialog
+          eyebrow={scope === 'mine' ? 'Mijn vakantieplanning' : 'Vakantieplanning'}
+          title={editingId === null ? 'Periode toevoegen' : 'Periode aanpassen'}
+          description={scope === 'mine'
+            ? 'Leg vast of je tijdens deze periode wel of niet beschikbaar bent.'
+            : 'Leg vast of deze gebruiker tijdens deze periode wel of niet beschikbaar is.'}
+          narrow
+          closeDisabled={saving}
+          onClose={closeVacationEditor}
+        >
+          <form className="form-grid" onSubmit={submitVacation}>
+            <label>
+              Begindatum
+              <input
+                data-dialog-initial="true"
+                type="date"
+                value={form.startsAt}
+                required
+                onChange={(event) => setForm((current) => ({ ...current, startsAt: event.target.value }))}
+              />
+            </label>
+            <label>
+              Einddatum
+              <input
+                type="date"
+                value={form.endsAt}
+                min={form.startsAt || undefined}
+                required
+                onChange={(event) => setForm((current) => ({ ...current, endsAt: event.target.value }))}
+              />
+            </label>
+            <label>
+              Beschikbaarheid
+              <select
+                value={form.isAvailable ? 'available' : 'unavailable'}
+                onChange={(event) => setForm((current) => ({
+                  ...current,
+                  isAvailable: event.target.value === 'available',
+                }))}
               >
-                <X aria-hidden size={18} />
-              </button>
-            </header>
-            <div className="confirm-dialog">
-              <p>
-                Weet je zeker dat je de periode <strong>{vacationDateRange(vacationToDelete)}</strong> wilt verwijderen?
-              </p>
-              <p className="muted-text">
-                Deze {vacationToDelete.status === 'active' ? 'actieve' : 'geplande'} periode staat als{' '}
-                {vacationToDelete.is_available ? 'beschikbaar' : 'niet beschikbaar'} en wordt definitief verwijderd.
-              </p>
-              {deleteError ? <p className="form-error" role="alert">{deleteError}</p> : null}
-            </div>
-            <div className="actions-row">
-              <button className="secondary-button" type="button" onClick={() => setVacationToDelete(null)} disabled={deleting}>
+                <option value="unavailable">Niet beschikbaar</option>
+                <option value="available">Wel beschikbaar</option>
+              </select>
+            </label>
+            <label>
+              Notitie
+              <input
+                value={form.note}
+                maxLength={1000}
+                placeholder="Optioneel"
+                onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+              />
+            </label>
+            {error ? <p className="form-error form-grid__wide" role="alert">{error}</p> : null}
+            <div className="actions-row form-grid__wide">
+              <button className="secondary-button" type="button" onClick={closeVacationEditor} disabled={saving}>
                 Annuleren
               </button>
-              <button className="danger-button" type="button" onClick={() => void deleteVacation()} disabled={deleting}>
-                {deleting ? 'Verwijderen...' : 'Periode definitief verwijderen'}
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={saving || form.startsAt === '' || form.endsAt === ''}
+              >
+                {saving ? 'Opslaan...' : editingId === null ? 'Periode toevoegen' : 'Wijzigingen opslaan'}
               </button>
             </div>
-          </section>
-        </div>
+          </form>
+        </ModalDialog>
+      ) : null}
+
+      {vacationToDelete !== null ? (
+        <ModalDialog
+          eyebrow="Vakantieplanning"
+          title="Periode verwijderen?"
+          description={(
+            <>
+              Deze {vacationToDelete.status === 'active' ? 'actieve' : 'geplande'} periode staat als{' '}
+              {vacationToDelete.is_available ? 'beschikbaar' : 'niet beschikbaar'} en wordt definitief verwijderd.
+            </>
+          )}
+          narrow
+          closeDisabled={deleting}
+          onClose={() => setVacationToDelete(null)}
+        >
+          <div className="confirm-dialog">
+            <p>
+              Weet je zeker dat je de periode <strong>{vacationDateRange(vacationToDelete)}</strong> wilt verwijderen?
+            </p>
+            {deleteError ? <p className="form-error" role="alert">{deleteError}</p> : null}
+          </div>
+          <div className="actions-row">
+            <button className="secondary-button" type="button" onClick={() => setVacationToDelete(null)} disabled={deleting}>
+              Annuleren
+            </button>
+            <button className="danger-button" type="button" onClick={() => void deleteVacation()} disabled={deleting}>
+              {deleting ? 'Verwijderen...' : 'Periode definitief verwijderen'}
+            </button>
+          </div>
+        </ModalDialog>
       ) : null}
     </>
   );

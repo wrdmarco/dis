@@ -247,13 +247,20 @@ test('refreshes the two-week schedule after a vacation period is added', async (
   const todayMorning = upcomingTable.getByRole('row').nth(1).getByRole('cell').first();
   await expect(todayMorning).toHaveText('Beschikbaar');
 
-  const startsAt = page.getByLabel('Begindatum');
-  const today = await startsAt.inputValue();
-  await page.getByLabel('Einddatum').fill(today);
   const vacationPanel = page.getByRole('heading', { level: 2, name: 'Vakantieplanning' }).locator('..').locator('..');
-  await vacationPanel.getByRole('combobox').selectOption('unavailable');
-  await page.getByRole('button', { name: 'Periode toevoegen', exact: true }).click();
+  const addVacationButton = vacationPanel.getByRole('button', { name: 'Periode toevoegen', exact: true });
+  await addVacationButton.click();
+  const vacationDialog = page.getByRole('dialog', { name: 'Periode toevoegen', exact: true });
+  await expect(vacationDialog).toBeVisible();
+  const startsAt = vacationDialog.getByLabel('Begindatum');
+  await expect(startsAt).toBeFocused();
+  const today = await startsAt.inputValue();
+  await vacationDialog.getByLabel('Einddatum').fill(today);
+  await vacationDialog.getByRole('combobox').selectOption('unavailable');
+  await vacationDialog.getByRole('button', { name: 'Periode toevoegen', exact: true }).click();
 
+  await expect(vacationDialog).toHaveCount(0);
+  await expect(addVacationButton).toBeFocused();
   await expect(page.getByText('Periode toegevoegd.', { exact: true })).toBeVisible();
   await expect.poll(() => requests.schedule).toBeGreaterThan(1);
   await expect(todayMorning).toHaveText('Niet beschikbaar');

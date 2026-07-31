@@ -4,6 +4,7 @@ import { safeNotificationActionUrl } from '../src/features/notifications/notific
 import type {
   Asset,
   ProductRequest,
+  User,
   UserCertification,
   UserNotification,
 } from '../src/types/api';
@@ -306,6 +307,87 @@ test('profile notification queries focus the exact matching own row', async ({ p
   await expect(page.locator('#profile-certification-user-cert-other')).not.toBeFocused();
 });
 
+test('profile opens compact asset and certification editors as accessible dialogs', async ({ page }) => {
+  await mockNotificationApi(page, notificationState([]));
+  await page.goto('/profile');
+
+  const addAssetButton = page.getByRole('button', { name: 'Asset toevoegen', exact: true });
+  await addAssetButton.click();
+  let editor = page.getByRole('dialog', { name: 'Asset toevoegen', exact: true });
+  await expect(editor).toBeVisible();
+  await expect(editor).toHaveAttribute('aria-modal', 'true');
+  await expect(editor.getByLabel('Naam', { exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  await expect(addAssetButton).toBeFocused();
+
+  const addCertificationButton = page.getByRole('button', { name: 'Certificaat toevoegen', exact: true });
+  await addCertificationButton.click();
+  editor = page.getByRole('dialog', { name: 'Certificaat toevoegen', exact: true });
+  await expect(editor).toBeVisible();
+  await expect(editor.getByRole('combobox').first()).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  await expect(addCertificationButton).toBeFocused();
+  await expect(page.getByRole('heading', { level: 2, name: 'Multi-factor authenticatie' })).toBeVisible();
+});
+
+test('profile submits asset and certification changes from their dialogs', async ({ page }) => {
+  await mockNotificationApi(page, notificationState([]));
+  await page.goto('/profile');
+
+  await page.getByRole('button', { name: 'Asset toevoegen', exact: true }).click();
+  let editor = page.getByRole('dialog', { name: 'Asset toevoegen', exact: true });
+  await editor.getByLabel('Naam', { exact: true }).fill('Operationeel voertuig');
+  await editor.getByRole('combobox').first().selectOption('vehicle');
+  await editor.getByRole('button', { name: 'Asset toevoegen', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Asset opgeslagen.' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Certificaat toevoegen', exact: true }).click();
+  editor = page.getByRole('dialog', { name: 'Certificaat toevoegen', exact: true });
+  await editor.getByRole('combobox').first().selectOption('cert-nine');
+  await editor.getByRole('button', { name: 'Certificaat toevoegen', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Certificaat opgeslagen.' })).toBeVisible();
+});
+
+test('profile editor stays inside a small mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockNotificationApi(page, notificationState([]));
+  await page.goto('/profile');
+  await page.getByRole('button', { name: 'Asset toevoegen', exact: true }).click();
+
+  const editor = page.getByRole('dialog', { name: 'Asset toevoegen', exact: true });
+  const bounds = await editor.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(375);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(812);
+  const viewport = await page.evaluate(() => ({
+    innerWidth: window.innerWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.innerWidth);
+});
+
+test('profile hides MFA management for ordinary operators', async ({ page }) => {
+  const operator = notificationTestUser();
+  operator.roles = [{
+    id: 'operator-role',
+    name: 'operator',
+    display_name: 'Operator',
+    can_use_operator_app: true,
+    can_use_admin_app: false,
+    permissions: [],
+  }];
+  await mockNotificationApi(page, notificationState([]), operator);
+  await page.goto('/profile');
+  await expect(page.getByRole('heading', { level: 2, name: 'Multi-factor authenticatie' })).toHaveCount(0);
+  await expect(page.getByText('MFA status', { exact: true })).toHaveCount(0);
+});
+
 test('request notification query loads its exact detail even when the list is empty', async ({ page }) => {
   const state = notificationState([]);
   await mockNotificationApi(page, state);
@@ -423,7 +505,11 @@ function notification(
   };
 }
 
-async function mockNotificationApi(page: Page, state: NotificationMockState): Promise<void> {
+async function mockNotificationApi(
+  page: Page,
+  state: NotificationMockState,
+  authenticatedUser: User = notificationTestUser(),
+): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -435,12 +521,12 @@ async function mockNotificationApi(page: Page, state: NotificationMockState): Pr
     }
 
     if (path === '/api/auth/me') {
-      await fulfillJson(route, 200, { data: notificationTestUser() });
+      await fulfillJson(route, 200, { data: authenticatedUser });
       return;
     }
 
     if (path === '/api/auth/session/touch' && method === 'POST') {
-      await fulfillJson(route, 200, { data: notificationTestUser() });
+      await fulfillJson(route, 200, { data: authenticatedUser });
       return;
     }
 
@@ -549,6 +635,13 @@ async function mockNotificationApi(page: Page, state: NotificationMockState): Pr
       return;
     }
 
+    if (path === '/api/certifications/options' && method === 'GET') {
+      await fulfillJson(route, 200, {
+        data: ownCertifications().map((certification) => certification.certification),
+      });
+      return;
+    }
+
     if (path === '/api/availability-schedule/me' && method === 'GET') {
       await fulfillJson(route, 200, {
         data: {
@@ -575,7 +668,7 @@ async function mockNotificationApi(page: Page, state: NotificationMockState): Pr
   });
 }
 
-function notificationTestUser() {
+function notificationTestUser(): User {
   return {
     id: 'notification-user',
     name: 'Eigen gebruiker',
