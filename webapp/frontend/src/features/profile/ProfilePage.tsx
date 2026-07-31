@@ -1,6 +1,6 @@
 import { useSearchParams } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Smartphone, Tablet, Trash2, X } from 'lucide-react';
+import { KeyRound, Pencil, Plus, RefreshCw, Smartphone, Tablet, Trash2, X } from 'lucide-react';
 import { ModalDialog } from '../../components/ModalDialog';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -70,7 +70,7 @@ function emptyCertificationForm() {
 }
 
 export function ProfilePage() {
-  const { api, user, theme, setThemePreference, startTwoFactorSetup, enableTwoFactor, disableTwoFactor, refreshMe } = useAuth();
+  const { api, user, theme, setThemePreference, startTwoFactorSetup, enableTwoFactor, refreshMe } = useAuth();
   const searchParams = useSearchParams();
   const assets = useApiResource<Asset[]>('/assets/mine');
   const devices = useApiResource<FcmToken[]>('/devices');
@@ -79,8 +79,6 @@ export function ProfilePage() {
   const userCertifications = useApiResource<UserCertification[]>('/certifications/me');
   const [setup, setSetup] = useState<TwoFactorSetup | null>(null);
   const [enableCode, setEnableCode] = useState('');
-  const [disablePassword, setDisablePassword] = useState('');
-  const [disableCode, setDisableCode] = useState('');
   const [addDeviceOpen, setAddDeviceOpen] = useState(false);
   const [deviceToDelete, setDeviceToDelete] = useState<FcmToken | null>(null);
   const [profileForm, setProfileForm] = useState<ProfileFormState>(emptyProfileForm);
@@ -88,6 +86,8 @@ export function ProfilePage() {
   const [certificationForm, setCertificationForm] = useState(emptyCertificationForm());
   const [assetEditorOpen, setAssetEditorOpen] = useState(false);
   const [certificationEditorOpen, setCertificationEditorOpen] = useState(false);
+  const [assetToDelete, setAssetToDelete] = useState<Asset | null>(null);
+  const [certificationToDelete, setCertificationToDelete] = useState<UserCertification | null>(null);
   const [pairingClientType, setPairingClientType] = useState<MobilePairingClientType | ''>('');
   const [pairing, setPairing] = useState<MobilePairingCode | null>(null);
   const [pairingSecondsLeft, setPairingSecondsLeft] = useState(0);
@@ -117,18 +117,18 @@ export function ProfilePage() {
   const selectedAssetDroneType = droneTypes.data?.find((type) => type.id === assetForm.droneTypeId) ?? null;
   const assetSupportsSpotlight = assetForm.type === 'drone' && selectedAssetDroneType?.has_spotlight === true;
   const assetSupportsSpeaker = assetForm.type === 'drone' && selectedAssetDroneType?.has_speaker === true;
+  const editingAsset = assetForm.id === null
+    ? null
+    : assets.data?.find((asset) => asset.id === assetForm.id) ?? null;
+  const editingCertification = certificationForm.id === null
+    ? null
+    : userCertifications.data?.find((certification) => certification.id === certificationForm.id) ?? null;
   const pairingOptions = pairingClientOptions(user);
+  const assetListLoading = assets.loading || droneTypes.loading;
+  const certificationListLoading = userCertifications.loading || certificationOptions.loading;
 
   const mfaRequired = user?.mfa_required === true;
   const requiresMfaSetup = mfaRequired && user?.two_factor_enabled !== true;
-  const hasWebAdministration = user?.roles?.some((role) => role.can_use_admin_app) === true;
-  const showMfaManagement = hasWebAdministration || requiresMfaSetup || setup !== null || recoveryCodes.length > 0;
-  const canDisableMfa = user?.two_factor_enabled === true && !mfaRequired;
-  const mfaDescription = mfaRequired
-    ? user?.two_factor_enabled
-      ? 'MFA is verplicht en kan niet door de gebruiker worden uitgeschakeld.'
-      : 'Stel je Authenticator app in om verder te gaan.'
-    : 'Gebruik een authenticator app met 6-cijferige TOTP-codes.';
 
   const startSetup = useCallback(async () => {
     setBusy(true);
@@ -184,8 +184,8 @@ export function ProfilePage() {
     if (
       targetId === null
       || targetPrefix === null
-      || (section === 'assets' && assets.loading)
-      || (section === 'certifications' && userCertifications.loading)
+      || (section === 'assets' && assetListLoading)
+      || (section === 'certifications' && certificationListLoading)
     ) {
       return undefined;
     }
@@ -201,10 +201,10 @@ export function ProfilePage() {
     return () => window.cancelAnimationFrame(focusFrame);
   }, [
     assets.data,
-    assets.loading,
+    assetListLoading,
+    certificationListLoading,
     searchParams,
     userCertifications.data,
-    userCertifications.loading,
   ]);
 
   const loadPairingCode = useCallback(async (clientType: MobilePairingClientType | '') => {
@@ -274,23 +274,6 @@ export function ProfilePage() {
       setMessage('MFA is ingeschakeld.');
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'MFA inschakelen mislukt.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function disable(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      await disableTwoFactor(disablePassword, disableCode);
-      setDisablePassword('');
-      setDisableCode('');
-      setMessage('MFA is uitgeschakeld.');
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'MFA uitzetten mislukt.');
     } finally {
       setBusy(false);
     }
@@ -369,6 +352,8 @@ export function ProfilePage() {
       }
       setAssetMessage('Asset verwijderd.');
       await assets.reload();
+      setAssetToDelete(null);
+      setAssetEditorOpen(false);
     } catch (err) {
       setAssetError(err instanceof ApiClientError ? err.message : 'Asset kon niet worden verwijderd.');
     } finally {
@@ -410,6 +395,26 @@ export function ProfilePage() {
     setAssetEditorOpen(false);
     setAssetError(null);
     setAssetForm(emptyAssetForm());
+  }
+
+  function requestAssetDelete() {
+    if (editingAsset === null || savingAsset) {
+      return;
+    }
+
+    setAssetError(null);
+    setAssetEditorOpen(false);
+    setAssetToDelete(editingAsset);
+  }
+
+  function cancelAssetDelete() {
+    if (savingAsset) {
+      return;
+    }
+
+    setAssetToDelete(null);
+    setAssetError(null);
+    setAssetEditorOpen(true);
   }
 
   async function submitCertification(event: FormEvent<HTMLFormElement>) {
@@ -455,6 +460,8 @@ export function ProfilePage() {
       }
       setCertificationMessage('Certificaat verwijderd.');
       await userCertifications.reload();
+      setCertificationToDelete(null);
+      setCertificationEditorOpen(false);
     } catch (err) {
       setCertificationError(err instanceof ApiClientError ? err.message : 'Certificaat kon niet worden verwijderd.');
     } finally {
@@ -551,6 +558,26 @@ export function ProfilePage() {
     setCertificationForm(emptyCertificationForm());
   }
 
+  function requestCertificationDelete() {
+    if (editingCertification === null || savingCertification) {
+      return;
+    }
+
+    setCertificationError(null);
+    setCertificationEditorOpen(false);
+    setCertificationToDelete(editingCertification);
+  }
+
+  function cancelCertificationDelete() {
+    if (savingCertification) {
+      return;
+    }
+
+    setCertificationToDelete(null);
+    setCertificationError(null);
+    setCertificationEditorOpen(true);
+  }
+
   return (
     <div className="page-stack profile-page">
       <Panel title="Profiel">
@@ -561,14 +588,6 @@ export function ProfilePage() {
           <dd>{user?.email ?? '-'}</dd>
           <dt>Rollen</dt>
           <dd>{user?.roles?.map((role) => role.display_name).join(', ') || '-'}</dd>
-          {showMfaManagement ? (
-            <>
-              <dt>MFA status</dt>
-              <dd>{user?.two_factor_enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
-              <dt>MFA verplicht</dt>
-              <dd>{mfaRequired ? 'Ja' : 'Nee'}</dd>
-            </>
-          ) : null}
           <dt>Weergave</dt>
           <dd>
             <div className="segmented-control" role="group" aria-label="Weergave">
@@ -796,20 +815,21 @@ export function ProfilePage() {
       />
 
       <Panel
+        className="compact-panel"
         title="Mijn assets"
         action={(
-          <button className="primary-button" type="button" onClick={openNewAssetEditor}>
-            <Plus aria-hidden size={16} /> Asset toevoegen
+          <button className="secondary-button compact-add-button" type="button" onClick={openNewAssetEditor} aria-label="Asset toevoegen">
+            <Plus aria-hidden size={16} /> Toevoegen
           </button>
         )}
       >
-        {!assetEditorOpen && (assetError || assetMessage) ? (
+        {!assetEditorOpen && assetToDelete === null && (assetError || assetMessage) ? (
           <div className="profile-panel-feedback">
             {assetError ? <p className="form-error" role="alert">{assetError}</p> : null}
             {assetMessage ? <p className="form-note" role="status">{assetMessage}</p> : null}
           </div>
         ) : null}
-        <AssetTable assets={assets.data ?? []} loading={assets.loading || droneTypes.loading} error={assets.error ?? droneTypes.error} onEdit={setAssetFormFromAsset} onDelete={deleteAsset} />
+        <AssetList assets={assets.data ?? []} loading={assetListLoading} error={assets.error ?? droneTypes.error} onEdit={setAssetFormFromAsset} />
       </Panel>
 
       {assetEditorOpen ? (
@@ -901,7 +921,12 @@ export function ProfilePage() {
               <textarea value={assetForm.notes} onChange={(event) => setAssetForm((current) => ({ ...current, notes: event.target.value }))} />
             </label>
             {assetError ? <p className="form-error form-grid__wide" role="alert">{assetError}</p> : null}
-            <div className="actions-row form-grid__wide">
+            <div className="actions-row form-grid__wide profile-editor-actions">
+              {editingAsset !== null ? (
+                <button className="danger-button" type="button" onClick={requestAssetDelete} disabled={savingAsset}>
+                  <Trash2 aria-hidden size={16} /> Verwijderen
+                </button>
+              ) : null}
               <button className="secondary-button" type="button" onClick={closeAssetEditor} disabled={savingAsset}>
                 Annuleren
               </button>
@@ -913,26 +938,50 @@ export function ProfilePage() {
         </ModalDialog>
       ) : null}
 
+      {assetToDelete !== null ? (
+        <ModalDialog
+          eyebrow="Mijn assets"
+          title="Asset verwijderen?"
+          description="Deze asset verdwijnt uit je profiel en telt daarna niet meer mee bij de inzetcontrole."
+          narrow
+          closeDisabled={savingAsset}
+          onClose={cancelAssetDelete}
+        >
+          <div className="confirm-dialog">
+            <p>Weet je zeker dat je <strong>{assetToDelete.name}</strong> wilt verwijderen?</p>
+            {assetError ? <p className="form-error" role="alert">{assetError}</p> : null}
+          </div>
+          <div className="actions-row">
+            <button className="secondary-button" type="button" onClick={cancelAssetDelete} disabled={savingAsset}>
+              Terug naar aanpassen
+            </button>
+            <button className="danger-button" type="button" onClick={() => void deleteAsset(assetToDelete)} disabled={savingAsset}>
+              {savingAsset ? 'Verwijderen...' : 'Asset definitief verwijderen'}
+            </button>
+          </div>
+        </ModalDialog>
+      ) : null}
+
       <Panel
+        className="compact-panel"
         title="Mijn certificaten"
         action={(
-          <button className="primary-button" type="button" onClick={openNewCertificationEditor}>
-            <Plus aria-hidden size={16} /> Certificaat toevoegen
+          <button className="secondary-button compact-add-button" type="button" onClick={openNewCertificationEditor} aria-label="Certificaat toevoegen">
+            <Plus aria-hidden size={16} /> Toevoegen
           </button>
         )}
       >
-        {!certificationEditorOpen && (certificationError || certificationMessage) ? (
+        {!certificationEditorOpen && certificationToDelete === null && (certificationError || certificationMessage) ? (
           <div className="profile-panel-feedback">
             {certificationError ? <p className="form-error" role="alert">{certificationError}</p> : null}
             {certificationMessage ? <p className="form-note" role="status">{certificationMessage}</p> : null}
           </div>
         ) : null}
-        <CertificationTable
+        <CertificationList
           certifications={userCertifications.data ?? []}
-          loading={userCertifications.loading || certificationOptions.loading}
+          loading={certificationListLoading}
           error={userCertifications.error ?? certificationOptions.error}
           onEdit={setCertificationFormFromCertification}
-          onDelete={deleteCertification}
         />
       </Panel>
 
@@ -987,7 +1036,12 @@ export function ProfilePage() {
               </select>
             </label>
             {certificationError ? <p className="form-error form-grid__wide" role="alert">{certificationError}</p> : null}
-            <div className="actions-row form-grid__wide">
+            <div className="actions-row form-grid__wide profile-editor-actions">
+              {editingCertification !== null ? (
+                <button className="danger-button" type="button" onClick={requestCertificationDelete} disabled={savingCertification}>
+                  <Trash2 aria-hidden size={16} /> Verwijderen
+                </button>
+              ) : null}
               <button className="secondary-button" type="button" onClick={closeCertificationEditor} disabled={savingCertification}>
                 Annuleren
               </button>
@@ -999,15 +1053,41 @@ export function ProfilePage() {
         </ModalDialog>
       ) : null}
 
-      {showMfaManagement ? (
-        <Panel title="Multi-factor authenticatie">
+      {certificationToDelete !== null ? (
+        <ModalDialog
+          eyebrow="Mijn certificaten"
+          title="Certificaat verwijderen?"
+          description="Deze registratie verdwijnt uit je profiel en telt daarna niet meer mee bij de inzetcontrole."
+          narrow
+          closeDisabled={savingCertification}
+          onClose={cancelCertificationDelete}
+        >
+          <div className="confirm-dialog">
+            <p>
+              Weet je zeker dat je <strong>{certificationToDelete.certification?.name ?? 'dit certificaat'}</strong> wilt verwijderen?
+            </p>
+            {certificationError ? <p className="form-error" role="alert">{certificationError}</p> : null}
+          </div>
+          <div className="actions-row">
+            <button className="secondary-button" type="button" onClick={cancelCertificationDelete} disabled={savingCertification}>
+              Terug naar aanpassen
+            </button>
+            <button className="danger-button" type="button" onClick={() => void deleteCertification(certificationToDelete)} disabled={savingCertification}>
+              {savingCertification ? 'Verwijderen...' : 'Certificaat definitief verwijderen'}
+            </button>
+          </div>
+        </ModalDialog>
+      ) : null}
+
+      {requiresMfaSetup || setup !== null ? (
+        <Panel title="Account beveiligen">
           <div className="mfa-card">
-            <div className="mfa-card__icon"><ShieldCheck size={22} /></div>
+            <div className="mfa-card__icon"><KeyRound size={22} /></div>
             <div>
-              <strong>{user?.two_factor_enabled ? 'MFA actief' : 'MFA niet actief'}</strong>
-              <p>{mfaDescription}</p>
+              <strong>MFA instellen vereist</strong>
+              <p>Rond de verplichte beveiligingsstap af om verder te gaan.</p>
             </div>
-            {!user?.two_factor_enabled ? (
+            {setup === null ? (
               <button className="primary-button" type="button" onClick={startSetup} disabled={busy}>
                 <KeyRound size={16} /> MFA instellen
               </button>
@@ -1038,30 +1118,12 @@ export function ProfilePage() {
               </div>
             </form>
           ) : null}
-
-          {canDisableMfa ? (
-            <form className="form-grid" onSubmit={disable}>
-              <label>
-                Huidig wachtwoord
-                <input type="password" value={disablePassword} onChange={(event) => setDisablePassword(event.target.value)} required />
-              </label>
-              <label>
-                6-cijferige MFA-code
-                <input inputMode="numeric" pattern="[0-9]{6}" value={disableCode} onChange={(event) => setDisableCode(event.target.value)} required />
-              </label>
-              <div className="actions-row form-grid__wide">
-                <button className="secondary-button" type="submit" disabled={busy}>
-                  MFA uitzetten
-                </button>
-              </div>
-            </form>
-          ) : null}
           {error ? <p className="error-text">{error}</p> : null}
           {message ? <p className="success-text">{message}</p> : null}
         </Panel>
       ) : null}
 
-      {showMfaManagement && recoveryCodes.length > 0 ? (
+      {recoveryCodes.length > 0 ? (
         <Panel title="Recovery codes">
           <pre>{recoveryCodes.join('\n')}</pre>
         </Panel>
@@ -1214,112 +1276,125 @@ function lastNameFromDisplayName(name: string): string {
   return parts.length > 1 ? parts.slice(1).join(' ') : '';
 }
 
-function AssetTable({
+function AssetList({
   assets,
   loading,
   error,
   onEdit,
-  onDelete,
 }: {
   assets: Asset[];
   loading: boolean;
   error: string | null;
   onEdit: (asset: Asset) => void;
-  onDelete: (asset: Asset) => Promise<void>;
 }) {
   return (
     <ResourceState loading={loading} error={error} empty={assets.length === 0}>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th scope="col">Naam</th>
-            <th scope="col">Type</th>
-            <th scope="col">Status</th>
-            <th scope="col">Serienummer</th>
-            <th scope="col">Onderhoud</th>
-            <th scope="col">Actie</th>
-          </tr>
-        </thead>
-        <tbody>
-          {assets.map((asset) => (
-            <tr
-              className="profile-notification-target"
+      <ul className="compact-record-list" aria-label="Mijn assets">
+        {assets.map((asset) => {
+          const tone = asset.status === 'ready'
+            ? 'good'
+            : asset.status === 'maintenance'
+              ? 'warn'
+              : asset.status === 'assigned'
+                ? 'neutral'
+                : 'critical';
+
+          return (
+            <li
+              className={`compact-record compact-record--${tone} profile-notification-target`}
               id={`profile-asset-${asset.id}`}
               key={asset.id}
               tabIndex={-1}
             >
-              <td>{asset.name}</td>
-              <td>{asset.drone_type ? droneTypeLabel(asset.drone_type) : assetTypeLabel(asset.type)}</td>
-              <td><StatusPill value={assetStatusLabel(asset.status)} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
-              <td>{asset.serial_number ?? '-'}</td>
-              <td>{formatDate(asset.maintenance_due_at)}</td>
-              <td>
-                <div className="actions-row">
-                  <button className="secondary-button" type="button" onClick={() => onEdit(asset)}>
-                    <Pencil aria-hidden size={16} /> Aanpassen
-                  </button>
-                  <button className="secondary-button" type="button" onClick={() => void onDelete(asset)}><Trash2 size={16} /> Verwijderen</button>
+              <div className="compact-record__summary">
+                <div className="compact-record__identity">
+                  <strong>{asset.name}</strong>
+                  <span>{asset.drone_type ? droneTypeLabel(asset.drone_type) : assetTypeLabel(asset.type)}</span>
                 </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <StatusPill value={assetStatusLabel(asset.status)} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} />
+              </div>
+              <dl className="compact-record__meta">
+                <div>
+                  <dt>Serienummer</dt>
+                  <dd>{asset.serial_number ?? '-'}</dd>
+                </div>
+                <div>
+                  <dt>Onderhoud</dt>
+                  <dd>{formatDate(asset.maintenance_due_at)}</dd>
+                </div>
+              </dl>
+              <div className="compact-record__actions" role="group" aria-label={`Acties voor ${asset.name}`}>
+                <button className="icon-button" type="button" onClick={() => onEdit(asset)} aria-label={`${asset.name} aanpassen`} title="Aanpassen">
+                  <Pencil aria-hidden size={17} />
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </ResourceState>
   );
 }
 
-function CertificationTable({
+function CertificationList({
   certifications,
   loading,
   error,
   onEdit,
-  onDelete,
 }: {
   certifications: UserCertification[];
   loading: boolean;
   error: string | null;
   onEdit: (certification: UserCertification) => void;
-  onDelete: (certification: UserCertification) => Promise<void>;
 }) {
   return (
     <ResourceState loading={loading} error={error} empty={certifications.length === 0}>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th scope="col">Certificaat</th>
-            <th scope="col">Status</th>
-            <th scope="col">Nummer</th>
-            <th scope="col">Afgifte</th>
-            <th scope="col">Verloopt</th>
-            <th scope="col">Actie</th>
-          </tr>
-        </thead>
-        <tbody>
-          {certifications.map((certification) => (
-            <tr
-              className="profile-notification-target"
+      <ul className="compact-record-list" aria-label="Mijn certificaten">
+        {certifications.map((certification) => {
+          const tone = certification.status === 'active' ? 'good' : certification.status === 'revoked' ? 'critical' : 'warn';
+
+          return (
+            <li
+              className={`compact-record compact-record--${tone} profile-notification-target`}
               id={`profile-certification-${certification.id}`}
               key={certification.id}
               tabIndex={-1}
             >
-              <td>{certification.certification?.name ?? '-'}</td>
-              <td><StatusPill value={certificationStatusLabel(certification.status)} tone={certification.status === 'active' ? 'good' : 'warn'} /></td>
-              <td>{certification.certificate_number ?? '-'}</td>
-              <td>{formatDate(certification.issued_at)}</td>
-              <td>{formatDate(certification.expires_at)}</td>
-              <td>
-                <div className="actions-row">
-                  <button className="secondary-button" type="button" onClick={() => onEdit(certification)}>
-                    <Pencil aria-hidden size={16} /> Aanpassen
-                  </button>
-                  <button className="secondary-button" type="button" onClick={() => void onDelete(certification)}><Trash2 size={16} /> Verwijderen</button>
+              <div className="compact-record__summary">
+                <div className="compact-record__identity">
+                  <strong>{certification.certification?.name ?? '-'}</strong>
                 </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <StatusPill value={certificationStatusLabel(certification.status)} tone={certification.status === 'active' ? 'good' : 'warn'} />
+              </div>
+              <dl className="compact-record__meta">
+                <div>
+                  <dt>Nummer</dt>
+                  <dd>{certification.certificate_number ?? '-'}</dd>
+                </div>
+                <div>
+                  <dt>Afgifte</dt>
+                  <dd>{formatDate(certification.issued_at)}</dd>
+                </div>
+                <div>
+                  <dt>Verloopt</dt>
+                  <dd>{formatDate(certification.expires_at)}</dd>
+                </div>
+              </dl>
+              <div className="compact-record__actions" role="group" aria-label={`Acties voor ${certification.certification?.name ?? 'certificaat'}`}>
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => onEdit(certification)}
+                  aria-label={`${certification.certification?.name ?? 'Certificaat'} aanpassen`}
+                  title="Aanpassen"
+                >
+                  <Pencil aria-hidden size={17} />
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </ResourceState>
   );
 }

@@ -46,6 +46,9 @@ test('supports create, edit and confirmed deletion for both endpoint scopes', ()
   expect(vacationPlanner).toContain('<ModalDialog');
   expect(vacationPlanner).toContain('title={editingId === null ? \'Periode toevoegen\' : \'Periode aanpassen\'}');
   expect(vacationPlanner).toContain('data-dialog-initial="true"');
+  expect(vacationPlanner).toContain('className="compact-record-list"');
+  expect(vacationPlanner).toContain('onClick={requestVacationDelete}');
+  expect(vacationPlanner).not.toContain('openDeleteModal(vacation)');
   expect(modalDialog).toContain('role="dialog"');
   expect(modalDialog).toContain('aria-modal="true"');
   expect(modalDialog).toContain("if (event.key === 'Escape')");

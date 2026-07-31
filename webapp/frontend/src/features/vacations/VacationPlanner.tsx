@@ -172,9 +172,27 @@ export function VacationPlanner({
     resetForm();
   }
 
-  function openDeleteModal(vacation: UserVacation) {
+  function requestVacationDelete() {
+    const vacation = vacations.find((candidate) => candidate.id === editingId);
+    if (vacation === undefined || saving || deleting) {
+      return;
+    }
+
     setDeleteError(null);
+    setEditorOpen(false);
     setVacationToDelete(vacation);
+  }
+
+  function cancelVacationDelete() {
+    if (deleting) {
+      return;
+    }
+
+    setVacationToDelete(null);
+    setDeleteError(null);
+    if (editingId !== null) {
+      setEditorOpen(true);
+    }
   }
 
   async function deleteVacation() {
@@ -206,10 +224,11 @@ export function VacationPlanner({
   return (
     <>
       <Panel
+        className="compact-panel"
         title={scope === 'mine' ? 'Mijn vakantieplanning' : 'Vakantieplanning'}
         action={canManage ? (
-          <button className="primary-button" type="button" onClick={openVacationEditor}>
-            <Plus aria-hidden size={16} /> Periode toevoegen
+          <button className="secondary-button compact-add-button" type="button" onClick={openVacationEditor} aria-label="Periode toevoegen">
+            <Plus aria-hidden size={16} /> Toevoegen
           </button>
         ) : undefined}
       >
@@ -231,36 +250,42 @@ export function VacationPlanner({
             </div>
           ) : null}
           {vacations.length > 0 ? (
-            <div className="vacation-card-grid" aria-label="Geplande vakantieperiodes">
+            <ul className="compact-record-list" aria-label="Geplande vakantieperiodes">
               {vacations.map((vacation) => (
-                <article className="vacation-card" key={vacation.id}>
-                  <div className="vacation-card__date">
-                    <CalendarDays aria-hidden size={19} />
-                    <div>
+                <li className={`compact-record compact-record--${vacation.is_available ? 'good' : 'warn'}`} key={vacation.id}>
+                  <div className="compact-record__summary">
+                    <div className="compact-record__identity">
                       <strong>{vacationDateRange(vacation)}</strong>
                       <span>{vacation.status === 'active' ? 'Actieve periode' : 'Geplande periode'}</span>
                     </div>
-                  </div>
-                  <div className="vacation-card__details">
                     <StatusPill
                       value={vacation.is_available ? 'available' : 'unavailable'}
                       tone={vacation.is_available ? 'good' : 'warn'}
                     />
-                    {vacation.note ? <p>{vacation.note}</p> : <span className="muted-text">Geen notitie</span>}
                   </div>
+                  <dl className="compact-record__meta compact-record__meta--single">
+                    <div>
+                      <dt>Notitie</dt>
+                      <dd>{vacation.note || 'Geen notitie'}</dd>
+                    </div>
+                  </dl>
                   {canManage ? (
-                    <div className="vacation-card__actions">
-                      <button className="secondary-button" type="button" onClick={() => editVacation(vacation)} disabled={saving || deleting}>
-                        <Pencil aria-hidden size={16} /> Aanpassen
-                      </button>
-                      <button className="danger-button" type="button" onClick={() => openDeleteModal(vacation)} disabled={saving || deleting}>
-                        <Trash2 aria-hidden size={16} /> Verwijderen
+                    <div className="compact-record__actions" role="group" aria-label={`Acties voor ${vacationDateRange(vacation)}`}>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        onClick={() => editVacation(vacation)}
+                        disabled={saving || deleting}
+                        aria-label={`${vacationDateRange(vacation)} aanpassen`}
+                        title="Aanpassen"
+                      >
+                        <Pencil aria-hidden size={17} />
                       </button>
                     </div>
                   ) : null}
-                </article>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : null}
         </div>
       </Panel>
@@ -320,7 +345,12 @@ export function VacationPlanner({
               />
             </label>
             {error ? <p className="form-error form-grid__wide" role="alert">{error}</p> : null}
-            <div className="actions-row form-grid__wide">
+            <div className="actions-row form-grid__wide profile-editor-actions">
+              {editingId !== null ? (
+                <button className="danger-button" type="button" onClick={requestVacationDelete} disabled={saving || deleting}>
+                  <Trash2 aria-hidden size={16} /> Verwijderen
+                </button>
+              ) : null}
               <button className="secondary-button" type="button" onClick={closeVacationEditor} disabled={saving}>
                 Annuleren
               </button>
@@ -348,7 +378,7 @@ export function VacationPlanner({
           )}
           narrow
           closeDisabled={deleting}
-          onClose={() => setVacationToDelete(null)}
+          onClose={cancelVacationDelete}
         >
           <div className="confirm-dialog">
             <p>
@@ -357,8 +387,8 @@ export function VacationPlanner({
             {deleteError ? <p className="form-error" role="alert">{deleteError}</p> : null}
           </div>
           <div className="actions-row">
-            <button className="secondary-button" type="button" onClick={() => setVacationToDelete(null)} disabled={deleting}>
-              Annuleren
+            <button className="secondary-button" type="button" onClick={cancelVacationDelete} disabled={deleting}>
+              Terug naar aanpassen
             </button>
             <button className="danger-button" type="button" onClick={() => void deleteVacation()} disabled={deleting}>
               {deleting ? 'Verwijderen...' : 'Periode definitief verwijderen'}

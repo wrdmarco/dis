@@ -265,6 +265,17 @@ test('refreshes the two-week schedule after a vacation period is added', async (
   await expect.poll(() => requests.schedule).toBeGreaterThan(1);
   await expect(todayMorning).toHaveText('Niet beschikbaar');
   expect(requests.vacationCreate).toBe(1);
+
+  const vacationList = page.getByRole('list', { name: 'Geplande vakantieperiodes' });
+  await expect(vacationList.getByRole('button', { name: /verwijderen/i })).toHaveCount(0);
+  await vacationList.getByRole('button', { name: /aanpassen$/i }).click();
+  const editDialog = page.getByRole('dialog', { name: 'Periode aanpassen' });
+  await editDialog.getByRole('button', { name: 'Verwijderen', exact: true }).click();
+  const deleteDialog = page.getByRole('dialog', { name: 'Periode verwijderen?' });
+  await expect(deleteDialog).toContainText('Weet je zeker dat je de periode');
+  await expect(deleteDialog).toContainText('wordt definitief verwijderd');
+  await deleteDialog.getByRole('button', { name: 'Terug naar aanpassen' }).click();
+  await expect(page.getByRole('dialog', { name: 'Periode aanpassen' })).toBeVisible();
 });
 
 interface MockRequests {

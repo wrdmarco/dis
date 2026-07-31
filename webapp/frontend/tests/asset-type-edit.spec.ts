@@ -24,3 +24,20 @@ test('only sends identity changes for assets created by the profile owner', () =
   expect(profile).toContain("type: assetForm.type");
   expect(profile).toContain("drone_type_id: assetForm.type === 'drone' ? assetForm.droneTypeId || null : null");
 });
+
+test('uses compact profile records and keeps destructive actions behind edit confirmation', () => {
+  const profile = readFileSync(
+    new URL('../src/features/profile/ProfilePage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  expect(profile).toContain('function AssetList(');
+  expect(profile).toContain('function CertificationList(');
+  expect(profile).toContain('className="compact-record-list"');
+  expect(profile).toContain('onClick={requestAssetDelete}');
+  expect(profile).toContain('onClick={requestCertificationDelete}');
+  expect(profile).toContain('title="Asset verwijderen?"');
+  expect(profile).toContain('title="Certificaat verwijderen?"');
+  expect(profile).not.toContain('function AssetTable(');
+  expect(profile).not.toContain('function CertificationTable(');
+});

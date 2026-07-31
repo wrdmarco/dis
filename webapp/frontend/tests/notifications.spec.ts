@@ -329,7 +329,8 @@ test('profile opens compact asset and certification editors as accessible dialog
   await page.keyboard.press('Escape');
   await expect(editor).toHaveCount(0);
   await expect(addCertificationButton).toBeFocused();
-  await expect(page.getByRole('heading', { level: 2, name: 'Multi-factor authenticatie' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Multi-factor authenticatie' })).toHaveCount(0);
+  await expect(page.getByText('MFA status', { exact: true })).toHaveCount(0);
 });
 
 test('profile submits asset and certification changes from their dialogs', async ({ page }) => {
@@ -352,10 +353,61 @@ test('profile submits asset and certification changes from their dialogs', async
   await expect(page.getByRole('status').filter({ hasText: 'Certificaat opgeslagen.' })).toBeVisible();
 });
 
+test('profile keeps destructive asset and certification actions behind edit and confirmation', async ({ page }) => {
+  await mockNotificationApi(page, notificationState([]));
+  await page.goto('/profile');
+
+  const assetRow = page.locator('#profile-asset-asset-alpha');
+  await expect(assetRow.getByRole('button', { name: /verwijderen/i })).toHaveCount(0);
+  await assetRow.getByRole('button', { name: 'Asset Alpha aanpassen' }).click();
+  let editor = page.getByRole('dialog', { name: 'Asset aanpassen' });
+  await editor.getByRole('button', { name: 'Verwijderen', exact: true }).click();
+  let confirmation = page.getByRole('dialog', { name: 'Asset verwijderen?' });
+  await expect(confirmation.getByText('Weet je zeker dat je Asset Alpha wilt verwijderen?', { exact: true })).toBeVisible();
+  await expect(confirmation).toContainText('telt daarna niet meer mee bij de inzetcontrole');
+  await confirmation.getByRole('button', { name: 'Terug naar aanpassen' }).click();
+  editor = page.getByRole('dialog', { name: 'Asset aanpassen' });
+  await expect(editor).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const certificationRow = page.locator('#profile-certification-user-cert-nine');
+  await expect(certificationRow.getByRole('button', { name: /verwijderen/i })).toHaveCount(0);
+  await certificationRow.getByRole('button', { name: 'Vliegbewijs A1/A3 aanpassen' }).click();
+  editor = page.getByRole('dialog', { name: 'Certificaat aanpassen' });
+  await editor.getByRole('button', { name: 'Verwijderen', exact: true }).click();
+  confirmation = page.getByRole('dialog', { name: 'Certificaat verwijderen?' });
+  await expect(confirmation.getByText('Weet je zeker dat je Vliegbewijs A1/A3 wilt verwijderen?', { exact: true })).toBeVisible();
+  await expect(confirmation).toContainText('telt daarna niet meer mee bij de inzetcontrole');
+});
+
 test('profile editor stays inside a small mobile viewport', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await mockNotificationApi(page, notificationState([]));
   await page.goto('/profile');
+
+  const assetList = page.getByRole('list', { name: 'Mijn assets' });
+  const certificationList = page.getByRole('list', { name: 'Mijn certificaten' });
+  await expect(assetList).toBeVisible();
+  await expect(certificationList).toBeVisible();
+  for (const list of [assetList, certificationList]) {
+    const width = await list.evaluate((element) => ({
+      client: element.clientWidth,
+      scroll: element.scrollWidth,
+    }));
+    expect(width.scroll).toBeLessThanOrEqual(width.client);
+  }
+
+  const certificateHeader = page.getByRole('heading', { level: 2, name: 'Mijn certificaten' }).locator('..');
+  const headerBounds = await certificateHeader.boundingBox();
+  const assetRowBounds = await page.locator('#profile-asset-asset-alpha').boundingBox();
+  const certificationRowBounds = await page.locator('#profile-certification-user-cert-nine').boundingBox();
+  expect(headerBounds).not.toBeNull();
+  expect(headerBounds!.height).toBeLessThan(80);
+  expect(assetRowBounds).not.toBeNull();
+  expect(assetRowBounds!.height).toBeLessThan(140);
+  expect(certificationRowBounds).not.toBeNull();
+  expect(certificationRowBounds!.height).toBeLessThan(160);
+
   await page.getByRole('button', { name: 'Asset toevoegen', exact: true }).click();
 
   const editor = page.getByRole('dialog', { name: 'Asset toevoegen', exact: true });
@@ -372,19 +424,11 @@ test('profile editor stays inside a small mobile viewport', async ({ page }) => 
   expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.innerWidth);
 });
 
-test('profile hides MFA management for ordinary operators', async ({ page }) => {
-  const operator = notificationTestUser();
-  operator.roles = [{
-    id: 'operator-role',
-    name: 'operator',
-    display_name: 'Operator',
-    can_use_operator_app: true,
-    can_use_admin_app: false,
-    permissions: [],
-  }];
-  await mockNotificationApi(page, notificationState([]), operator);
+test('profile omits routine MFA management for web administration accounts', async ({ page }) => {
+  await mockNotificationApi(page, notificationState([]));
   await page.goto('/profile');
   await expect(page.getByRole('heading', { level: 2, name: 'Multi-factor authenticatie' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 2, name: 'Account beveiligen' })).toHaveCount(0);
   await expect(page.getByText('MFA status', { exact: true })).toHaveCount(0);
 });
 

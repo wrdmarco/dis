@@ -1,10 +1,17 @@
 import { useId } from 'react';
 
-export function Panel({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+interface PanelProps {
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+  title: string;
+}
+
+export function Panel({ title, action, children, className }: PanelProps) {
   const headingId = useId();
 
   return (
-    <section className="panel" aria-labelledby={headingId}>
+    <section className={className ? `panel ${className}` : 'panel'} aria-labelledby={headingId}>
       <header className="panel__header">
         <h2 id={headingId}>{title}</h2>
         {action}

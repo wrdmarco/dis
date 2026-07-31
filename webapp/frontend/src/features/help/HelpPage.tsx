@@ -141,7 +141,6 @@ const helpTopics: readonly HelpTopic[] = [
       { title: 'Vakantieplanning beheren', description: 'Voeg zelf een periode toe en leg vast of je dan wel of niet beschikbaar bent. Je kunt een periode later aanpassen of na een extra bevestiging verwijderen.' },
       { title: 'Eigen middelen bijhouden', description: 'Voeg je eigen drone of ander middel toe en werk de gereedheid bij wanneer er iets verandert.' },
       { title: 'Eigen certificaten bijhouden', description: 'Vul afgifte- en verloopdatum in en pas een certificaat aan wanneer het wordt verlengd.' },
-      { title: 'MFA-status voor webbeheer controleren', description: 'Controleer op Profiel of MFA actief en verplicht is. Instellen of opnieuw instellen gebeurt tijdens het aanmelden.', mobileApp: 'admin' },
     ],
   },
   {
