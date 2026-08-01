@@ -89,6 +89,36 @@ final class MobileAdminRetirementTest extends TestCase
         $this->assertNull($pairing->refresh()->consumed_at);
     }
 
+    public function test_normal_operator_pairing_still_expires_after_thirty_seconds(): void
+    {
+        $user = $this->user();
+        $webToken = $this->token($user, 'client:web');
+
+        Auth::forgetGuards();
+        $pairing = $this->withToken($webToken)
+            ->postJson('/api/auth/mobile-pairing', ['client_type' => 'operator_android'])
+            ->assertCreated()
+            ->assertJsonPath('data.ttl_seconds', 30);
+
+        $this->travel(31)->seconds();
+
+        Auth::forgetGuards();
+        $this->withoutToken()
+            ->postJson('/api/auth/mobile-pairing/consume', [
+                'code' => $pairing->json('data.code'),
+                'client_type' => 'operator_android',
+                'device_name' => 'Verlopen normale koppeling',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_failed');
+
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+        $expiredPairing = MobilePairingCode::query()
+            ->where('code_hash', hash('sha256', preg_replace('/[^A-Za-z0-9]/', '', (string) $pairing->json('data.code'))))
+            ->firstOrFail();
+        $this->assertNull($expiredPairing->consumed_at);
+    }
+
     public function test_legacy_admin_token_is_denied_while_operator_and_web_tokens_remain_valid(): void
     {
         $user = $this->user();

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\StoreReviewPairingBlockedException;
 use App\Models\MobilePairingCode;
 use App\Models\SystemSetting;
 use App\Models\User;
@@ -14,10 +15,15 @@ use Illuminate\Validation\ValidationException;
 final class MobilePairingService
 {
     private const TTL_SECONDS = 30;
-    private const MOBILE_TOKEN_TTL_DAYS = 180;
-    private const STORE_REVIEW_MODE = 'store_android';
 
-    public function __construct(private readonly AuditService $auditService) {}
+    private const MOBILE_TOKEN_TTL_DAYS = 180;
+
+    private const LEGACY_STORE_REVIEW_MODE = 'store_android';
+
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly StoreReviewAccountService $storeReviewAccountService,
+    ) {}
 
     public function canUseClient(User $user, string $clientType): bool
     {
@@ -81,73 +87,107 @@ final class MobilePairingService
      */
     public function consume(string $code, string $clientType, string $deviceName, Request $request): array
     {
-        return DB::transaction(function () use ($code, $clientType, $deviceName, $request): array {
-            $pairing = MobilePairingCode::query()
-                ->with(['user.roles.permissions', 'user.teams'])
-                ->where('code_hash', $this->codeHash($this->normalizeCode($code)))
-                ->lockForUpdate()
-                ->first();
+        try {
+            return DB::transaction(function () use ($code, $clientType, $deviceName, $request): array {
+                $pairing = MobilePairingCode::query()
+                    ->with(['user.roles.permissions', 'user.teams'])
+                    ->where('code_hash', $this->codeHash($this->normalizeCode($code)))
+                    ->lockForUpdate()
+                    ->first();
 
-            if ($pairing === null || $pairing->expires_at->isPast()) {
-                throw ValidationException::withMessages([
-                    'code' => ['Koppelcode is verlopen of al gebruikt. Maak een nieuwe code op de softwarepagina.'],
-                ]);
-            }
+                if ($pairing === null) {
+                    throw ValidationException::withMessages([
+                        'code' => ['Koppelcode is verlopen of al gebruikt. Maak een nieuwe code op de softwarepagina.'],
+                    ]);
+                }
 
-            $isStoreReviewPairing = (string) ($pairing->review_mode ?? '') === self::STORE_REVIEW_MODE;
-            if ($isStoreReviewPairing) {
-                throw ValidationException::withMessages([
-                    'code' => ['Tijdelijke review-koppelcodes zijn vervallen. Log in met het revieweraccount uit Beheer > Store.'],
-                ]);
-            }
-            if (! $isStoreReviewPairing && $pairing->consumed_at !== null) {
-                throw ValidationException::withMessages([
-                    'code' => ['Koppelcode is verlopen of al gebruikt. Maak een nieuwe code op de softwarepagina.'],
-                ]);
-            }
+                $isStoreReviewPairing = $this->storeReviewAccountService->isPairing($pairing);
+                if (($pairing->expires_at !== null && $pairing->expires_at->isPast())
+                    || $pairing->consumed_at !== null) {
+                    if ($isStoreReviewPairing) {
+                        throw new StoreReviewPairingBlockedException(
+                            pairing: $pairing,
+                            reasonCode: 'replayed_or_revoked',
+                            validationField: 'code',
+                            message: 'Koppelcode is verlopen of al gebruikt. Open Beheer > Store voor de actuele code.',
+                        );
+                    }
 
-            if (! $this->pairingMatchesClient((string) $pairing->client_type, $clientType)) {
-                throw ValidationException::withMessages([
-                    'client_type' => ['Deze koppelcode hoort bij een andere app.'],
-                ]);
-            }
+                    throw ValidationException::withMessages([
+                        'code' => ['Koppelcode is verlopen of al gebruikt. Maak een nieuwe code op de softwarepagina.'],
+                    ]);
+                }
 
-            $user = $pairing->user;
-            if ($user === null || $user->account_status !== 'active') {
-                throw ValidationException::withMessages([
-                    'code' => ['Deze koppelcode kan niet meer worden gebruikt.'],
-                ]);
-            }
+                if ((string) ($pairing->review_mode ?? '') === self::LEGACY_STORE_REVIEW_MODE) {
+                    throw ValidationException::withMessages([
+                        'code' => ['Tijdelijke review-koppelcodes zijn vervallen. Log in met het revieweraccount uit Beheer > Store.'],
+                    ]);
+                }
 
-            if (! $this->canUseClient($user, $clientType)) {
-                throw ValidationException::withMessages([
-                    'client_type' => ['Deze gebruiker heeft geen toegang tot deze mobiele app.'],
-                ]);
-            }
+                if ($isStoreReviewPairing) {
+                    return $this->storeReviewAccountService->consumePairing(
+                        pairing: $pairing,
+                        clientType: $clientType,
+                        deviceName: $deviceName,
+                        request: $request,
+                    );
+                }
 
-            $pairing->update([
-                'consumed_at' => now(),
-                'consumed_ip' => $request->ip(),
-                'consumed_user_agent' => mb_substr((string) $request->userAgent(), 0, 512),
+                if (! $this->pairingMatchesClient((string) $pairing->client_type, $clientType)) {
+                    throw ValidationException::withMessages([
+                        'client_type' => ['Deze koppelcode hoort bij een andere app.'],
+                    ]);
+                }
+
+                $user = $pairing->user;
+                if ($user === null || $user->account_status !== 'active') {
+                    throw ValidationException::withMessages([
+                        'code' => ['Deze koppelcode kan niet meer worden gebruikt.'],
+                    ]);
+                }
+
+                if (! $this->canUseClient($user, $clientType)) {
+                    throw ValidationException::withMessages([
+                        'client_type' => ['Deze gebruiker heeft geen toegang tot deze mobiele app.'],
+                    ]);
+                }
+
+                $pairing->update([
+                    'consumed_at' => now(),
+                    'consumed_ip' => $request->ip(),
+                    'consumed_user_agent' => mb_substr((string) $request->userAgent(), 0, 512),
+                ]);
+
+                $user->forceFill([
+                    'last_login_at' => now(),
+                    'failed_login_attempts' => 0,
+                    'login_locked_until' => null,
+                ])->save();
+
+                $this->auditService->record('auth.mobile_pairing_consumed', $pairing, $user, [
+                    'client_type' => $clientType,
+                    'device_name' => $deviceName,
+                ], null, $request);
+
+                return [
+                    'token' => $user->createToken($deviceName, ['*', $this->clientAbility($clientType)], now()->addDays(self::MOBILE_TOKEN_TTL_DAYS))->plainTextToken,
+                    'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
+                    'client_type' => $clientType,
+                ];
+            });
+        } catch (StoreReviewPairingBlockedException $exception) {
+            $this->storeReviewAccountService->auditBlockedPairing(
+                pairing: $exception->pairing,
+                clientType: $clientType,
+                deviceName: $deviceName,
+                reasonCode: $exception->reasonCode,
+                request: $request,
+            );
+
+            throw ValidationException::withMessages([
+                $exception->validationField => [$exception->getMessage()],
             ]);
-
-            $user->forceFill([
-                'last_login_at' => now(),
-                'failed_login_attempts' => 0,
-                'login_locked_until' => null,
-            ])->save();
-
-            $this->auditService->record('auth.mobile_pairing_consumed', $pairing, $user, [
-                'client_type' => $clientType,
-                'device_name' => $deviceName,
-            ], null, $request);
-
-            return [
-                'token' => $user->createToken($deviceName, ['*', $this->clientAbility($clientType)], now()->addDays(self::MOBILE_TOKEN_TTL_DAYS))->plainTextToken,
-                'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
-                'client_type' => $clientType,
-            ];
-        });
+        }
     }
 
     private function generateManualCode(): string
@@ -194,7 +234,7 @@ final class MobilePairingService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     private function deeplinkUrl(array $payload): string
     {

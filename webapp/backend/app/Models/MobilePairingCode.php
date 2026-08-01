@@ -10,11 +10,18 @@ final class MobilePairingCode extends Model
 {
     use UsesUlids;
 
+    protected $hidden = [
+        'code_hash',
+        'review_code',
+    ];
+
     protected $fillable = [
         'user_id',
         'code_hash',
         'client_type',
         'review_mode',
+        'review_code',
+        'active_review_slot',
         'expires_at',
         'consumed_at',
         'consumed_ip',
@@ -24,6 +31,7 @@ final class MobilePairingCode extends Model
     protected function casts(): array
     {
         return [
+            'review_code' => 'encrypted',
             'expires_at' => 'immutable_datetime',
             'consumed_at' => 'immutable_datetime',
         ];

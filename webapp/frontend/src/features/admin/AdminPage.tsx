@@ -320,6 +320,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   }, [activeTab, visibleAdminTabs]);
 
   const reloadSystemVersionSilently = systemVersion.silentReload;
+  const reloadStoreReviewStatusSilently = storeReviewStatus.silentReload;
 
   useEffect(() => {
     if (!isAuthenticated || !canViewSystemHealth) {
@@ -356,6 +357,20 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
     return () => window.clearInterval(intervalId);
   }, [reloadSystemVersionSilently, updaterStatus?.state]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !canManageSettings || mode !== 'admin' || activeTab !== 'store') {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void reloadStoreReviewStatusSilently();
+      }
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeTab, canManageSettings, isAuthenticated, mode, reloadStoreReviewStatusSilently]);
 
   async function saveMobileSettings() {
     setSaving(true);
@@ -1666,13 +1681,13 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
                       {account.enabled ? 'Actief' : 'Uitgeschakeld'}
                     </span>
                   </div>
-                  {account.review_setup?.available && account.review_setup.qr_payload ? (
+                  {account.review_setup?.available && account.review_setup.qr_payload && account.review_setup.code ? (
                     <div className="mobile-pairing mobile-pairing--active">
                       <div className="mobile-pairing__header">
                         <div>
-                          <span>Store-review configuratie</span>
+                          <span>Store-review koppeling</span>
                           <strong>{account.platform === 'apple' ? 'App Store Connect' : 'Google Play Console'}</strong>
-                          <p>De QR vult alleen de server en reviewer-gebruikersnaam in. De reviewer voert daarna het afzonderlijk ingestelde wachtwoord in.</p>
+                          <p>De reviewer scant deze QR en wordt via dezelfde beveiligde koppeling als een gewone gebruiker direct aangemeld.</p>
                         </div>
                       </div>
                       <div className="mobile-pairing__grid">
@@ -1682,16 +1697,20 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
                             <input className="mono" value={account.review_setup.server_url ?? ''} readOnly onFocus={(event) => event.currentTarget.select()} />
                           </label>
                           <label>
-                            Gebruikersnaam
+                            Reviewer-gebruikersnaam
                             <input className="mono" value={account.review_setup.username} readOnly onFocus={(event) => event.currentTarget.select()} />
                           </label>
-                          <small>De PNG bevat geen wachtwoord, toegangstoken of koppelcode en blijft geldig zolang de server-URL en reviewer-gebruikersnaam niet wijzigen.</small>
+                          <label>
+                            Koppelcode
+                            <input className="mono" value={account.review_setup.code} readOnly onFocus={(event) => event.currentTarget.select()} />
+                          </label>
+                          <small>De code verloopt niet zolang hij ongebruikt is. Na de eerste succesvolle koppeling wordt hij ongeldig en verschijnt hier binnen vijf seconden automatisch een nieuwe QR.</small>
                         </div>
                         <div className="mobile-pairing__qr">
                           <TotpQrCode
                             value={account.review_setup.qr_payload}
                             alt={`Review-QR voor ${account.platform === 'apple' ? 'App Store Connect' : 'Google Play'}`}
-                            helpText={`Download deze PNG voor de reviewinstructies in ${account.platform === 'apple' ? 'App Store Connect' : 'Google Play Console'}.`}
+                            helpText={`Download deze eenmalige PNG voor de reviewinstructies in ${account.platform === 'apple' ? 'App Store Connect' : 'Google Play Console'}. Vervang hem daar nadat de code is gebruikt.`}
                             downloadFileName={account.platform === 'apple' ? 'dis-app-store-review-ios.png' : 'dis-google-play-review-android.png'}
                           />
                         </div>

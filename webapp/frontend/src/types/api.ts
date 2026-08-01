@@ -1632,6 +1632,9 @@ export interface StoreReviewSetup {
   server_url?: string | null;
   client_type: 'operator_ios' | 'operator_android';
   username: string;
+  code?: string | null;
+  expires_at?: string | null;
+  issued_at?: string | null;
   deeplink_url?: string | null;
   qr_payload?: string | null;
   configuration_error?: string | null;

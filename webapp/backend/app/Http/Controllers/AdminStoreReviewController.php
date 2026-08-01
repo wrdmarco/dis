@@ -6,14 +6,15 @@ use App\Http\Requests\Admin\UpdateStoreReviewAccountRequest;
 use App\Http\Responses\ApiResponse;
 use App\Services\StoreReviewAccountService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 final class AdminStoreReviewController extends Controller
 {
     public function __construct(private readonly StoreReviewAccountService $accountService) {}
 
-    public function status(): JsonResponse
+    public function status(Request $request): JsonResponse
     {
-        return ApiResponse::success($this->accountService->status());
+        return ApiResponse::success($this->accountService->status($request));
     }
 
     public function updateAccount(UpdateStoreReviewAccountRequest $request, string $platform): JsonResponse

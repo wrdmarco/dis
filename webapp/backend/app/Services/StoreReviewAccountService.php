@@ -2,43 +2,53 @@
 
 namespace App\Services;
 
+use App\Exceptions\StoreReviewPairingBlockedException;
 use App\Models\AuditLog;
+use App\Models\MobilePairingCode;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 final class StoreReviewAccountService
 {
     private const TOKEN_TTL_HOURS = 24;
 
-    /** @var array<string, array{name: string, email: string, client_type: string, review_scheme: string}> */
+    /** @var array<string, array{name: string, email: string, client_type: string, pairing_mode: string}> */
     private const ACCOUNTS = [
         'apple' => [
             'name' => 'Apple App Review',
             'email' => 'apple-app-review@system.dis.local',
             'client_type' => 'operator_ios',
-            'review_scheme' => 'dis-ios',
+            'pairing_mode' => 'store_review_apple',
         ],
         'google' => [
             'name' => 'Google Play Review',
             'email' => 'google-play-review@system.dis.local',
             'client_type' => 'operator_android',
-            'review_scheme' => 'dis',
+            'pairing_mode' => 'store_review_google',
         ],
     ];
 
     public function __construct(private readonly AuditService $auditService) {}
 
     /** @return array{accounts: list<array<string, mixed>>} */
-    public function status(): array
+    public function status(?Request $request = null): array
     {
+        $actor = $request?->user();
+
         return [
             'accounts' => collect(array_keys(self::ACCOUNTS))
-                ->map(fn (string $platform): array => $this->accountStatus($platform))
+                ->map(fn (string $platform): array => $this->accountStatus(
+                    $platform,
+                    $actor instanceof User ? $actor : null,
+                    $request,
+                ))
                 ->values()
                 ->all(),
         ];
@@ -48,7 +58,6 @@ final class StoreReviewAccountService
     public function configure(string $platform, bool $enabled, ?string $password, User $actor, Request $request): array
     {
         $definition = $this->definition($platform);
-        $user = $this->find($platform);
 
         if ($enabled && ($password === null || $password === '')) {
             throw ValidationException::withMessages([
@@ -56,64 +65,82 @@ final class StoreReviewAccountService
             ]);
         }
 
-        if ($user === null) {
-            $user = User::query()->create([
-                'name' => $definition['name'],
-                'first_name' => $platform === 'apple' ? 'Apple' : 'Google Play',
-                'last_name' => 'Review',
-                'email' => $definition['email'],
-                'password' => $password ?? bin2hex(random_bytes(32)),
-                'phone_number' => '+31000000000',
-                'home_city' => 'Utrecht',
-                'home_region' => 'Utrecht',
-                'home_country' => 'NL',
-                'account_status' => 'store_review',
-                'push_enabled' => true,
-                'max_operator_devices' => 0,
-                'two_factor_enabled' => false,
-                'two_factor_confirmed_at' => null,
-                'mail_preferences' => [],
-            ]);
-        } else {
-            if ($enabled && $user->trashed()) {
-                $user->restore();
+        return DB::transaction(function () use ($platform, $enabled, $password, $actor, $request, $definition): array {
+            // Pairing consumption locks this row before it updates the review
+            // account. Use the same pairing -> user lock order here so a
+            // concurrent password change cannot miss a newly rotated code or
+            // review token.
+            MobilePairingCode::query()
+                ->where('active_review_slot', $platform)
+                ->lockForUpdate()
+                ->first();
+
+            $user = User::withTrashed()
+                ->where('email', $definition['email'])
+                ->lockForUpdate()
+                ->first();
+
+            if ($user === null) {
+                $user = User::query()->create([
+                    'name' => $definition['name'],
+                    'first_name' => $platform === 'apple' ? 'Apple' : 'Google Play',
+                    'last_name' => 'Review',
+                    'email' => $definition['email'],
+                    'password' => $password ?? bin2hex(random_bytes(32)),
+                    'phone_number' => '+31000000000',
+                    'home_city' => 'Utrecht',
+                    'home_region' => 'Utrecht',
+                    'home_country' => 'NL',
+                    'account_status' => 'store_review',
+                    'push_enabled' => true,
+                    'max_operator_devices' => 0,
+                    'two_factor_enabled' => false,
+                    'two_factor_confirmed_at' => null,
+                    'mail_preferences' => [],
+                ]);
+            } else {
+                if ($enabled && $user->trashed()) {
+                    $user->restore();
+                }
+                $attributes = [
+                    'name' => $definition['name'],
+                    'account_status' => 'store_review',
+                    'push_enabled' => true,
+                    'two_factor_enabled' => false,
+                    'two_factor_secret' => null,
+                    'two_factor_recovery_codes' => null,
+                    'two_factor_confirmed_at' => null,
+                ];
+                if ($password !== null && $password !== '') {
+                    $attributes['password'] = $password;
+                }
+                $user->forceFill($attributes)->save();
             }
-            $attributes = [
-                'name' => $definition['name'],
-                'account_status' => 'store_review',
-                'push_enabled' => true,
-                'two_factor_enabled' => false,
-                'two_factor_secret' => null,
-                'two_factor_recovery_codes' => null,
-                'two_factor_confirmed_at' => null,
-            ];
+
+            $user->roles()->sync([]);
+            $user->teams()->sync([]);
+
             if ($password !== null && $password !== '') {
-                $attributes['password'] = $password;
+                $this->revokeReviewTokens($user);
+                $this->revokeReviewPairing($user, $platform);
             }
-            $user->forceFill($attributes)->save();
-        }
 
-        $user->roles()->sync([]);
-        $user->teams()->sync([]);
-
-        if ($password !== null && $password !== '') {
-            $this->revokeReviewTokens($user);
-        }
-
-        if (! $enabled) {
-            $this->revokeReviewTokens($user);
-            if (! $user->trashed()) {
-                $user->delete();
+            if (! $enabled) {
+                $this->revokeReviewTokens($user);
+                $this->revokeReviewPairing($user, $platform);
+                if (! $user->trashed()) {
+                    $user->delete();
+                }
             }
-        }
 
-        $this->auditService->record('auth.store_review_account_updated', $user, $actor, [
-            'platform' => $platform,
-            'enabled' => $enabled,
-            'password_changed' => $password !== null && $password !== '',
-        ], null, $request);
+            $this->auditService->record('auth.store_review_account_updated', $user, $actor, [
+                'platform' => $platform,
+                'enabled' => $enabled,
+                'password_changed' => $password !== null && $password !== '',
+            ], null, $request);
 
-        return $this->accountStatus($platform);
+            return $this->accountStatus($platform, $actor, $request);
+        });
     }
 
     public function canAuthenticate(User $user, string $clientType): bool
@@ -155,9 +182,103 @@ final class StoreReviewAccountService
         ];
     }
 
-    /** @return array<string, mixed> */
-    private function accountStatus(string $platform): array
+    public function isPairing(MobilePairingCode $pairing): bool
     {
+        return $this->platformForPairingMode((string) ($pairing->review_mode ?? '')) !== null;
+    }
+
+    /** @return array{token: string, user: array<string, mixed>, client_type: string} */
+    public function consumePairing(
+        MobilePairingCode $pairing,
+        string $clientType,
+        string $deviceName,
+        Request $request,
+    ): array {
+        $platform = $this->platformForPairingMode((string) ($pairing->review_mode ?? ''));
+        if ($platform === null) {
+            throw ValidationException::withMessages([
+                'code' => ['Deze review-koppelcode is ongeldig.'],
+            ]);
+        }
+
+        $definition = $this->definition($platform);
+        $user = $pairing->user;
+        if ($pairing->expires_at !== null
+            || $pairing->consumed_at !== null
+            || ! hash_equals($platform, (string) $pairing->active_review_slot)
+            || ! hash_equals($definition['client_type'], $clientType)
+            || ! hash_equals($definition['client_type'], (string) $pairing->client_type)) {
+            throw new StoreReviewPairingBlockedException(
+                pairing: $pairing,
+                reasonCode: 'client_or_state_mismatch',
+                validationField: 'code',
+                message: 'Koppelcode is verlopen of al gebruikt. Open Beheer > Store voor de actuele code.',
+            );
+        }
+
+        if ($user === null
+            || ! $user->isStoreReviewAccount()
+            || $user->trashed()
+            || ! hash_equals($definition['email'], (string) $user->email)
+            || ! $this->canAuthenticate($user, $clientType)) {
+            throw new StoreReviewPairingBlockedException(
+                pairing: $pairing,
+                reasonCode: 'account_unavailable',
+                validationField: 'code',
+                message: 'Deze koppelcode kan niet meer worden gebruikt.',
+            );
+        }
+
+        $pairing->forceFill([
+            'review_code' => null,
+            'active_review_slot' => null,
+            'consumed_at' => now(),
+            'consumed_ip' => $request->ip(),
+            'consumed_user_agent' => mb_substr((string) $request->userAgent(), 0, 512),
+        ])->save();
+
+        $authentication = $this->authenticate($user, $clientType, $deviceName, $request);
+        $rotatedPairing = $this->createReviewPairing($user, $platform, $definition);
+
+        $this->auditService->record('auth.store_review_pairing_consumed', $pairing, $user, [
+            'platform' => $platform,
+            'client_type' => $clientType,
+            'device_name' => $deviceName,
+        ], null, $request);
+        $this->auditService->record('auth.store_review_pairing_rotated', $rotatedPairing, $user, [
+            'platform' => $platform,
+            'client_type' => $clientType,
+            'replaces_pairing_id' => (string) $pairing->id,
+        ], null, $request);
+
+        return [
+            'token' => (string) $authentication['token'],
+            'user' => (array) $authentication['user'],
+            'client_type' => $clientType,
+        ];
+    }
+
+    public function auditBlockedPairing(
+        MobilePairingCode $pairing,
+        string $clientType,
+        string $deviceName,
+        string $reasonCode,
+        Request $request,
+    ): void {
+        $this->auditService->record('auth.store_review_pairing_blocked', $pairing, null, [
+            'platform' => $this->platformForPairingMode((string) ($pairing->review_mode ?? '')),
+            'client_type' => $clientType,
+            'device_name' => $deviceName,
+            'reason_code' => $reasonCode,
+        ], null, $request);
+    }
+
+    /** @return array<string, mixed> */
+    private function accountStatus(
+        string $platform,
+        ?User $actor = null,
+        ?Request $request = null,
+    ): array {
         $definition = $this->definition($platform);
         $user = $this->find($platform);
         $latestToken = $user === null ? null : $this->latestReviewToken($user);
@@ -174,16 +295,21 @@ final class StoreReviewAccountService
             'token_last_used_at' => ApiDateTime::dateTime($latestToken?->last_used_at),
             'token_expires_at' => ApiDateTime::dateTime($latestToken?->expires_at),
             'recent_login_events' => $user === null ? [] : $this->recentLoginEvents($user),
-            'review_setup' => $this->reviewSetup($definition),
+            'review_setup' => $this->reviewSetup($platform, $definition, $user, $actor, $request),
         ];
     }
 
     /**
-     * @param  array{name: string, email: string, client_type: string, review_scheme: string}  $definition
-     * @return array{available: bool, server_url: string|null, client_type: string, username: string, deeplink_url: string|null, qr_payload: string|null, configuration_error: string|null}
+     * @param  array{name: string, email: string, client_type: string, pairing_mode: string}  $definition
+     * @return array{available: bool, server_url: string|null, client_type: string, username: string, code: string|null, expires_at: null, issued_at: string|null, deeplink_url: string|null, qr_payload: string|null, configuration_error: string|null}
      */
-    private function reviewSetup(array $definition): array
-    {
+    private function reviewSetup(
+        string $platform,
+        array $definition,
+        ?User $user,
+        ?User $actor,
+        ?Request $request,
+    ): array {
         $serverUrl = $this->reviewServerUrl();
         if ($serverUrl === null) {
             return [
@@ -191,16 +317,36 @@ final class StoreReviewAccountService
                 'server_url' => null,
                 'client_type' => $definition['client_type'],
                 'username' => $definition['email'],
+                'code' => null,
+                'expires_at' => null,
+                'issued_at' => null,
                 'deeplink_url' => null,
                 'qr_payload' => null,
                 'configuration_error' => 'Stel eerst een geldige publieke HTTPS-URL in bij Beheer > Push.',
             ];
         }
 
-        $deeplinkUrl = $definition['review_scheme'].'://store-review?'.http_build_query([
+        if ($user === null || $user->trashed()) {
+            return [
+                'available' => false,
+                'server_url' => $serverUrl,
+                'client_type' => $definition['client_type'],
+                'username' => $definition['email'],
+                'code' => null,
+                'expires_at' => null,
+                'issued_at' => null,
+                'deeplink_url' => null,
+                'qr_payload' => null,
+                'configuration_error' => 'Activeer eerst het revieweraccount en stel een wachtwoord in.',
+            ];
+        }
+
+        $pairing = $this->activeReviewPairing($user, $platform, $definition, $actor, $request);
+        $code = (string) $pairing->review_code;
+        $deeplinkUrl = 'dis://pair?'.http_build_query([
             'server' => $serverUrl,
+            'code' => $code,
             'client_type' => $definition['client_type'],
-            'username' => $definition['email'],
         ], '', '&', PHP_QUERY_RFC3986);
 
         return [
@@ -208,6 +354,9 @@ final class StoreReviewAccountService
             'server_url' => $serverUrl,
             'client_type' => $definition['client_type'],
             'username' => $definition['email'],
+            'code' => $code,
+            'expires_at' => null,
+            'issued_at' => ApiDateTime::dateTime($pairing->created_at),
             'deeplink_url' => $deeplinkUrl,
             'qr_payload' => $deeplinkUrl,
             'configuration_error' => null,
@@ -257,6 +406,141 @@ final class StoreReviewAccountService
         return $serverUrl;
     }
 
+    /**
+     * @param  array{name: string, email: string, client_type: string, pairing_mode: string}  $definition
+     */
+    private function activeReviewPairing(
+        User $user,
+        string $platform,
+        array $definition,
+        ?User $actor,
+        ?Request $request,
+    ): MobilePairingCode {
+        return DB::transaction(function () use ($user, $platform, $definition, $actor, $request): MobilePairingCode {
+            $pairing = MobilePairingCode::query()
+                ->where('active_review_slot', $platform)
+                ->lockForUpdate()
+                ->first();
+
+            if ($pairing !== null && ! $this->validActiveReviewPairing($pairing, $user, $definition)) {
+                $pairing->forceFill([
+                    'review_code' => null,
+                    'active_review_slot' => null,
+                    'consumed_at' => now(),
+                ])->save();
+                $pairing = null;
+            }
+
+            if ($pairing === null) {
+                $pairing = $this->createReviewPairing($user, $platform, $definition);
+
+                if ($pairing->wasRecentlyCreated) {
+                    $this->auditService->record('auth.store_review_pairing_created', $pairing, $actor, [
+                        'platform' => $platform,
+                        'client_type' => $definition['client_type'],
+                        'expires_at' => null,
+                    ], null, $request);
+                }
+            }
+
+            return $pairing;
+        });
+    }
+
+    /**
+     * @param  array{name: string, email: string, client_type: string, pairing_mode: string}  $definition
+     */
+    private function validActiveReviewPairing(
+        MobilePairingCode $pairing,
+        User $user,
+        array $definition,
+    ): bool {
+        return (string) $pairing->user_id === (string) $user->id
+            && hash_equals($definition['pairing_mode'], (string) $pairing->review_mode)
+            && hash_equals($definition['client_type'], (string) $pairing->client_type)
+            && is_string($pairing->review_code)
+            && $pairing->review_code !== ''
+            && $pairing->expires_at === null
+            && $pairing->consumed_at === null;
+    }
+
+    /**
+     * @param  array{name: string, email: string, client_type: string, pairing_mode: string}  $definition
+     */
+    private function createReviewPairing(User $user, string $platform, array $definition): MobilePairingCode
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $code = $this->generateManualCode();
+            $codeHash = hash('sha256', $this->normalizeCode($code));
+
+            if (MobilePairingCode::query()->where('code_hash', $codeHash)->exists()) {
+                continue;
+            }
+
+            try {
+                return MobilePairingCode::query()->createOrFirst([
+                    'active_review_slot' => $platform,
+                ], [
+                    'user_id' => $user->id,
+                    'code_hash' => $codeHash,
+                    'client_type' => $definition['client_type'],
+                    'review_mode' => $definition['pairing_mode'],
+                    'review_code' => $code,
+                    'expires_at' => null,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                // A simultaneous random code-hash collision is harmless; try
+                // another code. active_review_slot races are resolved by
+                // createOrFirst returning the winner.
+                continue;
+            }
+        }
+
+        throw new \RuntimeException('Unable to allocate a unique store-review pairing code.');
+    }
+
+    private function revokeReviewPairing(User $user, string $platform): void
+    {
+        $definition = $this->definition($platform);
+
+        DB::transaction(function () use ($user, $definition): void {
+            MobilePairingCode::query()
+                ->where('user_id', $user->id)
+                ->where('review_mode', $definition['pairing_mode'])
+                ->whereNull('consumed_at')
+                ->lockForUpdate()
+                ->get()
+                ->each->delete();
+        });
+    }
+
+    private function platformForPairingMode(string $pairingMode): ?string
+    {
+        foreach (self::ACCOUNTS as $platform => $definition) {
+            if (hash_equals($definition['pairing_mode'], $pairingMode)) {
+                return $platform;
+            }
+        }
+
+        return null;
+    }
+
+    private function generateManualCode(): string
+    {
+        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $code = '';
+        for ($index = 0; $index < 10; $index++) {
+            $code .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+        }
+
+        return substr($code, 0, 5).'-'.substr($code, 5);
+    }
+
+    private function normalizeCode(string $code): string
+    {
+        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $code) ?? '');
+    }
+
     /** @return list<array<string, mixed>> */
     private function recentLoginEvents(User $user): array
     {
@@ -283,7 +567,7 @@ final class StoreReviewAccountService
             ->all();
     }
 
-    /** @return array{name: string, email: string, client_type: string, review_scheme: string} */
+    /** @return array{name: string, email: string, client_type: string, pairing_mode: string} */
     private function definition(string $platform): array
     {
         if (! isset(self::ACCOUNTS[$platform])) {
