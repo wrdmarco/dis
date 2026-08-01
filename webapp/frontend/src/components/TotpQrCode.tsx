@@ -5,9 +5,17 @@ interface TotpQrCodeProps {
   value?: string | null;
   alt?: string;
   helpText?: string;
+  downloadFileName?: string;
+  downloadLabel?: string;
 }
 
-export function TotpQrCode({ value, alt = 'QR-code', helpText = 'Scan deze QR-code.' }: TotpQrCodeProps) {
+export function TotpQrCode({
+  value,
+  alt = 'QR-code',
+  helpText = 'Scan deze QR-code.',
+  downloadFileName,
+  downloadLabel = 'QR-code downloaden',
+}: TotpQrCodeProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,9 +25,11 @@ export function TotpQrCode({ value, alt = 'QR-code', helpText = 'Scan deze QR-co
     async function renderQrCode() {
       if (!value) {
         setDataUrl(null);
+        setError(null);
         return;
       }
 
+      setDataUrl(null);
       setError(null);
       try {
         const nextDataUrl = await QRCode.toDataURL(value, {
@@ -37,6 +47,7 @@ export function TotpQrCode({ value, alt = 'QR-code', helpText = 'Scan deze QR-co
         }
       } catch {
         if (!cancelled) {
+          setDataUrl(null);
           setError('QR-code kon niet worden gemaakt.');
         }
       }
@@ -61,6 +72,11 @@ export function TotpQrCode({ value, alt = 'QR-code', helpText = 'Scan deze QR-co
     <div className="totp-qr">
       <img src={dataUrl} alt={alt} />
       <span>{helpText}</span>
+      {downloadFileName ? (
+        <a className="secondary-button" download={downloadFileName} href={dataUrl}>
+          {downloadLabel}
+        </a>
+      ) : null}
     </div>
   );
 }

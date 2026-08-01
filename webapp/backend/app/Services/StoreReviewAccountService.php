@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AuditLog;
 use App\Models\PersonalAccessToken;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
@@ -14,17 +15,19 @@ final class StoreReviewAccountService
 {
     private const TOKEN_TTL_HOURS = 24;
 
-    /** @var array<string, array{name: string, email: string, client_type: string}> */
+    /** @var array<string, array{name: string, email: string, client_type: string, review_scheme: string}> */
     private const ACCOUNTS = [
         'apple' => [
             'name' => 'Apple App Review',
             'email' => 'apple-app-review@system.dis.local',
             'client_type' => 'operator_ios',
+            'review_scheme' => 'dis-ios',
         ],
         'google' => [
             'name' => 'Google Play Review',
             'email' => 'google-play-review@system.dis.local',
             'client_type' => 'operator_android',
+            'review_scheme' => 'dis',
         ],
     ];
 
@@ -171,7 +174,87 @@ final class StoreReviewAccountService
             'token_last_used_at' => ApiDateTime::dateTime($latestToken?->last_used_at),
             'token_expires_at' => ApiDateTime::dateTime($latestToken?->expires_at),
             'recent_login_events' => $user === null ? [] : $this->recentLoginEvents($user),
+            'review_setup' => $this->reviewSetup($definition),
         ];
+    }
+
+    /**
+     * @param  array{name: string, email: string, client_type: string, review_scheme: string}  $definition
+     * @return array{available: bool, server_url: string|null, client_type: string, username: string, deeplink_url: string|null, qr_payload: string|null, configuration_error: string|null}
+     */
+    private function reviewSetup(array $definition): array
+    {
+        $serverUrl = $this->reviewServerUrl();
+        if ($serverUrl === null) {
+            return [
+                'available' => false,
+                'server_url' => null,
+                'client_type' => $definition['client_type'],
+                'username' => $definition['email'],
+                'deeplink_url' => null,
+                'qr_payload' => null,
+                'configuration_error' => 'Stel eerst een geldige publieke HTTPS-URL in bij Beheer > Push.',
+            ];
+        }
+
+        $deeplinkUrl = $definition['review_scheme'].'://store-review?'.http_build_query([
+            'server' => $serverUrl,
+            'client_type' => $definition['client_type'],
+            'username' => $definition['email'],
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        return [
+            'available' => true,
+            'server_url' => $serverUrl,
+            'client_type' => $definition['client_type'],
+            'username' => $definition['email'],
+            'deeplink_url' => $deeplinkUrl,
+            'qr_payload' => $deeplinkUrl,
+            'configuration_error' => null,
+        ];
+    }
+
+    private function reviewServerUrl(): ?string
+    {
+        foreach ([
+            SystemSetting::string('mobile.api_base_url'),
+            SystemSetting::string('app.public_url'),
+        ] as $configured) {
+            $serverUrl = $this->normalizeReviewServerUrl($configured);
+            if ($serverUrl !== null) {
+                return $serverUrl;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeReviewServerUrl(?string $configured): ?string
+    {
+        if ($configured === null) {
+            return null;
+        }
+
+        $serverUrl = preg_replace('#/api$#i', '', rtrim(trim($configured), '/')) ?? '';
+        if ($serverUrl === ''
+            || mb_strlen($serverUrl) > 2048
+            || filter_var($serverUrl, FILTER_VALIDATE_URL) === false
+            || strtolower((string) parse_url($serverUrl, PHP_URL_SCHEME)) !== 'https') {
+            return null;
+        }
+
+        $parts = parse_url($serverUrl);
+        if ($parts === false
+            || empty($parts['host'])
+            || array_key_exists('user', $parts)
+            || array_key_exists('pass', $parts)
+            || array_key_exists('query', $parts)
+            || array_key_exists('fragment', $parts)
+            || ! in_array((string) ($parts['path'] ?? ''), ['', '/'], true)) {
+            return null;
+        }
+
+        return $serverUrl;
     }
 
     /** @return list<array<string, mixed>> */
@@ -200,7 +283,7 @@ final class StoreReviewAccountService
             ->all();
     }
 
-    /** @return array{name: string, email: string, client_type: string} */
+    /** @return array{name: string, email: string, client_type: string, review_scheme: string} */
     private function definition(string $platform): array
     {
         if (! isset(self::ACCOUNTS[$platform])) {

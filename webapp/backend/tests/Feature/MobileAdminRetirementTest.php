@@ -33,7 +33,11 @@ final class MobileAdminRetirementTest extends TestCase
         $pairing = $this->withToken($webToken)
             ->postJson('/api/auth/mobile-pairing', ['client_type' => 'operator_android'])
             ->assertCreated()
-            ->assertJsonPath('data.client_type', 'operator');
+            ->assertJsonPath('data.client_type', 'operator')
+            ->assertJsonPath('data.ttl_seconds', 30);
+
+        $this->assertSame($pairing->json('data.deeplink_url'), $pairing->json('data.qr_payload'));
+        $this->assertStringStartsWith('dis://pair?', (string) $pairing->json('data.qr_payload'));
 
         Auth::forgetGuards();
         $response = $this->withoutToken()
@@ -47,6 +51,16 @@ final class MobileAdminRetirementTest extends TestCase
 
         $this->assertIsString($response->json('data.token'));
         $this->assertNotSame('', $response->json('data.token'));
+
+        Auth::forgetGuards();
+        $this->withoutToken()
+            ->postJson('/api/auth/mobile-pairing/consume', [
+                'code' => $pairing->json('data.code'),
+                'client_type' => 'operator_android',
+                'device_name' => 'Operator Android opnieuw',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_failed');
     }
 
     public function test_existing_admin_pairing_code_cannot_be_consumed_by_any_admin_client(): void

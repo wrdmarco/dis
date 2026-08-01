@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Requests\Admin\UpdateStoreReviewAccountRequest;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\StoreReviewAccountService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -134,6 +135,115 @@ final class StoreReviewAccountLoginTest extends TestCase
             'enabled' => true,
             'password' => 'Store-Review-Password-2468!',
         ], $rules)->fails());
+    }
+
+    public function test_status_exposes_stable_platform_specific_review_setup_without_authentication_secrets(): void
+    {
+        SystemSetting::query()->create([
+            'key' => 'app.public_url',
+            'value' => 'https://fallback.example.test',
+            'is_sensitive' => false,
+        ]);
+        SystemSetting::query()->create([
+            'key' => 'mobile.api_base_url',
+            'value' => 'https://mobile.example.test/api/',
+            'is_sensitive' => false,
+        ]);
+
+        $accounts = collect(app(StoreReviewAccountService::class)->status()['accounts']);
+        $apple = $accounts->firstWhere('platform', 'apple');
+        $google = $accounts->firstWhere('platform', 'google');
+
+        $applePayload = 'dis-ios://store-review?server=https%3A%2F%2Fmobile.example.test&client_type=operator_ios&username=apple-app-review%40system.dis.local';
+        $googlePayload = 'dis://store-review?server=https%3A%2F%2Fmobile.example.test&client_type=operator_android&username=google-play-review%40system.dis.local';
+
+        $this->assertTrue($apple['review_setup']['available']);
+        $this->assertSame('https://mobile.example.test', $apple['review_setup']['server_url']);
+        $this->assertSame('operator_ios', $apple['review_setup']['client_type']);
+        $this->assertSame('apple-app-review@system.dis.local', $apple['review_setup']['username']);
+        $this->assertSame($applePayload, $apple['review_setup']['deeplink_url']);
+        $this->assertSame($applePayload, $apple['review_setup']['qr_payload']);
+
+        $this->assertTrue($google['review_setup']['available']);
+        $this->assertSame('operator_android', $google['review_setup']['client_type']);
+        $this->assertSame('google-play-review@system.dis.local', $google['review_setup']['username']);
+        $this->assertSame($googlePayload, $google['review_setup']['deeplink_url']);
+        $this->assertSame($googlePayload, $google['review_setup']['qr_payload']);
+
+        foreach ([$applePayload, $googlePayload] as $payload) {
+            $this->assertStringNotContainsString('password', $payload);
+            $this->assertStringNotContainsString('token', $payload);
+            $this->assertStringNotContainsString('code=', $payload);
+        }
+
+        SystemSetting::query()->whereKey('mobile.api_base_url')->delete();
+        $fallbackApple = collect(app(StoreReviewAccountService::class)->status()['accounts'])
+            ->firstWhere('platform', 'apple');
+
+        $this->assertSame('https://fallback.example.test', $fallbackApple['review_setup']['server_url']);
+        $this->assertStringContainsString(
+            'server=https%3A%2F%2Ffallback.example.test',
+            $fallbackApple['review_setup']['qr_payload'],
+        );
+    }
+
+    public function test_status_explains_when_review_setup_has_no_public_https_server(): void
+    {
+        foreach ([
+            null,
+            'http://mobile.example.test/api',
+            'https://mobile.example.test/subpath/api',
+            'https://mobile.example.test/api?tenant=review',
+            'https://reviewer@mobile.example.test/api',
+            'https://mobile.example.test/api#review',
+        ] as $configuredUrl) {
+            SystemSetting::query()->whereKey('mobile.api_base_url')->delete();
+            if ($configuredUrl !== null) {
+                SystemSetting::query()->create([
+                    'key' => 'mobile.api_base_url',
+                    'value' => $configuredUrl,
+                    'is_sensitive' => false,
+                ]);
+            }
+
+            $accounts = app(StoreReviewAccountService::class)->status()['accounts'];
+
+            foreach ($accounts as $account) {
+                $this->assertFalse($account['review_setup']['available']);
+                $this->assertNull($account['review_setup']['server_url']);
+                $this->assertNull($account['review_setup']['deeplink_url']);
+                $this->assertNull($account['review_setup']['qr_payload']);
+                $this->assertSame(
+                    'Stel eerst een geldige publieke HTTPS-URL in bij Beheer > Push.',
+                    $account['review_setup']['configuration_error'],
+                );
+            }
+        }
+    }
+
+    public function test_status_falls_back_when_mobile_server_is_not_a_bare_https_origin(): void
+    {
+        SystemSetting::query()->create([
+            'key' => 'mobile.api_base_url',
+            'value' => 'https://mobile.example.test/subpath/api',
+            'is_sensitive' => false,
+        ]);
+        SystemSetting::query()->create([
+            'key' => 'app.public_url',
+            'value' => 'https://fallback.example.test/',
+            'is_sensitive' => false,
+        ]);
+
+        $accounts = app(StoreReviewAccountService::class)->status()['accounts'];
+
+        foreach ($accounts as $account) {
+            $this->assertTrue($account['review_setup']['available']);
+            $this->assertSame('https://fallback.example.test', $account['review_setup']['server_url']);
+            $this->assertStringContainsString(
+                'server=https%3A%2F%2Ffallback.example.test',
+                $account['review_setup']['qr_payload'],
+            );
+        }
     }
 
     private function configureAccount(string $platform, string $password): void

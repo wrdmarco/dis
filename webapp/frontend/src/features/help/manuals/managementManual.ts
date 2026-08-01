@@ -247,13 +247,16 @@ export const managementManualGuides = {
       permissions: ['settings.manage'],
       steps: [
         { label: 'Open de tab Store', description: 'Kies het afzonderlijke Apple- of Google-revieweraccount.' },
-        { label: 'Stel een sterk wachtwoord in', description: 'Gebruik minimaal twaalf tekens en deel het alleen via het beveiligde reviewkanaal.' },
+        { label: 'Controleer de serverconfiguratie', description: 'De review-QR gebruikt de mobiele API URL of publieke web URL uit de tab Push. Alleen een geldige publieke HTTPS-URL kan worden opgenomen.' },
+        { label: 'Stel een sterk wachtwoord in', description: 'Gebruik minimaal 24 tekens met hoofdletters, kleine letters, cijfers en speciale tekens. Deel het alleen via het beveiligde reviewkanaal.' },
         { label: 'Activeer het account', description: 'Apple kan uitsluitend in de iOS-operatorapp inloggen; Google uitsluitend in de Android-operatorapp.' },
+        { label: 'Download de juiste review-QR', description: 'Gebruik voor Apple de iOS-PNG in App Store Connect en voor Google de Android-PNG in Google Play Console. De QR vult de server en reviewer-gebruikersnaam in.' },
+        { label: 'Leg de aanmeldvolgorde vast', description: 'Laat de reviewer eerst de QR scannen en daarna het afzonderlijk ingestelde wachtwoord invoeren. De QR bevat zelf geen wachtwoord, token of koppelcode.' },
         { label: 'Controleer het infoblok', description: 'Bekijk het laatste inlogmoment en de geldigheid van de reviewsessie.' },
         { label: 'Schakel uit na de controle', description: 'Uitschakelen trekt alle actieve reviewsessies direct in.' },
       ],
       result: 'De reviewer kan maximaal 24 uur met het beperkte reviewtoken werken zonder operationele gegevens te wijzigen.',
-      warning: 'Revieweraccounts kunnen nooit in het webportaal inloggen en zien uitsluitend afgeschermde testdata. MFA is alleen voor deze revieweraccounts uitgeschakeld.',
+      warning: 'De Apple- en Google-QR zijn platformgebonden maar bevatten geen authenticatiegeheim. Revieweraccounts kunnen nooit in het webportaal inloggen en zien uitsluitend afgeschermde testdata. MFA is alleen voor deze revieweraccounts uitgeschakeld.',
     },
     {
       id: 'admin-revoke-device',

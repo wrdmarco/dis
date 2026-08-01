@@ -1624,6 +1624,17 @@ export interface StoreReviewAccountStatus {
   token_last_used_at?: string | null;
   token_expires_at?: string | null;
   recent_login_events: StoreReviewLoginEvent[];
+  review_setup?: StoreReviewSetup;
+}
+
+export interface StoreReviewSetup {
+  available: boolean;
+  server_url?: string | null;
+  client_type: 'operator_ios' | 'operator_android';
+  username: string;
+  deeplink_url?: string | null;
+  qr_payload?: string | null;
+  configuration_error?: string | null;
 }
 
 export interface StoreReviewLoginEvent {

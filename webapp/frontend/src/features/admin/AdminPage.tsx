@@ -1666,10 +1666,49 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
                       {account.enabled ? 'Actief' : 'Uitgeschakeld'}
                     </span>
                   </div>
-                  <label>
-                    Gebruikersnaam
-                    <input className="mono" value={account.username} readOnly onFocus={(event) => event.currentTarget.select()} />
-                  </label>
+                  {account.review_setup?.available && account.review_setup.qr_payload ? (
+                    <div className="mobile-pairing mobile-pairing--active">
+                      <div className="mobile-pairing__header">
+                        <div>
+                          <span>Store-review configuratie</span>
+                          <strong>{account.platform === 'apple' ? 'App Store Connect' : 'Google Play Console'}</strong>
+                          <p>De QR vult alleen de server en reviewer-gebruikersnaam in. De reviewer voert daarna het afzonderlijk ingestelde wachtwoord in.</p>
+                        </div>
+                      </div>
+                      <div className="mobile-pairing__grid">
+                        <div className="mobile-pairing__manual">
+                          <label>
+                            Server
+                            <input className="mono" value={account.review_setup.server_url ?? ''} readOnly onFocus={(event) => event.currentTarget.select()} />
+                          </label>
+                          <label>
+                            Gebruikersnaam
+                            <input className="mono" value={account.review_setup.username} readOnly onFocus={(event) => event.currentTarget.select()} />
+                          </label>
+                          <small>De PNG bevat geen wachtwoord, toegangstoken of koppelcode en blijft geldig zolang de server-URL en reviewer-gebruikersnaam niet wijzigen.</small>
+                        </div>
+                        <div className="mobile-pairing__qr">
+                          <TotpQrCode
+                            value={account.review_setup.qr_payload}
+                            alt={`Review-QR voor ${account.platform === 'apple' ? 'App Store Connect' : 'Google Play'}`}
+                            helpText={`Download deze PNG voor de reviewinstructies in ${account.platform === 'apple' ? 'App Store Connect' : 'Google Play Console'}.`}
+                            downloadFileName={account.platform === 'apple' ? 'dis-app-store-review-ios.png' : 'dis-google-play-review-android.png'}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mobile-pairing">
+                      <strong>Review-QR niet beschikbaar</strong>
+                      <p className="error-text">{account.review_setup?.configuration_error ?? 'De mobiele serverconfiguratie kon niet worden geladen.'}</p>
+                      <div className="mobile-pairing__manual">
+                        <label>
+                          Gebruikersnaam
+                          <input className="mono" value={account.username} readOnly onFocus={(event) => event.currentTarget.select()} />
+                        </label>
+                      </div>
+                    </div>
+                  )}
                   <label>
                     {account.configured ? 'Nieuw wachtwoord instellen' : 'Wachtwoord instellen'}
                     <input
