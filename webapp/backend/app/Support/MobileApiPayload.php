@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use App\Models\AppVersion;
 use App\Models\Asset;
 use App\Models\AssetAssignment;
 use App\Models\AuditLog;
@@ -205,27 +204,6 @@ final class MobileApiPayload
             'token_hash' => $token->token_hash ?? hash('sha256', (string) $token->token),
             'personal_access_token_id' => $token->personal_access_token_id,
             'user' => $includeUser && $token->relationLoaded('user') ? self::user($token->user) : null,
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    public static function appVersion(?AppVersion $version): ?array
-    {
-        if ($version === null) {
-            return null;
-        }
-
-        return [
-            'id' => $version->id,
-            'platform' => $version->platform,
-            'application_id' => $version->application_id,
-            'version_name' => $version->version_name,
-            'version_code' => (int) $version->version_code,
-            'status' => $version->status,
-            'download_url' => $version->download_url,
-            'artifact_sha256' => $version->artifact_sha256,
         ];
     }
 

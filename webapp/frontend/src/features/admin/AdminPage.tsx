@@ -130,13 +130,12 @@ const formTabs: Array<{ id: AdminTab; label: string }> = [
 ];
 
 const developerScopeLabels: Record<string, string> = {
-  android_upload: 'Android upload',
   system_update: 'Update starten',
   logs_read: 'Logs lezen',
   user_unlock: 'Gebruiker unlocken',
 };
 
-const defaultDeveloperScopes = ['android_upload', 'system_update', 'logs_read', 'user_unlock'];
+const defaultDeveloperScopes = ['system_update', 'logs_read', 'user_unlock'];
 
 interface DeveloperKeyForm {
   scopes: string[];
@@ -414,8 +413,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         settings: {
           'software.download.operator_android.app_store_url': appLinksForm.androidOperatorUrl.trim(),
           'software.download.operator_ios.app_store_url': appLinksForm.iosOperatorUrl.trim(),
-          'software.download.operator_android.source': 'app_store',
-          'software.download.operator_ios.source': 'app_store',
         },
       });
       await settings.reload();
@@ -1399,8 +1396,8 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         <Panel title="Tijdelijke ontwikkeltoegang">
           <ResourceState loading={developerAccess.loading} error={developerAccess.error} empty={!developerAccess.data}>
             <div className="setup-copy">
-              <strong>Android release upload via API-key</strong>
-              <p>Gebruik deze tijdelijke sleutel alleen voor ontwikkel/deploy werk. De sleutel wordt eenmalig getoond; de server bewaart alleen een hash. Uitschakelen blokkeert direct uploads via deze sleutel.</p>
+              <strong>Tijdelijke API-sleutel voor technisch beheer</strong>
+              <p>Gebruik deze tijdelijke sleutel alleen voor ontwikkel- en beheerwerk. De sleutel wordt eenmalig getoond; de server bewaart alleen een hash. Uitschakelen blokkeert direct alle toegang via deze sleutel.</p>
             </div>
             <dl className="definition-grid">
               <dt>Status</dt>
@@ -1419,8 +1416,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               <dd>{formatDate(developerAccess.data?.generated_at)}</dd>
               <dt>Uitgeschakeld</dt>
               <dd>{formatDate(developerAccess.data?.disabled_at)}</dd>
-              <dt>Upload endpoint</dt>
-              <dd className="mono">POST /api/developer/android/upload</dd>
               <dt>Update endpoint</dt>
               <dd className="mono">POST /api/developer/system/update</dd>
               <dt>Logs endpoint</dt>

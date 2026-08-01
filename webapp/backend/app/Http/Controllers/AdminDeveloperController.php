@@ -21,8 +21,6 @@ use Symfony\Component\Process\PhpExecutableFinder;
 
 final class AdminDeveloperController extends Controller
 {
-    private const ACCESS_KEY = 'developer.android_upload';
-
     private const GIT_BRANCH = 'main';
 
     public function __construct(
@@ -58,7 +56,7 @@ final class AdminDeveloperController extends Controller
 
         $plainTextKey = 'dis_dev_'.bin2hex(random_bytes(32));
         SystemSetting::query()->updateOrCreate(
-            ['key' => self::ACCESS_KEY],
+            ['key' => DeveloperAccessService::SETTING_KEY],
             [
                 'value' => [
                     'enabled' => true,
@@ -86,7 +84,7 @@ final class AdminDeveloperController extends Controller
     public function disableDeveloperKey(Request $request): JsonResponse
     {
         SystemSetting::query()->updateOrCreate(
-            ['key' => self::ACCESS_KEY],
+            ['key' => DeveloperAccessService::SETTING_KEY],
             [
                 'value' => [
                     'enabled' => false,
@@ -102,7 +100,7 @@ final class AdminDeveloperController extends Controller
             ],
         );
 
-        $this->auditService->record('developer.android_upload_key_disabled', SystemSetting::class, $request->user(), [], null, $request);
+        $this->auditService->record('developer.api_key_disabled', SystemSetting::class, $request->user(), [], null, $request);
 
         return ApiResponse::success($this->developerAccessState());
     }
@@ -351,7 +349,7 @@ final class AdminDeveloperController extends Controller
      */
     private function developerAccessState(): array
     {
-        $setting = SystemSetting::query()->find(self::ACCESS_KEY);
+        $setting = SystemSetting::query()->find(DeveloperAccessService::SETTING_KEY);
         $value = is_array($setting?->value) ? $setting->value : [];
         $allowedIps = is_array($value['allowed_ips'] ?? null) ? array_values(array_filter($value['allowed_ips'], 'is_string')) : [];
 

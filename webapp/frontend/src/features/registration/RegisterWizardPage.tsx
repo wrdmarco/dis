@@ -15,7 +15,6 @@ interface RegistrationInvite {
 }
 
 interface SoftwareDownloadChannel {
-  source: 'direct' | 'app_store';
   app_store_url: string;
 }
 
@@ -232,7 +231,7 @@ export function RegisterWizardPage() {
     <main className="setup-shell">
       <section className="setup-panel" aria-labelledby="registration-title">
         <div className="setup-panel__header">
-          <div className="public-download-panel__mark">
+          <div className="setup-panel__mark">
             {completed ? <CheckCircle2 aria-hidden size={30} /> : <UserRound aria-hidden size={30} />}
           </div>
           <div>
@@ -241,7 +240,7 @@ export function RegisterWizardPage() {
           </div>
         </div>
 
-        {loading ? <p className="public-download-panel__status setup-status-line">Registratiegegevens laden...</p> : null}
+        {loading ? <p className="setup-panel__status setup-status-line">Registratiegegevens laden...</p> : null}
         {error ? <p className="form-error setup-status-line">{error}</p> : null}
 
         {!loading && invite ? (

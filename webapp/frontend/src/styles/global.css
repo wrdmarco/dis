@@ -143,8 +143,7 @@ a:hover {
 }
 
 .boot-screen,
-.login-shell,
-.public-download-shell {
+.login-shell {
   min-height: 100vh;
   display: grid;
   place-items: center;
@@ -234,15 +233,6 @@ a:hover {
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
-}
-
-.public-download-panel {
-  width: min(680px, calc(100vw - 32px));
-  border: 1px solid #223042;
-  background: rgba(12, 18, 27, 0.94);
-  border-radius: 8px;
-  padding: 28px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
 }
 
 .public-status-panel {
@@ -464,7 +454,7 @@ a:hover {
 }
 
 .login-panel__mark,
-.public-download-panel__mark {
+.setup-panel__mark {
   width: 48px;
   height: 48px;
   display: grid;
@@ -580,20 +570,8 @@ a:hover {
   color: #80c7ff;
 }
 
-.public-download-panel h1 {
-  margin: 6px 0 18px;
-  font-size: 1.75rem;
-}
-
-.public-download-panel__status {
+.setup-panel__status {
   color: #aebdd0;
-}
-
-.public-download-panel__actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 18px;
 }
 
 .public-link {
@@ -810,11 +788,6 @@ a:hover {
   cursor: progress;
 }
 
-.primary-button--disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
 .secondary-button {
   min-height: 40px;
   display: inline-flex;
@@ -887,114 +860,6 @@ a:hover {
 .secondary-button:disabled {
   opacity: 0.6;
   cursor: progress;
-}
-
-.download-channel-list {
-  display: grid;
-  gap: 14px;
-  margin-top: 14px;
-}
-
-.download-card {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 0;
-}
-
-.download-card > div {
-  min-height: 78px;
-  border: 1px solid var(--dis-border);
-  border-radius: 8px;
-  background: var(--dis-field);
-  padding: 12px;
-}
-
-.download-card span,
-.download-integrity {
-  color: var(--dis-muted);
-  font-size: 0.86rem;
-}
-
-.download-card strong {
-  display: block;
-  margin-top: 6px;
-}
-
-.download-card__hash {
-  grid-column: 1 / -1;
-}
-
-.download-card__qr {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-}
-
-.download-card > .primary-button,
-.download-card > .secondary-button {
-  grid-column: 1 / -1;
-}
-
-.download-card code {
-  display: block;
-  margin-top: 6px;
-  overflow-wrap: anywhere;
-  color: var(--dis-text);
-}
-
-.download-setup-qr {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  margin-top: 16px;
-  border: 1px solid var(--dis-border);
-  border-radius: 8px;
-  background: var(--dis-field);
-  padding: 14px;
-}
-
-.download-setup-qr p {
-  margin: 6px 0;
-  color: var(--dis-muted);
-}
-
-.download-setup-qr code {
-  color: var(--dis-text);
-  overflow-wrap: anywhere;
-}
-
-.download-setup-qr .totp-qr {
-  width: 220px;
-}
-
-.download-source-admin {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.download-source-admin__card {
-  display: grid;
-  gap: 12px;
-  border: 1px solid var(--dis-border);
-  border-radius: 8px;
-  background: var(--dis-field);
-  padding: 14px;
-}
-
-.download-source-admin__card span {
-  display: block;
-  color: var(--dis-muted);
-  font-size: 0.86rem;
-}
-
-.download-source-admin__card strong {
-  display: block;
-  margin-top: 4px;
 }
 
 .mfa-card {
@@ -1185,13 +1050,6 @@ a:hover {
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 16px;
-}
-
-.download-integrity {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
 }
 
 .metadata-example {
@@ -5179,8 +5037,6 @@ body,
 .muted-text,
 .definition-grid dt,
 .field-label,
-.download-card span,
-.download-integrity,
 .setup-copy p,
 .metadata-example pre,
 .panel-body p,
@@ -5223,8 +5079,6 @@ body,
 .firebase-step,
 .metadata-example,
 .summary-card,
-.download-card > div,
-.download-setup-qr,
 .totp-qr,
 .deployment-list-summary > div,
 .deployment-card,
@@ -5382,7 +5236,6 @@ a,
 .deployment-card,
 .kpi,
 .summary-card,
-.download-card > div,
 .recipient-row,
 .draft-recipient-grid article,
 .drone-flight-panel,
@@ -5542,7 +5395,6 @@ button:disabled,
 .kpi,
 .summary-card,
 .deployment-card,
-.download-card > div,
 .dispatch-toolbar,
 .recipient-row,
 .drone-flight-panel,
@@ -5734,7 +5586,6 @@ textarea::placeholder {
 
 .deployment-card,
 .recipient-row,
-.download-card > div,
 .checkbox-card,
 .push-summary,
 .mfa-card,
@@ -5743,7 +5594,6 @@ textarea::placeholder {
 }
 
 .deployment-card,
-.download-card > div,
 .checkbox-card {
   transition:
     border-color 180ms ease,
@@ -5752,7 +5602,6 @@ textarea::placeholder {
 }
 
 .deployment-card:hover,
-.download-card > div:hover,
 .checkbox-card:hover {
   transform: translateY(-1px);
 }
@@ -6054,7 +5903,6 @@ textarea:focus {
 .setup-review div,
 .mfa-card,
 .push-summary,
-.download-setup-qr,
 .recipient-picker,
 .stacked-section {
   position: relative;
@@ -6066,7 +5914,6 @@ textarea:focus {
 .field-display::before,
 .mfa-card::before,
 .push-summary::before,
-.download-setup-qr::before,
 .recipient-picker::before,
 .stacked-section::before {
   content: "";
@@ -13187,8 +13034,7 @@ td .table-actions {
 .push-template-card,
 .branding-logo-preview,
 .firebase-wizard,
-.test-alert-hero,
-.download-channel-list {
+.test-alert-hero {
   isolation: isolate;
 }
 
@@ -13210,7 +13056,6 @@ td .table-actions {
   min-width: 0;
 }
 
-.download-channel-list,
 .public-status-grid {
   min-width: 0;
 }
@@ -13764,10 +13609,6 @@ pre {
   .test-alert-hero,
   .inline-form,
   .inline-form--compact,
-  .download-card,
-  .download-card__qr,
-  .download-source-admin,
-  .download-setup-qr,
   .firebase-wizard__intro,
   .permission-grid,
   .checkbox-grid,
@@ -14156,8 +13997,6 @@ pre {
 :root[data-theme="light"] .muted-text,
 :root[data-theme="light"] .definition-grid dt,
 :root[data-theme="light"] .field-label,
-:root[data-theme="light"] .download-card span,
-:root[data-theme="light"] .download-integrity,
 :root[data-theme="light"] .setup-copy p,
 :root[data-theme="light"] .metadata-example pre,
 :root[data-theme="light"] .panel-body p,
@@ -14172,7 +14011,6 @@ pre {
 :root[data-theme="light"] .drone-flight-card dt,
 :root[data-theme="light"] .drone-flight-map-card span,
 :root[data-theme="light"] .drone-flight-panel > header span,
-:root[data-theme="light"] .download-card code,
 :root[data-theme="light"] .deployment-card__meta > span,
 :root[data-theme="light"] .operator-cell span,
 :root[data-theme="light"] .deployment-list-summary span,
@@ -14188,8 +14026,6 @@ pre {
 :root[data-theme="light"] .firebase-step,
 :root[data-theme="light"] .metadata-example,
 :root[data-theme="light"] .summary-card,
-:root[data-theme="light"] .download-card > div,
-:root[data-theme="light"] .download-setup-qr,
 :root[data-theme="light"] .totp-qr,
 :root[data-theme="light"] .deployment-list-summary > div,
 :root[data-theme="light"] .deployment-card,
@@ -14212,8 +14048,7 @@ pre {
 :root[data-theme="light"] .setup-stepper__item,
 :root[data-theme="light"] .firebase-wizard__tab,
 :root[data-theme="light"] .branding-logo-preview,
-:root[data-theme="light"] .operational-status__summary > div,
-:root[data-theme="light"] .download-source-admin__card {
+:root[data-theme="light"] .operational-status__summary > div {
   border-color: var(--dis-border);
   background: var(--dis-surface);
   box-shadow: 0 14px 34px rgba(18, 37, 57, 0.06);
@@ -15055,12 +14890,6 @@ pre {
 }
 
 /* Targeted light-mode cleanup for profile pages. */
-:root[data-theme="light"] .download-channel-list,
-:root[data-theme="light"] .download-card,
-:root[data-theme="light"] .download-card__qr,
-:root[data-theme="light"] .download-card__hash,
-:root[data-theme="light"] .download-setup-qr,
-:root[data-theme="light"] .download-source-admin,
 :root[data-theme="light"] .mfa-card,
 :root[data-theme="light"] .totp-qr,
 :root[data-theme="light"] .tenant-qr,
@@ -15070,10 +14899,6 @@ pre {
   color: var(--dis-text);
 }
 
-:root[data-theme="light"] .download-card > div,
-:root[data-theme="light"] .download-card__qr,
-:root[data-theme="light"] .download-setup-qr,
-:root[data-theme="light"] .download-source-admin__card,
 :root[data-theme="light"] .mfa-card,
 :root[data-theme="light"] .totp-qr,
 :root[data-theme="light"] .tenant-qr,
@@ -15087,16 +14912,11 @@ pre {
   box-shadow: 0 12px 30px rgba(18, 37, 57, 0.05);
 }
 
-:root[data-theme="light"] .download-setup-qr::before,
 :root[data-theme="light"] .mfa-card::before,
 :root[data-theme="light"] .work-plan-card::before {
   background: linear-gradient(180deg, rgba(11, 111, 174, 0.58), rgba(22, 163, 74, 0.2));
 }
 
-:root[data-theme="light"] .download-card span,
-:root[data-theme="light"] .download-integrity,
-:root[data-theme="light"] .download-setup-qr p,
-:root[data-theme="light"] .download-source-admin__card span,
 :root[data-theme="light"] .mfa-card p,
 :root[data-theme="light"] .totp-qr span,
 :root[data-theme="light"] .work-plan-card__header p,
@@ -15105,18 +14925,13 @@ pre {
   color: var(--dis-muted);
 }
 
-:root[data-theme="light"] .download-card strong,
-:root[data-theme="light"] .download-source-admin__card strong,
 :root[data-theme="light"] .work-plan-card strong,
 :root[data-theme="light"] .week-daypart-row strong,
 :root[data-theme="light"] .daypart-planner-row strong {
   color: var(--dis-text-strong);
 }
 
-:root[data-theme="light"] .download-card code,
-:root[data-theme="light"] .download-setup-qr code,
-:root[data-theme="light"] .tenant-qr code,
-:root[data-theme="light"] .download-integrity code {
+:root[data-theme="light"] .tenant-qr code {
   border: 1px solid var(--dis-border);
   border-radius: 6px;
   background: #f1f6fb;
@@ -15145,40 +14960,14 @@ pre {
   color: var(--dis-blue);
 }
 
-:root[data-theme="light"] .public-download-shell {
-  min-height: auto;
-  place-items: stretch;
-  background:
-    radial-gradient(circle at 16% 0%, rgba(11, 111, 174, 0.08), transparent 26%),
-    linear-gradient(180deg, #f8fbff 0%, var(--dis-bg) 58%, #e7eef7 100%);
-}
-
-:root[data-theme="light"] .public-download-panel {
-  width: 100%;
-  border-color: var(--dis-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98)),
-    var(--dis-surface);
-  color: var(--dis-text);
-  box-shadow: 0 16px 40px rgba(18, 37, 57, 0.08);
-}
-
-:root[data-theme="light"] .public-download-panel__mark {
+:root[data-theme="light"] .setup-panel__mark {
   border: 1px solid #bdd3e7;
   background: var(--dis-blue-soft);
   color: var(--dis-blue);
 }
 
-:root[data-theme="light"] .public-download-panel h1 {
-  color: var(--dis-text-strong);
-}
-
-:root[data-theme="light"] .public-download-panel__status {
+:root[data-theme="light"] .setup-panel__status {
   color: var(--dis-muted);
-}
-
-:root[data-theme="light"] .public-download-panel__actions {
-  border-color: var(--dis-border);
 }
 
 :root[data-theme="light"] .danger-button {
@@ -15347,10 +15136,6 @@ pre {
 :root[data-theme="light"] .mfa-card,
 :root[data-theme="light"] .push-summary,
 :root[data-theme="light"] .push-template-card,
-:root[data-theme="light"] .download-card > div,
-:root[data-theme="light"] .download-card__qr,
-:root[data-theme="light"] .download-setup-qr,
-:root[data-theme="light"] .download-source-admin__card,
 :root[data-theme="light"] .work-plan-card,
 :root[data-theme="light"] .work-plan-modal,
 :root[data-theme="light"] .week-daypart-row,
@@ -18981,14 +18766,6 @@ pre {
 :root[data-theme="light"] .push-summary,
 :root[data-theme="light"] .push-targets__section,
 :root[data-theme="light"] .push-template-card,
-:root[data-theme="light"] .download-channel-list,
-:root[data-theme="light"] .download-card > div,
-:root[data-theme="light"] .download-card__hash,
-:root[data-theme="light"] .download-card__qr,
-:root[data-theme="light"] .download-setup-qr,
-:root[data-theme="light"] .download-source-admin,
-:root[data-theme="light"] .download-source-admin__card,
-:root[data-theme="light"] .download-integrity,
 :root[data-theme="light"] .mfa-card,
 :root[data-theme="light"] .totp-qr,
 :root[data-theme="light"] .tenant-qr,
@@ -19006,7 +18783,6 @@ pre {
 :root[data-theme="light"] .drone-flight-map-card,
 :root[data-theme="light"] .drone-flight-aeret-frame,
 :root[data-theme="light"] .drone-flight-empty,
-:root[data-theme="light"] .public-download-panel,
 :root[data-theme="light"] .public-status-summary,
 :root[data-theme="light"] .public-status-card,
 :root[data-theme="light"] .setup-panel,
@@ -19429,14 +19205,6 @@ pre {
 :root[data-theme="light"] .push-summary,
 :root[data-theme="light"] .push-targets__section,
 :root[data-theme="light"] .push-template-card,
-:root[data-theme="light"] .download-channel-list,
-:root[data-theme="light"] .download-card > div,
-:root[data-theme="light"] .download-card__hash,
-:root[data-theme="light"] .download-card__qr,
-:root[data-theme="light"] .download-setup-qr,
-:root[data-theme="light"] .download-source-admin,
-:root[data-theme="light"] .download-source-admin__card,
-:root[data-theme="light"] .download-integrity,
 :root[data-theme="light"] .device-management-card,
 :root[data-theme="light"] .device-card,
 :root[data-theme="light"] .device-card__icon,
@@ -19463,7 +19231,6 @@ pre {
 :root[data-theme="light"] .operational-map__livebar,
 :root[data-theme="light"] .operational-map__list,
 :root[data-theme="light"] .operational-map__layer-menu,
-:root[data-theme="light"] .public-download-panel,
 :root[data-theme="light"] .public-status-summary,
 :root[data-theme="light"] .public-status-card,
 :root[data-theme="light"] .setup-panel,

@@ -43,7 +43,6 @@ final class SystemSettingSeeder extends Seeder
         'asset.warning_days_before_expiry' => ['value' => 30, 'is_sensitive' => false],
         'certification.warning_days_before_expiry' => ['value' => 30, 'is_sensitive' => false],
         'location.retention_days' => ['value' => 30, 'is_sensitive' => false],
-        'updates.android.minimum_supported_version_code' => ['value' => 1, 'is_sensitive' => false],
         'security.mfa_required' => ['value' => true, 'is_sensitive' => false],
         'security.password_min_length' => ['value' => 14, 'is_sensitive' => false],
         'security.password_requires_mixed_case' => ['value' => true, 'is_sensitive' => false],

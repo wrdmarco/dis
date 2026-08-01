@@ -250,8 +250,6 @@ function permissionCategoryLabel(category: string): string {
       return 'Branding';
     case 'audit_log_access':
       return 'Audit';
-    case 'update_management':
-      return 'Updates';
     case 'push_management':
       return 'Pushmeldingen';
     case 'system_configuration':

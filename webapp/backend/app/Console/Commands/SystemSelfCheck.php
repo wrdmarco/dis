@@ -41,7 +41,6 @@ final class SystemSelfCheck extends Command
         'dispatch_push_outbox',
         'location_sharing_consents',
         'location_updates',
-        'app_versions',
         'audit_logs',
         'system_settings',
         'personal_access_tokens',

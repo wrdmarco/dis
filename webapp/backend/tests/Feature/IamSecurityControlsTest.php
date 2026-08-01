@@ -170,7 +170,7 @@ final class IamSecurityControlsTest extends TestCase
     public function test_invalid_developer_key_returns_the_intended_unauthorized_response(): void
     {
         SystemSetting::query()->updateOrCreate(
-            ['key' => 'developer.android_upload'],
+            ['key' => DeveloperAccessService::SETTING_KEY],
             [
                 'value' => [
                     'enabled' => true,

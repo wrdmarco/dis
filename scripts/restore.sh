@@ -179,6 +179,8 @@ replace_managed_tree "${RESTORED_DATA}/storage" "${DIS_DATA_PATH}/storage"
 replace_managed_tree "${RESTORED_DATA}/webapp/backend/storage" "${DIS_DATA_PATH}/webapp/backend/storage"
 replace_managed_tree "${RESTORED_DATA}/secrets" "${DIS_DATA_PATH}/secrets"
 
+DIS_RETIRE_ANDROID_APKS_PARENT_OWNS_LOCK=1 \
+  bash "${SCRIPT_DIR}/retire-android-apks.sh"
 DIS_RETIRE_WEATHER_PARENT_OWNS_LOCK=1 \
   bash "${SCRIPT_DIR}/retire-weather-snapshots.sh"
 repair_restored_data_permissions

@@ -21,7 +21,7 @@ final class AuthenticationStateRevocationService
             $passwordResetTokens = DB::table('password_reset_tokens')->delete();
             $pairingCodes = DB::table('mobile_pairing_codes')->delete();
             $developerKeys = DB::table('system_settings')
-                ->where('key', 'developer.android_upload')
+                ->where('key', DeveloperAccessService::SETTING_KEY)
                 ->delete();
             $pushTokens = DB::table('fcm_tokens')
                 ->where('is_active', true)

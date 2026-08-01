@@ -47,7 +47,6 @@ use App\Http\Controllers\SetupController;
 use App\Http\Controllers\StatusAuditController;
 use App\Http\Controllers\StatusController;
 use App\Http\Controllers\TestAlertController;
-use App\Http\Controllers\UpdateController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserNotificationController;
 use App\Http\Controllers\VacationController;
@@ -100,11 +99,7 @@ Route::post('/registration/mobile-pairing', [RegistrationController::class, 'mob
 Route::get('/setup/status', [SetupController::class, 'status'])->middleware('throttle:api');
 Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware('throttle:setup');
 Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:mobile-public');
-Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:mobile-public');
-Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:mobile-public');
-Route::get('/updates/ios/current', [UpdateController::class, 'iosCurrent'])->middleware('throttle:mobile-public');
 Route::get('/branding', [BrandingController::class, 'show'])->middleware('throttle:api');
-Route::post('/developer/android/upload', [UpdateController::class, 'developerUploadAndroid'])->middleware('throttle:developer-upload');
 Route::post('/developer/system/maintenance', [AdminDeveloperController::class, 'developerMaintenance'])->middleware('throttle:developer-update');
 Route::post('/developer/system/update', [AdminDeveloperController::class, 'developerRunUpdate'])->middleware('throttle:developer-update');
 Route::post('/developer/users/login-lock/reset', [AdminDeveloperController::class, 'developerResetLoginLock'])->middleware('throttle:developer-update');
@@ -132,7 +127,6 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::patch('/notifications/read-all', [UserNotificationController::class, 'markAllRead']);
         Route::patch('/notifications/{notification}/read', [UserNotificationController::class, 'markRead'])
             ->whereUlid('notification');
-        Route::get('/software/download-options', [UpdateController::class, 'downloadOptions']);
         Route::post('/auth/mobile-pairing', [MobilePairingController::class, 'create'])->middleware('throttle:api');
 
         Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
@@ -629,13 +623,6 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::post('/admin/push/tokens/{token}/activate', [AdminPushController::class, 'activate'])->middleware('permission:settings.push.tokens.manage');
         Route::post('/admin/push/manual', [AdminPushController::class, 'send'])->middleware('permission:settings.push.manual.send');
 
-        Route::get('/admin/updates/android', [UpdateController::class, 'index'])->middleware('permission:updates.manage');
-        Route::post('/admin/updates/android', [UpdateController::class, 'store'])->middleware('permission:updates.manage');
-        Route::post('/admin/updates/android/upload', [UpdateController::class, 'uploadAndroid'])->middleware('permission:updates.manage');
-        Route::patch('/admin/updates/android/{version}', [UpdateController::class, 'update'])->middleware('permission:updates.manage');
-        Route::get('/admin/updates/ios', [UpdateController::class, 'indexIos'])->middleware('permission:updates.manage');
-        Route::post('/admin/updates/ios', [UpdateController::class, 'storeIos'])->middleware('permission:updates.manage');
-        Route::patch('/admin/updates/ios/{version}', [UpdateController::class, 'update'])->middleware('permission:updates.manage');
         Route::get('/admin/pilot-report/form-config', [PilotDeploymentReportController::class, 'formConfig'])->middleware('permission:forms.manage');
         Route::patch('/admin/pilot-report/form-config', [PilotDeploymentReportController::class, 'updateFormConfig'])->middleware('permission:forms.manage');
         Route::get('/admin/deployment-form/config', [DeploymentFormController::class, 'show'])->middleware('permission:forms.manage,branding.manage');

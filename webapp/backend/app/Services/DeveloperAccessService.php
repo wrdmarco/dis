@@ -10,7 +10,7 @@ use Illuminate\Support\Carbon;
 
 final class DeveloperAccessService
 {
-    public const SCOPE_ANDROID_UPLOAD = 'android_upload';
+    public const SETTING_KEY = 'developer.api_access';
 
     public const SCOPE_SYSTEM_UPDATE = 'system_update';
 
@@ -19,7 +19,6 @@ final class DeveloperAccessService
     public const SCOPE_USER_UNLOCK = 'user_unlock';
 
     public const SCOPES = [
-        self::SCOPE_ANDROID_UPLOAD,
         self::SCOPE_SYSTEM_UPDATE,
         self::SCOPE_LOGS_READ,
         self::SCOPE_USER_UNLOCK,
@@ -32,7 +31,7 @@ final class DeveloperAccessService
     public function authorize(Request $request, string $scope): void
     {
         $providedKey = (string) $request->header('X-DIS-Developer-Key', '');
-        $setting = SystemSetting::query()->find('developer.android_upload');
+        $setting = SystemSetting::query()->find(self::SETTING_KEY);
         $value = is_array($setting?->value) ? $setting->value : [];
         $expectedHash = $value['key_hash'] ?? null;
 

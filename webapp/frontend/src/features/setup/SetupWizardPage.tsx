@@ -191,7 +191,7 @@ export function SetupWizardPage() {
     <main className="setup-shell">
       <section className="setup-panel" aria-labelledby="setup-title">
         <div className="setup-panel__header">
-          <div className="public-download-panel__mark">
+          <div className="setup-panel__mark">
             {completed || locked ? <CheckCircle2 aria-hidden size={30} /> : <Settings aria-hidden size={30} />}
           </div>
           <div>
@@ -200,7 +200,7 @@ export function SetupWizardPage() {
           </div>
         </div>
 
-        {loading ? <p className="public-download-panel__status setup-status-line">Setup status laden...</p> : null}
+        {loading ? <p className="setup-panel__status setup-status-line">Setup status laden...</p> : null}
         {error ? <p className="form-error setup-status-line">{error}</p> : null}
 
         {!loading && (completed || locked) ? (

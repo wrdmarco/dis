@@ -23,7 +23,7 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
     {
       title: 'Android app',
       icon: Smartphone,
-      body: `Registreer een Android app met package name ${androidApplicationId}. Dit moet exact overeenkomen met de APK.`,
+      body: `Registreer een Android app met package name ${androidApplicationId}. Dit moet exact overeenkomen met de gepubliceerde operator-app.`,
       checks: [
         `Android package name: ${androidApplicationId}`,
         'Download de Firebase Android config JSON.',

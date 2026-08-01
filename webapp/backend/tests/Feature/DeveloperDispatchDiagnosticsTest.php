@@ -36,7 +36,7 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
 
     public function test_logs_read_scope_and_valid_ulid_are_required(): void
     {
-        $this->enableDeveloperAccess([DeveloperAccessService::SCOPE_ANDROID_UPLOAD]);
+        $this->enableDeveloperAccess([DeveloperAccessService::SCOPE_SYSTEM_UPDATE]);
         $this->developerRequest((string) Str::ulid())
             ->assertForbidden()
             ->assertJsonPath('error.code', 'developer_api_scope_denied');
@@ -259,7 +259,7 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
     private function enableDeveloperAccess(array $scopes): void
     {
         SystemSetting::query()->updateOrCreate(
-            ['key' => 'developer.android_upload'],
+            ['key' => DeveloperAccessService::SETTING_KEY],
             [
                 'value' => [
                     'enabled' => true,

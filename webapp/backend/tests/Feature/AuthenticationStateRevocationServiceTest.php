@@ -9,6 +9,7 @@ use App\Models\Wallboard;
 use App\Models\WallboardPairingRequest;
 use App\Models\WallboardSession;
 use App\Services\AuthenticationStateRevocationService;
+use App\Services\DeveloperAccessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -110,7 +111,7 @@ final class AuthenticationStateRevocationServiceTest extends TestCase
             'expires_at' => now()->addDay(),
         ]);
         SystemSetting::query()->create([
-            'key' => 'developer.android_upload',
+            'key' => DeveloperAccessService::SETTING_KEY,
             'value' => [
                 'enabled' => true,
                 'key_hash' => hash('sha256', 'restored-developer-key'),
@@ -135,7 +136,7 @@ final class AuthenticationStateRevocationServiceTest extends TestCase
         $this->assertDatabaseCount('wallboard_pairing_requests', 0);
         $this->assertDatabaseCount('password_reset_tokens', 0);
         $this->assertDatabaseCount('mobile_pairing_codes', 0);
-        $this->assertDatabaseMissing('system_settings', ['key' => 'developer.android_upload']);
+        $this->assertDatabaseMissing('system_settings', ['key' => DeveloperAccessService::SETTING_KEY]);
         $this->assertFalse(FcmToken::query()->firstOrFail()->is_active);
         $this->assertFalse($user->refresh()->push_enabled);
         $this->assertSame(5, $user->auth_session_version);

@@ -593,8 +593,10 @@ attendance, a `no_response` override, arriving on scene, or closing the deployme
 
 ## Mobile Apps And Push Behaviour
 
-Mobile app installation and updates are handled through the platform app stores. The DIS runtime no longer
-exposes a public APK download page.
+Mobile app installation, version history and update rollout are handled through Google Play and the Apple
+App Store. DIS stores only the configurable operator-app store links used during registration; the runtime has
+no mobile version registry, minimum-version gate, APK/IPA upload endpoint or mobile-binary delivery path.
+Deployment and restore permanently remove the retired `storage/app/android-apks` directory, and backups exclude it.
 
 Android treats a preannouncement as a one-shot DIS alarm rather than the persistent looping alarm used for
 a real dispatch. When alarm sound is enabled, Android plays the configured DIS tone through a fresh,
@@ -678,8 +680,8 @@ Disable maintenance mode:
 sudo bash /opt/dis/scripts/maintenance.sh disable
 ```
 
-Deployments and updates use this maintenance boundary automatically. The operational API, APK delivery
-and websocket endpoints return `503`, while only `/health` and the authenticated, rate-limited
+Deployments and updates use this maintenance boundary automatically. The operational API and websocket
+endpoints return `503`, while only `/health` and the authenticated, rate-limited
 `POST /api/developer/system/maintenance` recovery endpoint remain reachable. Queue workers, the scheduler,
 the privileged backup-request worker, websocket server and frontend are stopped before migrations or package changes. A failed deploy/update
 intentionally keeps maintenance enabled and leaves stopped services stopped; correct the error and rerun

@@ -76,6 +76,8 @@ else
   log "Preserving the parent operation's compatible maintenance page during release cutover"
 fi
 stop_dis_deployment_services
+DIS_RETIRE_ANDROID_APKS_PARENT_OWNS_LOCK=1 \
+  bash "${SCRIPT_DIR}/retire-android-apks.sh"
 if [ "${DIS_DEPLOYMENT_OWNER}" = "update" ] \
   && [ -z "${DIS_LEGACY_WEATHER_COMPAT_REQUIRED+x}" ]; then
   # The already-running updater from the previous release still starts and

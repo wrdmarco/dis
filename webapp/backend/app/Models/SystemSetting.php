@@ -9,7 +9,7 @@ final class SystemSetting extends Model
 {
     private const SENSITIVE_KEYS = [
         'backup.samba.password',
-        'developer.android_upload',
+        'developer.api_access',
         'drone.aeret_api_key',
         'weather.knmi_edr_api_key',
         'firebase.service_account',

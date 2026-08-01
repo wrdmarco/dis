@@ -1083,7 +1083,7 @@ final class UpdateMaintenanceContractTest extends TestCase
         self::assertStringContainsString('location ^~ /api/', $config);
         self::assertStringContainsString('location /ws/', $config);
         self::assertStringContainsString('location /app/', $config);
-        self::assertStringContainsString('location ^~ /apk/', $config);
+        self::assertStringNotContainsString('location ^~ /apk/', $config);
         self::assertGreaterThanOrEqual(5, substr_count($config, 'if (-f /opt/dis/maintenance/frontend.lock)'));
         self::assertStringContainsString('location @dis_api_maintenance', $config);
         self::assertStringContainsString('"code":"maintenance"', $config);

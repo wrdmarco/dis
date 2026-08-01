@@ -72,7 +72,6 @@ return [
         ],
     ],
     'updates' => [
-        'android_application_id' => env('ANDROID_APPLICATION_ID', 'nl.wrdmarco.dis'),
         'application_estimated_duration_seconds' => (int) env('APPLICATION_UPDATE_ESTIMATED_DURATION_SECONDS', 900),
         'system_estimated_duration_seconds' => (int) env('SYSTEM_UPDATE_ESTIMATED_DURATION_SECONDS', 1500),
     ],

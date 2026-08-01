@@ -279,7 +279,6 @@ final class AppServiceProvider extends ServiceProvider
             perClient: 600,
             perUser: 1800,
         ));
-        RateLimiter::for('developer-upload', fn (Request $request) => Limit::perMinute(6)->by($request->ip()));
         RateLimiter::for('developer-update', fn (Request $request) => Limit::perMinute(2)->by($request->ip()));
         RateLimiter::for('developer-logs', fn (Request $request) => Limit::perMinute(30)->by($request->ip()));
         RateLimiter::for('osrm-admin-read', fn (Request $request): array => $this->authenticatedClientLimits(
