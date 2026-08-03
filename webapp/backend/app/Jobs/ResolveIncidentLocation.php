@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Services\DeploymentLocationEnrichmentService;
+use App\Services\GeocodingService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -33,8 +34,10 @@ final class ResolveIncidentLocation implements ShouldBeUnique, ShouldQueue
         return $this->incidentId;
     }
 
-    public function handle(DeploymentLocationEnrichmentService $enrichmentService): void
-    {
-        (new ResolveDeploymentLocation($this->incidentId))->handle($enrichmentService);
+    public function handle(
+        DeploymentLocationEnrichmentService $enrichmentService,
+        GeocodingService $geocodingService,
+    ): void {
+        (new ResolveDeploymentLocation($this->incidentId))->handle($enrichmentService, $geocodingService);
     }
 }

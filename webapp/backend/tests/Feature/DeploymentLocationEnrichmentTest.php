@@ -7,6 +7,7 @@ use App\Models\Deployment;
 use App\Models\User;
 use App\Services\DeploymentLocationEnrichmentService;
 use App\Services\DeploymentService;
+use App\Services\GeocodingService;
 use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Bus\Dispatcher;
@@ -37,6 +38,10 @@ final class DeploymentLocationEnrichmentTest extends TestCase
             'dis.deployment_location.connect_timeout_seconds' => 1,
             'dis.deployment_location.timeout_seconds' => 2,
             'dis.deployment_location.backfill_batch' => 3,
+            'dis.geocoding.enabled' => true,
+            'dis.geocoding.provider' => 'nominatim',
+            'dis.geocoding.nominatim_url' => 'https://nominatim.openstreetmap.org/search',
+            'dis.geocoding.country_codes' => 'nl,be,de',
         ]);
     }
 
@@ -336,6 +341,140 @@ final class DeploymentLocationEnrichmentTest extends TestCase
         );
     }
 
+    public function test_job_recovers_existing_label_without_coordinates_before_reverse_enrichment(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([[
+                'lat' => '52.0907000',
+                'lon' => '5.1214000',
+            ]]),
+        ]);
+        $deployment = $this->deployment(
+            'LOCATION-GEOCODE-RECOVERY',
+            locationLabel: 'Domplein 1, Utrecht',
+        );
+        $deployment->forceFill([
+            'province_code' => '26',
+            'province_name' => 'Utrecht',
+            'province_source' => DeploymentLocationEnrichmentService::SOURCE,
+            'province_resolved_at' => now(),
+            'country_code' => 'NL',
+            'country_name' => 'Nederland',
+            'country_source' => DeploymentLocationEnrichmentService::COUNTRY_SOURCE,
+            'country_resolved_at' => now(),
+            'location_enrichment_attempted_at' => now()->subHours(7),
+            'drone_flight_context' => ['location' => ['label' => 'Verouderde locatie']],
+        ])->save();
+
+        $job = new ResolveDeploymentLocation((string) $deployment->id);
+        $job->handle(
+            app(DeploymentLocationEnrichmentService::class),
+            app(GeocodingService::class),
+        );
+
+        $deployment->refresh();
+        self::assertSame('52.0907000', $deployment->latitude);
+        self::assertSame('5.1214000', $deployment->longitude);
+        self::assertNull($deployment->province_code);
+        self::assertNull($deployment->province_name);
+        self::assertNull($deployment->province_source);
+        self::assertNull($deployment->province_resolved_at);
+        self::assertNull($deployment->country_code);
+        self::assertNull($deployment->country_name);
+        self::assertNull($deployment->country_source);
+        self::assertNull($deployment->country_resolved_at);
+        self::assertNull($deployment->location_enrichment_attempted_at);
+        self::assertNull($deployment->drone_flight_context);
+        Http::assertSentCount(1);
+        Http::assertSent(static fn (Request $request): bool => str_starts_with(
+            $request->url(),
+            'https://nominatim.openstreetmap.org/search?',
+        ) && $request['q'] === 'Domplein 1, Utrecht');
+
+        Queue::fake();
+        $this->artisan('dis:backfill-deployment-locations', ['--batch' => '2'])->assertSuccessful();
+        Queue::assertPushed(
+            ResolveDeploymentLocation::class,
+            fn (ResolveDeploymentLocation $queuedJob): bool => $queuedJob->deploymentId === (string) $deployment->id,
+        );
+    }
+
+    public function test_geocoding_compare_and_set_rejects_a_stale_location_label(): void
+    {
+        $deployment = $this->deployment(
+            'LOCATION-GEOCODE-RACE',
+            locationLabel: 'Oud adres, Utrecht',
+        );
+        $deployment->forceFill([
+            'province_code' => '26',
+            'province_name' => 'Utrecht',
+            'province_source' => DeploymentLocationEnrichmentService::SOURCE,
+            'province_resolved_at' => now(),
+            'country_code' => 'NL',
+            'country_name' => 'Nederland',
+            'country_source' => DeploymentLocationEnrichmentService::COUNTRY_SOURCE,
+            'country_resolved_at' => now(),
+            'drone_flight_context' => ['sentinel' => true],
+        ])->save();
+        Http::preventStrayRequests();
+        Http::fake(function () use ($deployment) {
+            DB::table('deployments')->where('id', $deployment->id)->update([
+                'location_label' => 'Nieuw adres, Groningen',
+            ]);
+
+            return Http::response([[
+                'lat' => '52.0907000',
+                'lon' => '5.1214000',
+            ]]);
+        });
+
+        $job = new ResolveDeploymentLocation((string) $deployment->id);
+        $job->handle(
+            app(DeploymentLocationEnrichmentService::class),
+            app(GeocodingService::class),
+        );
+
+        $deployment->refresh();
+        self::assertSame('Nieuw adres, Groningen', $deployment->location_label);
+        self::assertNull($deployment->latitude);
+        self::assertNull($deployment->longitude);
+        self::assertSame('26', $deployment->province_code);
+        self::assertSame('NL', $deployment->country_code);
+        self::assertSame(['sentinel' => true], $deployment->drone_flight_context);
+        self::assertNull($deployment->location_enrichment_attempted_at);
+        Http::assertSentCount(1);
+    }
+
+    public function test_failed_geocoding_keeps_the_scheduler_cooldown(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([], 503),
+        ]);
+        $deployment = $this->deployment(
+            'LOCATION-GEOCODE-FAILURE',
+            locationLabel: 'Onbereikbare locatie',
+        );
+
+        $job = new ResolveDeploymentLocation((string) $deployment->id);
+        $job->handle(
+            app(DeploymentLocationEnrichmentService::class),
+            app(GeocodingService::class),
+        );
+
+        $deployment->refresh();
+        self::assertNull($deployment->latitude);
+        self::assertNull($deployment->longitude);
+        self::assertNotNull($deployment->location_enrichment_attempted_at);
+
+        Queue::fake();
+        $this->artisan('dis:backfill-deployment-locations', ['--batch' => '2'])
+            ->expectsOutput('Queued location enrichment for 0 deployment(s).')
+            ->assertSuccessful();
+        Queue::assertNotPushed(ResolveDeploymentLocation::class);
+    }
+
     public function test_disabled_enrichment_and_test_deployments_never_call_or_queue_external_providers(): void
     {
         Http::preventStrayRequests();
@@ -502,7 +641,7 @@ final class DeploymentLocationEnrichmentTest extends TestCase
             'created_at' => now()->subMinute(),
             'updated_at' => now()->subMinute(),
         ])->save();
-        $this->deployment('PROVINCE-BACKFILL-NO-COORDS');
+        $this->deployment('PROVINCE-BACKFILL-NO-COORDS', locationLabel: '   ');
         $this->deployment('PROVINCE-BACKFILL-RESOLVED', 52.4, 5.4)->forceFill([
             'province_source' => DeploymentLocationEnrichmentService::SOURCE,
             'province_resolved_at' => now(),
@@ -555,6 +694,91 @@ final class DeploymentLocationEnrichmentTest extends TestCase
         self::assertTrue($event->withoutOverlapping);
     }
 
+    public function test_backfill_schedules_missing_and_half_coordinate_pairs_within_the_existing_bound(): void
+    {
+        Queue::fake();
+        $oldMissing = $this->deployment(
+            'LOCATION-BACKFILL-MISSING-OLD',
+            locationLabel: 'Oude ontbrekende locatie',
+        );
+        $oldMissing->forceFill([
+            'created_at' => now()->subMinutes(4),
+            'updated_at' => now()->subMinutes(4),
+        ])->save();
+        $latitudeOnly = $this->deployment(
+            'LOCATION-BACKFILL-LATITUDE-ONLY',
+            latitude: 52.2,
+            locationLabel: 'Alleen breedtegraad',
+        );
+        $latitudeOnly->forceFill([
+            'created_at' => now()->subMinutes(3),
+            'updated_at' => now()->subMinutes(3),
+        ])->save();
+        $longitudeOnly = $this->deployment(
+            'LOCATION-BACKFILL-LONGITUDE-ONLY',
+            longitude: 5.3,
+            locationLabel: 'Alleen lengtegraad',
+        );
+        $longitudeOnly->forceFill([
+            'created_at' => now()->subMinutes(2),
+            'updated_at' => now()->subMinutes(2),
+        ])->save();
+        $newMissing = $this->deployment(
+            'LOCATION-BACKFILL-MISSING-NEW',
+            locationLabel: 'Nieuwe ontbrekende locatie',
+        );
+        $newMissing->forceFill([
+            'created_at' => now()->subMinute(),
+            'updated_at' => now()->subMinute(),
+        ])->save();
+        $blankLabel = $this->deployment(
+            'LOCATION-BACKFILL-BLANK-LABEL',
+            locationLabel: '   ',
+        );
+        $testDeployment = $this->deployment(
+            'LOCATION-BACKFILL-TEST',
+            locationLabel: 'Testlocatie met ontbrekende coordinaten',
+        );
+        $testDeployment->forceFill(['is_test' => true])->save();
+
+        $this->artisan('dis:backfill-deployment-locations', ['--batch' => '2'])
+            ->expectsOutput('Queued location enrichment for 2 deployment(s).')
+            ->assertSuccessful();
+
+        Queue::assertPushed(ResolveDeploymentLocation::class, 2);
+        Queue::assertPushed(
+            ResolveDeploymentLocation::class,
+            fn (ResolveDeploymentLocation $job): bool => $job->deploymentId === (string) $oldMissing->id,
+        );
+        Queue::assertPushed(
+            ResolveDeploymentLocation::class,
+            fn (ResolveDeploymentLocation $job): bool => $job->deploymentId === (string) $newMissing->id,
+        );
+        Queue::assertNotPushed(
+            ResolveDeploymentLocation::class,
+            fn (ResolveDeploymentLocation $job): bool => in_array($job->deploymentId, [
+                (string) $blankLabel->id,
+                (string) $testDeployment->id,
+            ], true),
+        );
+        self::assertNull($latitudeOnly->refresh()->location_enrichment_attempted_at);
+        self::assertNull($longitudeOnly->refresh()->location_enrichment_attempted_at);
+
+        Queue::fake();
+        $this->artisan('dis:backfill-deployment-locations', ['--batch' => '2'])
+            ->expectsOutput('Queued location enrichment for 2 deployment(s).')
+            ->assertSuccessful();
+        Queue::assertPushed(ResolveDeploymentLocation::class, 2);
+        Queue::assertPushed(
+            ResolveDeploymentLocation::class,
+            fn (ResolveDeploymentLocation $job): bool => $job->deploymentId === (string) $latitudeOnly->id,
+        );
+        Queue::assertPushed(
+            ResolveDeploymentLocation::class,
+            fn (ResolveDeploymentLocation $job): bool => $job->deploymentId === (string) $longitudeOnly->id,
+        );
+    }
+
     public function test_backfill_uses_six_hour_cooldown_oldest_due_fairness_and_provider_failures_do_not_retry(): void
     {
         Queue::fake();
@@ -584,23 +808,104 @@ final class DeploymentLocationEnrichmentTest extends TestCase
         Http::preventStrayRequests();
         Http::fake(['*' => Http::response('<error/>', 503)]);
         $job = new ResolveDeploymentLocation((string) $olderDue->id);
-        $job->handle(app(DeploymentLocationEnrichmentService::class));
+        $job->handle(
+            app(DeploymentLocationEnrichmentService::class),
+            app(GeocodingService::class),
+        );
         self::assertNotNull($olderDue->refresh()->location_enrichment_attempted_at);
+    }
+
+    public function test_immediate_queue_execution_cannot_overwrite_coordinate_recovery_or_delay_followup_enrichment(): void
+    {
+        $deployment = $this->deployment(
+            'LOCATION-BACKFILL-IMMEDIATE',
+            locationLabel: 'Domplein 1, Utrecht',
+        );
+        config(['queue.default' => 'sync']);
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) {
+            if (str_starts_with($request->url(), 'https://nominatim.openstreetmap.org/search?')) {
+                return Http::response([[
+                    'lat' => '52.0907000',
+                    'lon' => '5.1214000',
+                ]]);
+            }
+
+            if (str_starts_with(
+                $request->url(),
+                'https://service.pdok.nl/kadaster/brk-bestuurlijke-gebieden/wfs/v1_0?',
+            )) {
+                return Http::response($this->featureCollection([[
+                    'code' => '26',
+                    'name' => 'Utrecht',
+                ]]), 200, ['Content-Type' => 'application/gml+xml']);
+            }
+
+            return Http::response([], 503);
+        });
+
+        $this->artisan('dis:backfill-deployment-locations', ['--batch' => '2'])
+            ->expectsOutput('Queued location enrichment for 1 deployment(s).')
+            ->assertSuccessful();
+
+        $deployment->refresh();
+        self::assertSame('52.0907000', $deployment->latitude);
+        self::assertSame('5.1214000', $deployment->longitude);
+        self::assertNull($deployment->location_enrichment_attempted_at);
+        self::assertNull($deployment->province_resolved_at);
+        self::assertNull($deployment->country_resolved_at);
+
+        $this->artisan('dis:backfill-deployment-locations', ['--batch' => '2'])
+            ->expectsOutput('Queued location enrichment for 1 deployment(s).')
+            ->assertSuccessful();
+
+        $deployment->refresh();
+        self::assertSame('26', $deployment->province_code);
+        self::assertSame('Utrecht', $deployment->province_name);
+        self::assertSame('NL', $deployment->country_code);
+        self::assertSame('Nederland', $deployment->country_name);
+        self::assertNotNull($deployment->province_resolved_at);
+        self::assertNotNull($deployment->country_resolved_at);
+        Http::assertSentCount(2);
     }
 
     public function test_queue_outage_is_best_effort_and_does_not_start_the_six_hour_cooldown(): void
     {
-        $deployment = $this->deployment('PROVINCE-QUEUE-OUTAGE', 52.1, 5.1);
+        $neverAttempted = $this->deployment('PROVINCE-QUEUE-OUTAGE-NEW', 52.1, 5.1);
+        $previousAttempt = now()->subHours(7)->startOfSecond();
+        $previouslyAttempted = $this->deployment('PROVINCE-QUEUE-OUTAGE-OLD', 52.2, 5.2);
+        $previouslyAttempted->forceFill([
+            'location_enrichment_attempted_at' => $previousAttempt,
+        ])->save();
+        $concurrentAttempt = now()->subMinute()->startOfSecond();
+        $concurrentlyUpdated = $this->deployment('PROVINCE-QUEUE-OUTAGE-CONCURRENT', 52.3, 5.3);
+        $concurrentlyUpdated->forceFill([
+            'location_enrichment_attempted_at' => now()->subHours(8)->startOfSecond(),
+        ])->save();
         $this->mock(Dispatcher::class)
             ->shouldReceive('dispatch')
-            ->once()
-            ->andThrow(new RuntimeException('private queue connection details'));
+            ->times(3)
+            ->andReturnUsing(function (ResolveDeploymentLocation $job) use ($concurrentlyUpdated, $concurrentAttempt): never {
+                if ($job->deploymentId === (string) $concurrentlyUpdated->id) {
+                    DB::table('deployments')->where('id', $job->deploymentId)->update([
+                        'location_enrichment_attempted_at' => $concurrentAttempt,
+                    ]);
+                }
 
-        $this->artisan('dis:backfill-deployment-locations', ['--batch' => '2'])
+                throw new RuntimeException('private queue connection details');
+            });
+
+        $this->artisan('dis:backfill-deployment-locations', ['--batch' => '3'])
             ->expectsOutput('Queued location enrichment for 0 deployment(s).')
             ->assertSuccessful();
 
-        self::assertNull($deployment->refresh()->location_enrichment_attempted_at);
+        self::assertNull($neverAttempted->refresh()->location_enrichment_attempted_at);
+        self::assertTrue(
+            $previouslyAttempted->refresh()->location_enrichment_attempted_at?->equalTo($previousAttempt) ?? false,
+        );
+        self::assertTrue(
+            $concurrentlyUpdated->refresh()->location_enrichment_attempted_at?->equalTo($concurrentAttempt) ?? false,
+        );
     }
 
     private function user(): User
@@ -619,6 +924,7 @@ final class DeploymentLocationEnrichmentTest extends TestCase
         string $reference,
         ?float $latitude = null,
         ?float $longitude = null,
+        string $locationLabel = 'Testlocatie',
     ): Deployment {
         $actor = User::query()->first() ?? $this->user();
 
@@ -628,7 +934,7 @@ final class DeploymentLocationEnrichmentTest extends TestCase
             'priority' => 'normal',
             'status' => 'draft',
             'is_test' => false,
-            'location_label' => 'Testlocatie',
+            'location_label' => $locationLabel,
             'latitude' => $latitude,
             'longitude' => $longitude,
             'created_by' => $actor->id,

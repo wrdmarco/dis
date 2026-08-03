@@ -1994,6 +1994,28 @@ final class DeploymentRequestTest extends TestCase
 
     public function test_prepare_deployment_creates_exactly_one_draft_deployment_and_linked_edits_refresh_payload(): void
     {
+        Http::preventStrayRequests();
+        Http::fake(function ($request) {
+            if (str_starts_with($request->url(), 'https://nominatim.openstreetmap.org/search')) {
+                return Http::response([], 503);
+            }
+            if (str_starts_with($request->url(), 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free')) {
+                $point = $request['q'] === '"Brandweerkazerne Utrecht"'
+                    ? 'POINT(5.1224000 52.0917000)'
+                    : 'POINT(5.1214000 52.0907000)';
+
+                return Http::response([
+                    'response' => ['docs' => [[
+                        'centroide_ll' => $point,
+                        'weergavenaam' => $request['q'] === '"Brandweerkazerne Utrecht"'
+                            ? 'Brandweerkazerne Utrecht'
+                            : 'Kazerne Utrecht',
+                    ]]],
+                ]);
+            }
+
+            return Http::response([], 503);
+        });
         Queue::fake();
         Event::fake([DeploymentRequestChanged::class, DispatchChanged::class]);
         $actor = $this->user('prepare@example.test');
@@ -2029,6 +2051,10 @@ final class DeploymentRequestTest extends TestCase
         $this->assertSame('low', $prepared['deployment']->priority);
         $this->assertSame('Zoekactie in Utrecht', $prepared['deployment']->description);
         $this->assertSame('Kazerne Utrecht', $prepared['deployment']->location_label);
+        $this->assertSame('52.0907000', $prepared['deployment']->latitude);
+        $this->assertSame('5.1214000', $prepared['deployment']->longitude);
+        $this->assertSame('52.0907', (string) data_get($prepared['deployment']->drone_flight_context, 'location.latitude'));
+        $this->assertSame('5.1214', (string) data_get($prepared['deployment']->drone_flight_context, 'location.longitude'));
         $this->assertSame('Politie', $prepared['deployment']->requesting_organization);
         $this->assertSame('Politie', $prepared['deployment']->custom_fields['requesting_organization']);
         $this->assertSame('Operationele droneploeg', $prepared['deployment']->required_resources);
@@ -2109,7 +2135,12 @@ final class DeploymentRequestTest extends TestCase
                 'deployment_location' => 'Brandweerkazerne Utrecht',
             ]],
         ], $actor);
-        $this->assertSame('Brandweerkazerne Utrecht', $deployment->refresh()->location_label);
+        $deployment->refresh();
+        $this->assertSame('Brandweerkazerne Utrecht', $deployment->location_label);
+        $this->assertSame('52.0917000', $deployment->latitude);
+        $this->assertSame('5.1224000', $deployment->longitude);
+        $this->assertSame('52.0917', (string) data_get($deployment->drone_flight_context, 'location.latitude'));
+        $this->assertSame('5.1224', (string) data_get($deployment->drone_flight_context, 'location.longitude'));
         $this->asWebClient($actor)
             ->patchJson("/api/deployments/{$deployment->id}", [
                 'status' => 'active',

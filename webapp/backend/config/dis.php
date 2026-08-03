@@ -21,8 +21,11 @@ return [
         'enabled' => filter_var(env('GEOCODING_ENABLED', true), FILTER_VALIDATE_BOOL),
         'provider' => env('GEOCODING_PROVIDER', 'nominatim'),
         'nominatim_url' => env('GEOCODING_NOMINATIM_URL', 'https://nominatim.openstreetmap.org/search'),
+        'pdok_url' => env('GEOCODING_PDOK_URL', 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free'),
         'user_agent' => env('GEOCODING_USER_AGENT'),
         'country_codes' => env('GEOCODING_COUNTRY_CODES', 'nl,be,de'),
+        'connect_timeout_seconds' => (int) env('GEOCODING_CONNECT_TIMEOUT_SECONDS', 2),
+        'timeout_seconds' => (int) env('GEOCODING_TIMEOUT_SECONDS', 5),
     ],
     'deployment_location' => [
         'enabled' => filter_var(env('DEPLOYMENT_LOCATION_ENRICHMENT_ENABLED', true), FILTER_VALIDATE_BOOL),

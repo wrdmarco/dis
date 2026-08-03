@@ -22,13 +22,13 @@ final class AddressBookController extends Controller
             ->when($search !== '', function ($query) use ($search): void {
                 $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search).'%';
                 $query->where(function ($inner) use ($like): void {
-                    $inner->where('name', 'like', $like)
-                        ->orWhere('first_name', 'like', $like)
-                        ->orWhere('last_name', 'like', $like)
-                        ->orWhere('phone_number', 'like', $like)
-                        ->orWhere('home_city', 'like', $like)
-                        ->orWhere('home_region', 'like', $like)
-                        ->orWhere('home_country', 'like', $like);
+                    $inner->where('name', 'ilike', $like)
+                        ->orWhere('first_name', 'ilike', $like)
+                        ->orWhere('last_name', 'ilike', $like)
+                        ->orWhere('phone_number', 'ilike', $like)
+                        ->orWhere('home_city', 'ilike', $like)
+                        ->orWhere('home_region', 'ilike', $like)
+                        ->orWhere('home_country', 'ilike', $like);
                 });
             })
             ->orderBy('name')

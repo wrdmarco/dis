@@ -14,7 +14,7 @@ final class BackfillDeploymentLocations extends Command
 {
     protected $signature = 'dis:backfill-deployment-locations {--batch= : Maximum unresolved deployments to enqueue}';
 
-    protected $description = 'Queue bounded province and country enrichment for deployments with coordinates';
+    protected $description = 'Queue bounded coordinate recovery and location enrichment for deployments';
 
     public function handle(): int
     {
@@ -68,13 +68,37 @@ final class BackfillDeploymentLocations extends Command
 
         $queued = 0;
         foreach ($deploymentIds as $deploymentId) {
+            $deploymentId = (string) $deploymentId;
+            $previousAttemptedAt = DB::table('deployments')
+                ->where('id', $deploymentId)
+                ->value('location_enrichment_attempted_at');
+            $attemptedAt = now()->startOfSecond();
+            // Keep the temporary claim distinct from the current-second marker
+            // an immediately executing job writes, then normalize it by CAS.
+            $claimMarker = $attemptedAt->copy()->addMinute();
+            $claimQuery = $this->dueDeploymentsQuery()->whereKey($deploymentId);
+            $previousAttemptedAt === null
+                ? $claimQuery->whereNull('location_enrichment_attempted_at')
+                : $claimQuery->where('location_enrichment_attempted_at', $previousAttemptedAt);
+
+            if ($claimQuery->toBase()->update(['location_enrichment_attempted_at' => $claimMarker]) !== 1) {
+                continue;
+            }
+
             try {
-                ResolveDeploymentLocation::dispatch((string) $deploymentId);
-                DB::table('deployments')->where('id', (string) $deploymentId)->update([
-                    'location_enrichment_attempted_at' => now(),
-                ]);
+                ResolveDeploymentLocation::dispatch($deploymentId);
+                DB::table('deployments')
+                    ->where('id', $deploymentId)
+                    ->whereNull('deleted_at')
+                    ->where('location_enrichment_attempted_at', $claimMarker)
+                    ->update(['location_enrichment_attempted_at' => $attemptedAt]);
                 $queued++;
             } catch (Throwable) {
+                DB::table('deployments')
+                    ->where('id', $deploymentId)
+                    ->whereNull('deleted_at')
+                    ->where('location_enrichment_attempted_at', $claimMarker)
+                    ->update(['location_enrichment_attempted_at' => $previousAttemptedAt]);
                 Log::warning('Deployment location enrichment could not be queued.');
             }
         }
@@ -91,11 +115,22 @@ final class BackfillDeploymentLocations extends Command
     {
         return Deployment::query()
             ->where('is_test', false)
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
             ->where(function (Builder $query): void {
-                $query->whereNull('province_resolved_at')
-                    ->orWhereNull('country_resolved_at');
+                $query->where(function (Builder $query): void {
+                    $query->whereNotNull('latitude')
+                        ->whereNotNull('longitude')
+                        ->where(function (Builder $query): void {
+                            $query->whereNull('province_resolved_at')
+                                ->orWhereNull('country_resolved_at');
+                        });
+                })->orWhere(function (Builder $query): void {
+                    $query->whereNotNull('location_label')
+                        ->whereRaw("TRIM(location_label) <> ''")
+                        ->where(function (Builder $query): void {
+                            $query->whereNull('latitude')
+                                ->orWhereNull('longitude');
+                        });
+                });
             })
             ->where(function (Builder $query): void {
                 $query->whereNull('location_enrichment_attempted_at')

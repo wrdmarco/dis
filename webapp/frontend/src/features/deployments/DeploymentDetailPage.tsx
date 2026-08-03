@@ -18,6 +18,7 @@ import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLoca
 import { DeploymentRequestPanel } from '../deployment-requests/DeploymentRequestPanel';
 import { presentDeploymentTimelineItem } from './deploymentTimelinePresentation';
 import { deploymentLifecycleActionForStatus, type DeploymentLifecycleAction } from './deploymentStatusFlow';
+import { parseMapPoint } from './pilotRoutePresentation';
 
 export function DeploymentDetailPage({ deploymentId }: { deploymentId: string }) {
   const router = useRouter();
@@ -1310,11 +1311,9 @@ function LiveLocationMap({
     }))
     .filter((location) => Number.isFinite(location.latitude) && Number.isFinite(location.longitude));
 
-  const deploymentLatitude = Number(deployment?.latitude);
-  const deploymentLongitude = Number(deployment?.longitude);
-  const hasDeploymentLocation = Number.isFinite(deploymentLatitude) && Number.isFinite(deploymentLongitude);
+  const deploymentPoint = parseMapPoint(deployment?.latitude, deployment?.longitude);
   const allPoints = [
-    ...(hasDeploymentLocation ? [{ latitude: deploymentLatitude, longitude: deploymentLongitude }] : []),
+    ...(deploymentPoint === null ? [] : [deploymentPoint]),
     ...points,
   ];
   const mapPoints = allPoints.length > 0 ? allPoints : [{ latitude: 52.1326, longitude: 5.2913 }];
@@ -1344,10 +1343,10 @@ function LiveLocationMap({
               preserveAspectRatio="none"
             />
           ))}
-          {hasDeploymentLocation ? (
+          {deploymentPoint ? (
             <LiveMapMarker
               className="live-map__deployment-marker"
-              position={worldMarkerPosition({ latitude: deploymentLatitude, longitude: deploymentLongitude }, centerWorld, viewport)}
+              position={worldMarkerPosition(deploymentPoint, centerWorld, viewport)}
               label="Inzetlocatie"
             />
           ) : null}

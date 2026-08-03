@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from 'playwright/test';
 import { parseMapPoint, parsePilotRoute, pilotRouteColor } from '../src/features/deployments/pilotRoutePresentation';
 
@@ -89,6 +90,19 @@ test('validates map coordinates before numeric conversion', () => {
   ] as Array<[unknown, unknown]>) {
     expect(parseMapPoint(latitude, longitude)).toBeNull();
   }
+});
+
+test('validates deployment coordinates before adding the detail-map marker', () => {
+  const detailPage = readFileSync(
+    new URL('../src/features/deployments/DeploymentDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  expect(detailPage).toContain('const deploymentPoint = parseMapPoint(deployment?.latitude, deployment?.longitude);');
+  expect(detailPage).toContain('...(deploymentPoint === null ? [] : [deploymentPoint])');
+  expect(detailPage).toContain('position={worldMarkerPosition(deploymentPoint, centerWorld, viewport)}');
+  expect(detailPage).not.toContain('Number(deployment?.latitude)');
+  expect(detailPage).not.toContain('Number(deployment?.longitude)');
 });
 
 test('assigns a stable route color to the same pilot', () => {

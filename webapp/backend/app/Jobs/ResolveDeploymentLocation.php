@@ -4,12 +4,14 @@ namespace App\Jobs;
 
 use App\Models\Deployment;
 use App\Services\DeploymentLocationEnrichmentService;
+use App\Services\GeocodingService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use Throwable;
 
 final class ResolveDeploymentLocation implements ShouldBeUnique, ShouldQueue
 {
@@ -31,22 +33,102 @@ final class ResolveDeploymentLocation implements ShouldBeUnique, ShouldQueue
         return $this->deploymentId;
     }
 
-    public function handle(DeploymentLocationEnrichmentService $enrichmentService): void
-    {
+    public function handle(
+        DeploymentLocationEnrichmentService $enrichmentService,
+        GeocodingService $geocodingService,
+    ): void {
         if (! (bool) config('dis.deployment_location.enabled', true)) {
             return;
         }
 
         $deployment = Deployment::query()->find($this->deploymentId);
-        if ($deployment === null
-            || $deployment->is_test
-            || ($deployment->province_resolved_at !== null && $deployment->country_resolved_at !== null)) {
+        if ($deployment === null || $deployment->is_test) {
+            return;
+        }
+
+        $coordinatesIncomplete = $deployment->latitude === null || $deployment->longitude === null;
+        if (! $coordinatesIncomplete
+            && $deployment->province_resolved_at !== null
+            && $deployment->country_resolved_at !== null) {
+            return;
+        }
+
+        if ($coordinatesIncomplete) {
+            $sourceLocationLabel = $deployment->location_label;
+            $locationLabel = trim((string) $sourceLocationLabel);
+            if ($locationLabel === '') {
+                return;
+            }
+
+            $attemptedAt = now()->startOfSecond();
+            $attemptStarted = DB::table('deployments')
+                ->where('id', $this->deploymentId)
+                ->whereNull('deleted_at')
+                ->where('location_label', $sourceLocationLabel)
+                ->where(function ($query): void {
+                    $query->whereNull('latitude')
+                        ->orWhereNull('longitude');
+                })
+                ->update(['location_enrichment_attempted_at' => $attemptedAt]);
+            if ($attemptStarted === 0) {
+                return;
+            }
+
+            try {
+                $coordinates = $geocodingService->coordinatesFor($locationLabel);
+            } catch (Throwable) {
+                Log::warning('Deployment location geocoding provider is temporarily unavailable.');
+
+                return;
+            }
+
+            if ($coordinates === null) {
+                return;
+            }
+
+            $updated = DB::table('deployments')
+                ->where('id', $this->deploymentId)
+                ->whereNull('deleted_at')
+                ->where('location_label', $sourceLocationLabel)
+                ->where('location_enrichment_attempted_at', $attemptedAt)
+                ->where(function ($query): void {
+                    $query->whereNull('latitude')
+                        ->orWhereNull('longitude');
+                })
+                ->update([
+                    'latitude' => $coordinates['latitude'],
+                    'longitude' => $coordinates['longitude'],
+                    'province_code' => null,
+                    'province_name' => null,
+                    'province_source' => null,
+                    'province_resolved_at' => null,
+                    'country_code' => null,
+                    'country_name' => null,
+                    'country_source' => null,
+                    'country_resolved_at' => null,
+                    'location_enrichment_attempted_at' => null,
+                    'drone_flight_context' => null,
+                ]);
+
+            if ($updated === 0) {
+                DB::table('deployments')
+                    ->where('id', $this->deploymentId)
+                    ->whereNull('deleted_at')
+                    ->where('location_enrichment_attempted_at', $attemptedAt)
+                    ->where(function ($query): void {
+                        $query->whereNull('latitude')
+                            ->orWhereNull('longitude');
+                    })
+                    ->update(['location_enrichment_attempted_at' => null]);
+            }
+
             return;
         }
 
         DB::table('deployments')->where('id', $this->deploymentId)->update([
             'location_enrichment_attempted_at' => now(),
         ]);
+
         try {
             $resolved = $enrichmentService->resolve($deployment);
         } catch (RuntimeException) {

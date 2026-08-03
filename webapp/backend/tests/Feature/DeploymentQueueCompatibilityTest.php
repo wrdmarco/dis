@@ -6,6 +6,7 @@ use App\Jobs\GenerateIncidentReport;
 use App\Jobs\ResolveIncidentLocation;
 use App\Services\DeploymentLocationEnrichmentService;
 use App\Services\DeploymentReportService;
+use App\Services\GeocodingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -45,7 +46,10 @@ final class DeploymentQueueCompatibilityTest extends TestCase
         $this->assertSame($deploymentId, $job->uniqueId());
         $this->assertSame('incident-enrichment', $job->queue);
 
-        $job->handle(app(DeploymentLocationEnrichmentService::class));
+        $job->handle(
+            app(DeploymentLocationEnrichmentService::class),
+            app(GeocodingService::class),
+        );
 
         $this->assertDatabaseMissing('deployments', ['id' => $deploymentId]);
     }
