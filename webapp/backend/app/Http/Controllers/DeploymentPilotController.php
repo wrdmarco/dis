@@ -35,10 +35,12 @@ final class DeploymentPilotController extends Controller
     ): JsonResponse {
         $data = $request->validated();
 
-        return ApiResponse::success($this->service->candidates(
+        return ApiResponse::paginated($this->service->candidates(
             $deployment,
             $request->user(),
             isset($data['search']) ? (string) $data['search'] : null,
+            (int) ($data['per_page'] ?? 50),
+            (int) ($data['page'] ?? 1),
         ));
     }
 

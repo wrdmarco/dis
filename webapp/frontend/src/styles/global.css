@@ -5200,11 +5200,24 @@ select[multiple] {
 
 .pilot-candidate-list {
   display: grid;
-  max-height: min(340px, 42vh);
-  overflow-y: auto;
+  overflow: hidden;
   border: 1px solid var(--dis-border);
   border-radius: 9px;
   background: var(--dis-field);
+}
+
+.pilot-candidate-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pilot-candidate-pagination span {
+  color: var(--dis-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
 }
 
 .pilot-candidate {
@@ -13730,6 +13743,15 @@ pre {
   .pilot-candidate > .status-pill {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .pilot-candidate-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pilot-candidate-pagination button {
+    width: 100%;
   }
 
   .vacation-card {

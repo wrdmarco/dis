@@ -416,8 +416,21 @@ final class DeploymentPilotParticipationIntegrationTest extends TestCase
             'notified_at' => now()->subMinute(),
             'responded_at' => now(),
         ]);
+        $manualAssignment = DeploymentPilotAssignment::query()->create([
+            'deployment_id' => $deployment->id,
+            'user_id' => $firstPilot->id,
+            'user_name' => $firstPilot->name,
+            'user_email' => $firstPilot->email,
+            'assigned_by' => $manager->id,
+            'assigned_by_name' => $manager->name,
+            'assigned_by_email' => $manager->email,
+            'reason' => 'Historische handmatige koppeling naast de alarmreactie.',
+            'assigned_at' => now(),
+        ]);
         $firstPilot->forceDelete();
         $secondPilot->forceDelete();
+
+        $this->assertNull($manualAssignment->refresh()->user_id);
 
         $response = $this->asWebClient($manager)
             ->getJson("/api/deployments/{$deployment->id}/pilots")

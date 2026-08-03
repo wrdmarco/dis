@@ -12,6 +12,7 @@ use App\Repositories\DeploymentPilotAssignmentRepository;
 use App\Support\ApiDateTime;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -32,23 +33,37 @@ final class DeploymentPilotAssignmentService
     {
         $this->access->assertCanViewDeployment($actor, $deployment);
 
-        $dispatchParticipants = $this->assignments
+        $dispatchRecipients = $this->assignments
             ->acceptedDispatchRecipients($deployment)
             ->unique(fn (DispatchRecipient $recipient): string => $recipient->user_id === null
                 ? 'deleted:'.(string) $recipient->id
-                : 'user:'.(string) $recipient->user_id)
-            ->map(fn (DispatchRecipient $recipient): array => $this->dispatchParticipantPayload($recipient));
-        $dispatchUserIds = $dispatchParticipants
+                : 'user:'.(string) $recipient->user_id);
+        $dispatchUserIds = $dispatchRecipients
             ->pluck('user_id')
             ->filter(fn (mixed $userId): bool => is_string($userId) && $userId !== '')
             ->all();
+        $deletedDispatchEmails = $dispatchRecipients
+            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->user === null)
+            ->map(fn (DispatchRecipient $recipient): ?string => $this->normalizedSnapshotEmail($recipient->user_email))
+            ->filter()
+            ->all();
+        $dispatchParticipants = $dispatchRecipients
+            ->map(fn (DispatchRecipient $recipient): array => $this->dispatchParticipantPayload($recipient));
         $manualParticipants = $this->assignments
             ->forDeployment($deployment)
-            ->reject(fn (DeploymentPilotAssignment $assignment): bool => in_array(
-                (string) $assignment->user_id,
-                $dispatchUserIds,
-                true,
-            ))
+            ->reject(function (DeploymentPilotAssignment $assignment) use ($dispatchUserIds, $deletedDispatchEmails): bool {
+                if ($assignment->user_id !== null
+                    && in_array((string) $assignment->user_id, $dispatchUserIds, true)) {
+                    return true;
+                }
+
+                $snapshotEmail = $assignment->user === null
+                    ? $this->normalizedSnapshotEmail($assignment->user_email)
+                    : null;
+
+                return $snapshotEmail !== null
+                    && in_array($snapshotEmail, $deletedDispatchEmails, true);
+            })
             ->map(fn (DeploymentPilotAssignment $assignment): array => $this->manualParticipantPayload($assignment));
 
         return $dispatchParticipants
@@ -58,15 +73,20 @@ final class DeploymentPilotAssignmentService
             ->all();
     }
 
-    /** @return list<array<string, mixed>> */
-    public function candidates(Deployment $deployment, User $actor, ?string $search): array
-    {
+    /** @return LengthAwarePaginator<int, array<string, mixed>> */
+    public function candidates(
+        Deployment $deployment,
+        User $actor,
+        ?string $search,
+        int $perPage,
+        int $page,
+    ): LengthAwarePaginator {
         $this->assertCanManage($actor);
         $this->access->assertCanViewDeployment($actor, $deployment);
         $this->assertAssignable($deployment);
 
-        return $this->assignments
-            ->candidates($deployment, $search)
+        $paginator = $this->assignments->candidates($deployment, $search, $perPage, $page);
+        $paginator->setCollection($paginator->getCollection()
             ->map(static fn (User $user): array => [
                 'id' => (string) $user->id,
                 'name' => (string) $user->name,
@@ -88,8 +108,9 @@ final class DeploymentPilotAssignmentService
                     'effective_at' => ApiDateTime::dateTime($status->effective_at),
                 ])->values()->all(),
             ])
-            ->values()
-            ->all();
+            ->values());
+
+        return $paginator;
     }
 
     /**
@@ -118,12 +139,12 @@ final class DeploymentPilotAssignmentService
             $pilot = $this->assignments->eligiblePilotForUpdate($userId);
             if ($pilot === null) {
                 throw ValidationException::withMessages([
-                    'user_id' => ['Kies een actieve OCP-piloot met de Operator / Pilot-rol.'],
+                    'user_id' => ['Kies een actieve OCP-piloot met operationele toegang tot de Operator-app.'],
                 ]);
             }
-            if ($this->assignments->isDispatchRecipient($deployment, $pilot)) {
+            if ($this->assignments->hasBlockingDispatchParticipation($deployment, $pilot)) {
                 throw ValidationException::withMessages([
-                    'user_id' => ['Deze piloot is voor deze inzet al ontvanger van een alarmering.'],
+                    'user_id' => ['Deze piloot neemt al deel of heeft nog een openstaande alarmreactie.'],
                 ]);
             }
             if ($this->assignments->assignmentForUpdate($deployment, $pilot) !== null) {
@@ -365,6 +386,15 @@ final class DeploymentPilotAssignmentService
         return $user === null || $user->trashed()
             ? null
             : (string) $user->id;
+    }
+
+    private function normalizedSnapshotEmail(mixed $email): ?string
+    {
+        if (! is_string($email) || trim($email) === '') {
+            return null;
+        }
+
+        return mb_strtolower(trim($email), 'UTF-8');
     }
 
     private function assertCanManage(User $actor): void

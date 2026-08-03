@@ -16,6 +16,8 @@ final class ListDeploymentPilotCandidatesRequest extends FormRequest
     {
         return [
             'search' => ['sometimes', 'string', 'max:100'],
+            'page' => ['sometimes', 'integer', 'min:1', 'max:2000'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ];
     }
 }

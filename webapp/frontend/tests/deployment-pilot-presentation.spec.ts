@@ -2,6 +2,7 @@ import { expect, test } from 'playwright/test';
 import {
   allowsDeploymentPilotMutations,
   deploymentAdditionalInfoRecipientCount,
+  deploymentPilotCandidatePagination,
   deploymentPilotLinkSuccessMessage,
   deploymentPilotTeamsLabel,
   filterDeploymentPilotCandidates,
@@ -36,6 +37,37 @@ test('filters pilot candidates by name and email without changing the server lis
   expect(filterDeploymentPilotCandidates(candidates, 'SAMIRA@')).toEqual([candidates[1]]);
   expect(filterDeploymentPilotCandidates(candidates, '')).toBe(candidates);
   expect(filterDeploymentPilotCandidates(candidates, 'niet gevonden')).toEqual([]);
+});
+
+test('normalizes candidate pagination metadata with a backwards-compatible fallback', () => {
+  expect(deploymentPilotCandidatePagination({
+    current_page: 2,
+    last_page: 4,
+    per_page: 25,
+    total: 82,
+  }, 25)).toEqual({
+    current_page: 2,
+    last_page: 4,
+    per_page: 25,
+    total: 82,
+  });
+  expect(deploymentPilotCandidatePagination(undefined, 3)).toEqual({
+    current_page: 1,
+    last_page: 1,
+    per_page: 3,
+    total: 3,
+  });
+  expect(deploymentPilotCandidatePagination({
+    current_page: 2,
+    last_page: 1,
+    per_page: 25,
+    total: 25,
+  }, 0)).toEqual({
+    current_page: 1,
+    last_page: 1,
+    per_page: 25,
+    total: 25,
+  });
 });
 
 test('allows pilot mutations only for active, dispatching and in-progress operational deployments', () => {

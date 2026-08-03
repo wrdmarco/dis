@@ -4,6 +4,7 @@ import type {
   DeploymentPilotCandidate,
   DeploymentPilotLinkResult,
   DispatchRequest,
+  PaginationMeta,
   Team,
 } from '../../types/api';
 
@@ -39,6 +40,31 @@ export function filterDeploymentPilotCandidates(
     candidate.name,
     candidate.email,
   ].some((value) => value.toLocaleLowerCase('nl-NL').includes(query)));
+}
+
+export function deploymentPilotCandidatePagination(
+  meta: unknown,
+  visibleCount: number,
+): PaginationMeta {
+  if (meta !== null && typeof meta === 'object'
+    && 'current_page' in meta && positiveInteger(meta.current_page)
+    && 'last_page' in meta && positiveInteger(meta.last_page)
+    && 'per_page' in meta && positiveInteger(meta.per_page)
+    && 'total' in meta && nonNegativeInteger(meta.total)) {
+    return {
+      current_page: Math.min(meta.current_page, meta.last_page),
+      last_page: meta.last_page,
+      per_page: meta.per_page,
+      total: meta.total,
+    };
+  }
+
+  return {
+    current_page: 1,
+    last_page: 1,
+    per_page: Math.max(1, visibleCount),
+    total: visibleCount,
+  };
 }
 
 export function deploymentAdditionalInfoRecipientCount(
@@ -88,4 +114,12 @@ function notificationQueuedTokens(meta: unknown): number | undefined {
 
   const value = meta.notification_queued_tokens;
   return typeof value === 'number' ? value : undefined;
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function nonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }

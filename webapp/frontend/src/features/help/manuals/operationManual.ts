@@ -190,12 +190,12 @@ export const operationManualGuides = {
       oneOfPermissions: ['deployments.view', 'deployments.manage'],
       steps: [
         { label: 'Ga naar Gekoppelde piloten', description: 'Open de inzetdetailpagina en kies Piloot koppelen.' },
-        { label: 'Zoek en kies de piloot', description: 'Zoek op naam of e-mailadres en controleer de actuele status.' },
-        { label: 'Leg de reden vast', description: 'Beschrijf waarom deze piloot buiten de alarmering om aan de inzet wordt toegevoegd.' },
+        { label: 'Zoek en kies de piloot', description: 'Zoek zonder onderscheid tussen hoofdletters op naam of e-mailadres en blader zo nodig door de resultaten.' },
+        { label: 'Leg de reden vast', description: 'Beschrijf waarom deze piloot buiten de alarmering om wordt toegevoegd, bijvoorbeeld na een onjuiste reactie Ik kom niet.' },
         { label: 'Kies Piloot koppelen', description: 'De piloot wordt direct zichtbaar bij Gekoppelde piloten.' },
       ],
       result: 'De piloot is operationeel aan de inzet gekoppeld en ontvangt een informatief pushbericht. Er klinkt geen alarm.',
-      warning: 'Koppelen en ontkoppelen is niet beschikbaar bij een Concept, proefinzet of gesloten inzet. Een via de alarmering gekoppelde piloot blijft onderdeel van de alarmeringsregistratie.',
+      warning: 'Koppelen en ontkoppelen is niet beschikbaar bij een Concept, proefinzet of gesloten inzet. Een piloot die al komt of nog moet reageren, kan niet dubbel worden gekoppeld; na Ik kom niet of Geen reactie kan dat wel.',
     },
     {
       id: 'dispatch-correct-arrival',

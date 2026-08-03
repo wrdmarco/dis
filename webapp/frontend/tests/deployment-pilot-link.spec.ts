@@ -67,19 +67,63 @@ test('links a pilot with an informational push, updates arrival status and only 
   expect(api.mutations.filter((request) => request.path.includes('/dispatches'))).toEqual([]);
 });
 
+test('makes every candidate page reachable and searches without matching letter case', async ({ page }) => {
+  const api = await mockDeploymentPilotsApi(page, { candidateCount: 30 });
+  await page.goto(`/inzetten/${deploymentId}`);
+
+  await page.getByRole('region', { name: 'Gekoppelde piloten' })
+    .getByRole('button', { name: 'Piloot koppelen' })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Piloot koppelen' });
+  await expect(dialog.getByText('Koppelbare piloten (30)')).toBeVisible();
+  await expect(dialog.getByRole('radio')).toHaveCount(25);
+  const candidateList = dialog.locator('.pilot-candidate-list');
+  await expect(candidateList).toBeVisible();
+  expect(await candidateList.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    overflowY: window.getComputedStyle(element).overflowY,
+    scrollHeight: element.scrollHeight,
+  }))).toEqual(expect.objectContaining({ overflowY: 'hidden' }));
+  expect(await candidateList.evaluate((element) => element.clientHeight)).toBe(
+    await candidateList.evaluate((element) => element.scrollHeight),
+  );
+
+  await dialog.getByRole('button', { name: 'Volgende' }).click();
+  await expect(dialog.getByText('Pagina 2 van 2')).toBeVisible();
+  await expect(dialog.getByRole('radio')).toHaveCount(5);
+  await expect(dialog.getByRole('radio', { name: /Koppelbare Kandidaat 30/ })).toBeVisible();
+
+  await dialog.getByLabel('Piloot zoeken').fill('KANDIDAAT 30');
+  await expect.poll(() => api.candidateSearches.at(-1)).toBe('KANDIDAAT 30');
+  await expect(dialog.getByText('Koppelbare piloten (1)')).toBeVisible();
+  await dialog.getByRole('radio', { name: /Koppelbare Kandidaat 30/ }).check();
+  await dialog.getByLabel('Reden voor koppeling').fill('Telefonisch bevestigd na een onjuiste reactie.');
+  await dialog.getByRole('button', { name: 'Piloot koppelen' }).click();
+
+  await expect.poll(() => api.linkBodies.at(-1)).toEqual({
+    user_id: 'pilot-30',
+    reason: 'Telefonisch bevestigd na een onjuiste reactie.',
+  });
+});
+
 interface MockApiState {
   linkBodies: unknown[];
   statusBodies: Array<{ userId: string; body: unknown }>;
   candidateSearches: string[];
+  candidateRequests: Array<{ page: number; perPage: number; search: string }>;
   unlinkedAssignmentIds: string[];
   mutations: Array<{ method: string; path: string }>;
 }
 
-async function mockDeploymentPilotsApi(page: Page): Promise<MockApiState> {
+async function mockDeploymentPilotsApi(
+  page: Page,
+  options: { candidateCount?: number } = {},
+): Promise<MockApiState> {
   const state: MockApiState = {
     linkBodies: [],
     statusBodies: [],
     candidateSearches: [],
+    candidateRequests: [],
     unlinkedAssignmentIds: [],
     mutations: [],
   };
@@ -87,6 +131,7 @@ async function mockDeploymentPilotsApi(page: Page): Promise<MockApiState> {
     deploymentPilot('recipient-alex', 'pilot-alex', 'Alex Alarm', 'dispatch'),
     deploymentPilot('recipient-deleted', null, 'Verwijderde piloot', 'dispatch'),
   ];
+  const candidates = candidateFixtures(options.candidateCount ?? 1);
 
   await page.context().addCookies([{ name: 'XSRF-TOKEN', value: 'test-csrf-token', url: 'http://127.0.0.1:3000' }]);
   await page.route('**/api/**', async (route) => {
@@ -123,14 +168,35 @@ async function mockDeploymentPilotsApi(page: Page): Promise<MockApiState> {
       return;
     }
     if (path === `/api/deployments/${deploymentId}/pilot-candidates`) {
-      state.candidateSearches.push(url.searchParams.get('search') ?? '');
-      await json(route, { data: [candidateNoor()] });
+      const search = url.searchParams.get('search') ?? '';
+      const pageNumber = Number(url.searchParams.get('page') ?? 1);
+      const perPage = Number(url.searchParams.get('per_page') ?? 25);
+      const normalizedSearch = search.trim().toLocaleLowerCase('nl-NL');
+      const matchingCandidates = normalizedSearch === ''
+        ? candidates
+        : candidates.filter((candidate) => [candidate.name, candidate.email]
+            .some((value) => value.toLocaleLowerCase('nl-NL').includes(normalizedSearch)));
+      const lastPage = Math.max(1, Math.ceil(matchingCandidates.length / perPage));
+      const pageCandidates = matchingCandidates.slice((pageNumber - 1) * perPage, pageNumber * perPage);
+      state.candidateSearches.push(search);
+      state.candidateRequests.push({ page: pageNumber, perPage, search });
+      await json(route, {
+        data: pageCandidates,
+        meta: {
+          current_page: pageNumber,
+          last_page: lastPage,
+          per_page: perPage,
+          total: matchingCandidates.length,
+        },
+      });
       return;
     }
     if (path === `/api/deployments/${deploymentId}/pilots` && method === 'POST') {
       const body = request.postDataJSON();
       state.linkBodies.push(body);
-      const pilot = deploymentPilot('assignment-noor', 'pilot-noor', 'Noor de Vries', 'manual');
+      const candidate = candidates.find((item) => item.id === body.user_id) ?? candidateNoor();
+      const assignmentSuffix = candidate.id.replace(/^pilot-/, '');
+      const pilot = deploymentPilot(`assignment-${assignmentSuffix}`, candidate.id, candidate.name, 'manual');
       pilots = [...pilots, pilot];
       await json(route, { data: pilot, meta: { notification_queued_tokens: 1 } }, 201);
       return;
@@ -262,6 +328,24 @@ function candidateNoor() {
     teams: [ocpTeam],
     statuses: [availabilityStatus('pilot-noor', 'available')],
   };
+}
+
+function candidateFixtures(count: number) {
+  return Array.from({ length: Math.max(1, count) }, (_, index) => {
+    if (index === 0) {
+      return candidateNoor();
+    }
+
+    const number = index + 1;
+    const id = `pilot-${number}`;
+    return {
+      id,
+      name: `Koppelbare Kandidaat ${String(number).padStart(2, '0')}`,
+      email: `candidate-${number}@example.test`,
+      teams: [ocpTeam],
+      statuses: [availabilityStatus(id, 'available')],
+    };
+  });
 }
 
 function pilotUser(id: string, name: string) {

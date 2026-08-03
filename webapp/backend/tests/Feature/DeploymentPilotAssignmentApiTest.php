@@ -61,7 +61,10 @@ final class DeploymentPilotAssignmentApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.id', $pilot->id)
             ->assertJsonPath('data.0.teams.0.code', 'OCP')
-            ->assertJsonPath('data.0.statuses.0.status', 'available');
+            ->assertJsonPath('data.0.statuses.0.status', 'available')
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.last_page', 1)
+            ->assertJsonPath('meta.total', 1);
         $this->assertCount(1, $candidateResponse->json('data'));
 
         $response = $this->asWebClient($manager)
@@ -213,7 +216,7 @@ final class DeploymentPilotAssignmentApiTest extends TestCase
         ]);
 
         $candidateResponse = $this->asWebClient($manager)
-            ->getJson("/api/deployments/{$deployment->id}/pilot-candidates?search=kandidaat")
+            ->getJson("/api/deployments/{$deployment->id}/pilot-candidates?search=KANDIDAAT")
             ->assertOk();
         $this->assertSame([$candidate->id], collect($candidateResponse->json('data'))->pluck('id')->all());
 
@@ -227,6 +230,242 @@ final class DeploymentPilotAssignmentApiTest extends TestCase
         $this->assertSame('dispatch', $byUser->get($dispatchPilot->id)['source'] ?? null);
         $this->assertSame($recipient->id, $byUser->get($dispatchPilot->id)['id'] ?? null);
         $this->assertCount(2, $participants);
+    }
+
+    public function test_candidates_are_case_insensitive_paginated_and_include_custom_operator_roles(): void
+    {
+        Queue::fake();
+        $manager = $this->manager('pilot-pages-manager@example.test');
+        [$pilotRole, $ocp] = $this->pilotStructure();
+        $customOperatorRole = Role::query()->create([
+            'name' => 'custom-flight-operator-'.str()->ulid(),
+            'display_name' => 'Aangepaste vliegrol',
+            'can_use_operator_app' => true,
+            'can_use_admin_app' => false,
+        ]);
+        $customOperatorRole->permissions()->attach($this->permission('deployments.assigned.view')->id);
+        $operatorRoleWithoutDeploymentAccess = Role::query()->create([
+            'name' => 'operator-without-deployment-access-'.str()->ulid(),
+            'display_name' => 'Operator zonder inzettoegang',
+            'can_use_operator_app' => true,
+            'can_use_admin_app' => false,
+        ]);
+        $expectedPilotIds = collect();
+        foreach (range(1, 5) as $index) {
+            $expectedPilotIds->push($this->pilot(
+                "search-pilot-{$index}@example.test",
+                $pilotRole,
+                $ocp,
+                sprintf('Zoekbare Piloot %02d', $index),
+            )->id);
+        }
+        $customRolePilot = $this->pilot(
+            'search-pilot-6@example.test',
+            $customOperatorRole,
+            $ocp,
+            'Zoekbare Piloot 06',
+        );
+        $expectedPilotIds->push($customRolePilot->id);
+        $inaccessibleOperator = $this->pilot(
+            'search-pilot-inaccessible@example.test',
+            $operatorRoleWithoutDeploymentAccess,
+            $ocp,
+            'Zoekbare Piloot Zonder Toegang',
+        );
+        $deployment = $this->deployment($manager, 'in_progress', false, 'PILOT-PAGES-001');
+
+        $firstPage = $this->asWebClient($manager)
+            ->getJson("/api/deployments/{$deployment->id}/pilot-candidates?search=ZOEKBARE&per_page=3&page=1")
+            ->assertOk()
+            ->assertJsonCount(3, 'data')
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.last_page', 2)
+            ->assertJsonPath('meta.per_page', 3)
+            ->assertJsonPath('meta.total', 6);
+        $secondPage = $this->asWebClient($manager)
+            ->getJson("/api/deployments/{$deployment->id}/pilot-candidates?search=zoekbare&per_page=3&page=2")
+            ->assertOk()
+            ->assertJsonCount(3, 'data')
+            ->assertJsonPath('meta.current_page', 2);
+
+        $actualPilotIds = collect($firstPage->json('data'))
+            ->concat($secondPage->json('data'))
+            ->pluck('id')
+            ->sort()
+            ->values();
+        $this->assertSame($expectedPilotIds->sort()->values()->all(), $actualPilotIds->all());
+        $this->assertTrue($actualPilotIds->contains($customRolePilot->id));
+        $this->assertFalse($actualPilotIds->contains($inaccessibleOperator->id));
+        $this->asWebClient($manager)
+            ->getJson("/api/deployments/{$deployment->id}/pilot-candidates?search=ZOEKBARE")
+            ->assertOk()
+            ->assertJsonPath('meta.per_page', 50)
+            ->assertJsonPath('meta.total', 6);
+
+        $this->asWebClient($manager)
+            ->getJson("/api/deployments/{$deployment->id}/pilot-candidates?search=SEARCH-PILOT-6%40EXAMPLE.TEST")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $customRolePilot->id);
+        $this->asWebClient($manager)
+            ->postJson("/api/deployments/{$deployment->id}/pilots", [
+                'user_id' => $customRolePilot->id,
+                'reason' => 'Aangepaste Operator-rol handmatig gekoppeld.',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.user_id', $customRolePilot->id);
+    }
+
+    public function test_terminal_and_preannouncement_responses_are_candidates_and_declined_pilot_can_be_linked(): void
+    {
+        Queue::fake();
+        $manager = $this->manager('pilot-response-manager@example.test');
+        [$pilotRole, $ocp] = $this->pilotStructure();
+        $declinedPilot = $this->pilot('declined@example.test', $pilotRole, $ocp, 'Afgewezen Piloot');
+        $noResponsePilot = $this->pilot('no-response@example.test', $pilotRole, $ocp, 'Niet Gereageerde Piloot');
+        $pendingPilot = $this->pilot('pending@example.test', $pilotRole, $ocp, 'Wachtende Piloot');
+        $acceptedPilot = $this->pilot('accepted@example.test', $pilotRole, $ocp, 'Komende Piloot');
+        $preannouncedPilot = $this->pilot('preannounced@example.test', $pilotRole, $ocp, 'Vooraangekondigde Piloot');
+        $cancelledPendingPilot = $this->pilot('cancelled-pending@example.test', $pilotRole, $ocp, 'Geannuleerde Wachtende Piloot');
+        $cancelledAcceptedPilot = $this->pilot('cancelled-accepted@example.test', $pilotRole, $ocp, 'Geannuleerde Komende Piloot');
+        $deployment = $this->deployment($manager, 'in_progress', false, 'PILOT-RESPONSES-001');
+        $sentDispatch = DispatchRequest::query()->create([
+            'deployment_id' => $deployment->id,
+            'requested_by' => $manager->id,
+            'requested_by_name' => $manager->name,
+            'requested_by_email' => $manager->email,
+            'status' => 'sent',
+            'priority' => 'normal',
+            'message' => 'Kom ter plaatse.',
+            'sent_at' => now(),
+        ]);
+        foreach ([
+            [$declinedPilot, 'declined'],
+            [$noResponsePilot, 'no_response'],
+            [$pendingPilot, 'pending'],
+            [$acceptedPilot, 'accepted'],
+        ] as [$pilot, $responseStatus]) {
+            DispatchRecipient::query()->create([
+                'dispatch_request_id' => $sentDispatch->id,
+                'user_id' => $pilot->id,
+                'user_name' => $pilot->name,
+                'user_email' => $pilot->email,
+                'response_status' => $responseStatus,
+                'notified_at' => now()->subMinutes(2),
+                'responded_at' => $responseStatus === 'pending' ? null : now()->subMinute(),
+            ]);
+        }
+        $preannouncement = DispatchRequest::query()->create([
+            'deployment_id' => $deployment->id,
+            'requested_by' => $manager->id,
+            'requested_by_name' => $manager->name,
+            'requested_by_email' => $manager->email,
+            'status' => 'draft',
+            'priority' => 'normal',
+            'message' => 'Vooraankondiging.',
+            'preannounced_at' => now(),
+        ]);
+        DispatchRecipient::query()->create([
+            'dispatch_request_id' => $preannouncement->id,
+            'user_id' => $preannouncedPilot->id,
+            'user_name' => $preannouncedPilot->name,
+            'user_email' => $preannouncedPilot->email,
+            'response_status' => 'accepted',
+            'notified_at' => now()->subMinute(),
+            'responded_at' => now(),
+        ]);
+        $cancelledDispatch = DispatchRequest::query()->create([
+            'deployment_id' => $deployment->id,
+            'requested_by' => $manager->id,
+            'requested_by_name' => $manager->name,
+            'requested_by_email' => $manager->email,
+            'status' => 'cancelled',
+            'priority' => 'normal',
+            'message' => 'Geannuleerde alarmering.',
+            'sent_at' => now()->subMinutes(3),
+            'cancelled_at' => now()->subMinutes(2),
+        ]);
+        foreach ([
+            [$cancelledPendingPilot, 'pending'],
+            [$cancelledAcceptedPilot, 'accepted'],
+        ] as [$pilot, $responseStatus]) {
+            DispatchRecipient::query()->create([
+                'dispatch_request_id' => $cancelledDispatch->id,
+                'user_id' => $pilot->id,
+                'user_name' => $pilot->name,
+                'user_email' => $pilot->email,
+                'response_status' => $responseStatus,
+                'notified_at' => now()->subMinutes(3),
+                'responded_at' => $responseStatus === 'pending' ? null : now()->subMinutes(2),
+            ]);
+        }
+
+        $candidateIds = collect($this->asWebClient($manager)
+            ->getJson("/api/deployments/{$deployment->id}/pilot-candidates?per_page=100")
+            ->assertOk()
+            ->json('data'))
+            ->pluck('id');
+        $this->assertTrue($candidateIds->contains($declinedPilot->id));
+        $this->assertTrue($candidateIds->contains($noResponsePilot->id));
+        $this->assertTrue($candidateIds->contains($preannouncedPilot->id));
+        $this->assertTrue($candidateIds->contains($cancelledPendingPilot->id));
+        $this->assertTrue($candidateIds->contains($cancelledAcceptedPilot->id));
+        $this->assertFalse($candidateIds->contains($pendingPilot->id));
+        $this->assertFalse($candidateIds->contains($acceptedPilot->id));
+
+        $this->asWebClient($manager)
+            ->postJson("/api/deployments/{$deployment->id}/pilots", [
+                'user_id' => $declinedPilot->id,
+                'reason' => 'Piloot klikte per ongeluk op Ik kom niet en bevestigde deelname telefonisch.',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.user_id', $declinedPilot->id);
+        $this->asOperatorClient($declinedPilot)
+            ->getJson("/api/deployments/{$deployment->id}")
+            ->assertOk()
+            ->assertJsonPath('data.active_dispatch.response_status', 'accepted');
+        $declinedRecipient = DispatchRecipient::query()
+            ->where('dispatch_request_id', $sentDispatch->id)
+            ->where('user_id', $declinedPilot->id)
+            ->sole();
+        $this->asOperatorClient($declinedPilot)
+            ->postJson("/api/dispatches/{$sentDispatch->id}/respond", [
+                'response' => 'accepted',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['response']]]);
+        $this->asWebClient($manager)
+            ->patchJson("/api/dispatches/{$sentDispatch->id}/recipients/{$declinedRecipient->id}/response", [
+                'response' => 'accepted',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['response']]]);
+        $this->asWebClient($manager)
+            ->patchJson("/api/dispatches/{$sentDispatch->id}/recipients/{$declinedRecipient->id}/response", [
+                'response' => 'pending',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['response']]]);
+        $this->assertSame('declined', $declinedRecipient->refresh()->response_status);
+        $this->asWebClient($manager)
+            ->postJson("/api/deployments/{$deployment->id}/pilots", [
+                'user_id' => $preannouncedPilot->id,
+                'reason' => 'Na een vooraankondiging rechtstreeks aan de inzet gekoppeld.',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.user_id', $preannouncedPilot->id);
+        $this->asOperatorClient($preannouncedPilot)
+            ->postJson("/api/dispatches/{$preannouncement->id}/respond", [
+                'response' => 'accepted',
+            ])
+            ->assertNoContent();
+        $this->asWebClient($manager)
+            ->postJson("/api/deployments/{$deployment->id}/pilots", [
+                'user_id' => $pendingPilot->id,
+                'reason' => 'Nog openstaande reactie.',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['user_id']]]);
     }
 
     public function test_assignment_succeeds_with_warning_when_the_pilot_has_no_reachable_device(): void
@@ -489,6 +728,18 @@ final class DeploymentPilotAssignmentApiTest extends TestCase
         $token = $user->createToken(
             'Deployment pilot assignment test',
             ['*', 'client:web'],
+            now()->addHour(),
+        )->plainTextToken;
+        Auth::forgetGuards();
+
+        return $this->withHeader('Authorization', 'Bearer '.$token);
+    }
+
+    private function asOperatorClient(User $user): static
+    {
+        $token = $user->createToken(
+            'Deployment pilot assignment operator test',
+            ['*', 'client:operator'],
             now()->addHour(),
         )->plainTextToken;
         Auth::forgetGuards();

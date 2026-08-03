@@ -8,6 +8,7 @@ use App\Models\DispatchRecipient;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * @extends BaseRepository<DeploymentPilotAssignment>
@@ -57,9 +58,13 @@ final class DeploymentPilotAssignmentRepository extends BaseRepository
             ->get();
     }
 
-    /** @return Collection<int, User> */
-    public function candidates(Deployment $deployment, ?string $search): Collection
-    {
+    /** @return LengthAwarePaginator<int, User> */
+    public function candidates(
+        Deployment $deployment,
+        ?string $search,
+        int $perPage,
+        int $page,
+    ): LengthAwarePaginator {
         $normalized = is_string($search) && trim($search) !== ''
             ? trim($search)
             : null;
@@ -73,7 +78,9 @@ final class DeploymentPilotAssignmentRepository extends BaseRepository
             ])
             ->where('account_status', 'active')
             ->whereHas('roles', fn (Builder $roles) => $roles
-                ->where('roles.name', 'operator-pilot'))
+                ->where('roles.can_use_operator_app', true)
+                ->whereHas('permissions', fn (Builder $permissions) => $permissions
+                    ->whereIn('permissions.name', ['deployments.assigned.view', 'deployments.view'])))
             ->whereHas('teams', fn (Builder $teams) => $teams
                 ->where('teams.code', $baseTeamCode))
             ->whereDoesntHave('pilotAssignments', fn (Builder $assignments) => $assignments
@@ -89,10 +96,12 @@ final class DeploymentPilotAssignmentRepository extends BaseRepository
                         'dispatch_recipients.dispatch_request_id',
                     )
                     ->whereColumn('dispatch_recipients.user_id', 'users.id')
-                    ->where('dispatch_requests.deployment_id', $deployment->id);
+                    ->whereIn('dispatch_recipients.response_status', ['pending', 'accepted'])
+                    ->where('dispatch_requests.deployment_id', $deployment->id)
+                    ->whereIn('dispatch_requests.status', ['sent', 'escalated']);
             })
             ->when($normalized !== null, function (Builder $users) use ($normalized): void {
-                $escaped = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($normalized));
+                $escaped = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($normalized, 'UTF-8'));
                 $pattern = '%'.$escaped.'%';
                 $users->where(function (Builder $searchQuery) use ($pattern): void {
                     $searchQuery
@@ -102,8 +111,11 @@ final class DeploymentPilotAssignmentRepository extends BaseRepository
             })
             ->orderBy('name')
             ->orderBy('id')
-            ->limit(50)
-            ->get(['id', 'name', 'email']);
+            ->paginate(
+                perPage: min(max($perPage, 1), 100),
+                columns: ['id', 'name', 'email'],
+                page: max(1, $page),
+            );
     }
 
     /** @param array<string, mixed> $attributes */
@@ -121,7 +133,9 @@ final class DeploymentPilotAssignmentRepository extends BaseRepository
             ->whereKey($userId)
             ->where('account_status', 'active')
             ->whereHas('roles', fn (Builder $roles) => $roles
-                ->where('roles.name', 'operator-pilot'))
+                ->where('roles.can_use_operator_app', true)
+                ->whereHas('permissions', fn (Builder $permissions) => $permissions
+                    ->whereIn('permissions.name', ['deployments.assigned.view', 'deployments.view'])))
             ->whereHas('teams', fn (Builder $teams) => $teams
                 ->where('teams.code', $baseTeamCode))
             ->lockForUpdate()
@@ -148,12 +162,22 @@ final class DeploymentPilotAssignmentRepository extends BaseRepository
             ->firstOrFail();
     }
 
-    public function isDispatchRecipient(Deployment $deployment, User $user): bool
+    public function hasBlockingDispatchParticipation(Deployment $deployment, User $user): bool
     {
         return DispatchRecipient::query()
             ->where('user_id', $user->id)
+            ->whereIn('response_status', ['pending', 'accepted'])
             ->whereHas('dispatchRequest', fn (Builder $dispatches) => $dispatches
-                ->where('deployment_id', $deployment->id))
+                ->where('deployment_id', $deployment->id)
+                ->whereIn('status', ['sent', 'escalated']))
+            ->exists();
+    }
+
+    public function hasManualAssignmentForUser(Deployment $deployment, string $userId): bool
+    {
+        return $this->query()
+            ->where('deployment_id', $deployment->id)
+            ->where('user_id', $userId)
             ->exists();
     }
 

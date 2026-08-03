@@ -20,8 +20,10 @@ import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLoca
 import { DeploymentRequestPanel } from '../deployment-requests/DeploymentRequestPanel';
 import { presentDeploymentTimelineItem } from './deploymentTimelinePresentation';
 import { deploymentLifecycleActionForStatus, type DeploymentLifecycleAction } from './deploymentStatusFlow';
-import { allowsDeploymentPilotMutations, deploymentAdditionalInfoRecipientCount, deploymentPilotLinkSuccessMessage, deploymentPilotTeamsLabel, filterDeploymentPilotCandidates } from './deploymentPilotPresentation';
+import { allowsDeploymentPilotMutations, deploymentAdditionalInfoRecipientCount, deploymentPilotCandidatePagination, deploymentPilotLinkSuccessMessage, deploymentPilotTeamsLabel, filterDeploymentPilotCandidates } from './deploymentPilotPresentation';
 import { parseMapPoint } from './pilotRoutePresentation';
+
+const PILOT_CANDIDATES_PER_PAGE = 25;
 
 export function DeploymentDetailPage({ deploymentId }: { deploymentId: string }) {
   const router = useRouter();
@@ -37,6 +39,7 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
   const [pilotLinkDialogOpen, setPilotLinkDialogOpen] = useState(false);
   const [pilotSearch, setPilotSearch] = useState('');
   const [pilotCandidateQuery, setPilotCandidateQuery] = useState('');
+  const [pilotCandidatePage, setPilotCandidatePage] = useState(1);
   const [dispatchRecipientCount, setDispatchRecipientCount] = useState('');
   const dispatchRecipientCountNumber = Number.parseInt(dispatchRecipientCount, 10);
   const dispatchPreviewUrl = `/deployments/${deploymentId}/dispatch-preview${Number.isFinite(dispatchRecipientCountNumber) && dispatchRecipientCountNumber > 0 ? `?dispatch_recipient_count=${dispatchRecipientCountNumber}` : ''}`;
@@ -56,7 +59,17 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
   const deploymentAllowsPilotChanges = allowsDeploymentPilotMutations(deployment.data);
   const canManageLinkedPilots = canManageDispatches && deploymentAllowsPilotChanges;
   const canManagePilotStatus = (canManageDispatches || canOverrideStatus) && deploymentAllowsPilotChanges;
-  const pilotCandidatesPath = `/deployments/${deploymentId}/pilot-candidates${pilotCandidateQuery === '' ? '' : `?search=${encodeURIComponent(pilotCandidateQuery)}`}`;
+  const pilotCandidatesPath = useMemo(() => {
+    const parameters = new URLSearchParams({
+      page: String(pilotCandidatePage),
+      per_page: String(PILOT_CANDIDATES_PER_PAGE),
+    });
+    if (pilotCandidateQuery !== '') {
+      parameters.set('search', pilotCandidateQuery);
+    }
+
+    return `/deployments/${deploymentId}/pilot-candidates?${parameters.toString()}`;
+  }, [deploymentId, pilotCandidatePage, pilotCandidateQuery]);
   const pilotCandidates = useApiResource<DeploymentPilotCandidate[]>(
     pilotCandidatesPath,
     Boolean(deploymentId) && pilotLinkDialogOpen && canManageLinkedPilots,
@@ -129,6 +142,10 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
     () => filterDeploymentPilotCandidates(pilotCandidates.data ?? [], pilotSearch),
     [pilotCandidates.data, pilotSearch],
   );
+  const pilotCandidatePagination = deploymentPilotCandidatePagination(
+    pilotCandidates.meta,
+    pilotCandidates.data?.length ?? 0,
+  );
   const selectedPilotCandidate = useMemo(
     () => (pilotCandidates.data ?? []).find((candidate) => candidate.id === selectedPilotId) ?? null,
     [pilotCandidates.data, selectedPilotId],
@@ -143,11 +160,30 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
     }
 
     const timer = window.setTimeout(() => {
+      setPilotCandidatePage(1);
       setPilotCandidateQuery(pilotSearch.trim());
     }, 250);
 
     return () => window.clearTimeout(timer);
   }, [pilotLinkDialogOpen, pilotSearch]);
+
+  useEffect(() => {
+    if (!pilotLinkDialogOpen
+      || pilotCandidates.loading
+      || pilotCandidates.error !== null
+      || pilotCandidatePage <= pilotCandidatePagination.last_page) {
+      return;
+    }
+
+    setSelectedPilotId('');
+    setPilotCandidatePage(pilotCandidatePagination.last_page);
+  }, [
+    pilotCandidatePage,
+    pilotCandidatePagination.last_page,
+    pilotCandidates.error,
+    pilotCandidates.loading,
+    pilotLinkDialogOpen,
+  ]);
 
   useEffect(() => {
     if (!deploymentId || deployment.data?.status === 'resolved' || deployment.data?.status === 'cancelled') {
@@ -412,6 +448,7 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
   const openPilotLinkDialog = () => {
     setPilotSearch('');
     setPilotCandidateQuery('');
+    setPilotCandidatePage(1);
     setSelectedPilotId('');
     setPilotLinkReason('');
     setPilotLinkError(null);
@@ -427,6 +464,7 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
 
     setPilotLinkDialogOpen(false);
     setPilotCandidateQuery('');
+    setPilotCandidatePage(1);
     setPilotLinkError(null);
   };
 
@@ -456,6 +494,7 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
       ));
       setPilotLinkDialogOpen(false);
       setPilotCandidateQuery('');
+      setPilotCandidatePage(1);
       await Promise.all([
         pilots.silentReload(),
         dispatches.silentReload(),
@@ -1174,7 +1213,10 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
               />
             </label>
             <fieldset className="pilot-candidate-fieldset" disabled={pilotLinking || pilotCandidates.loading}>
-              <legend>Koppelbare piloten</legend>
+              <legend>Koppelbare piloten ({pilotCandidatePagination.total})</legend>
+              <p className="form-note">
+                Zoeken negeert hoofdletters. Piloten die al deelnemen of nog op een alarm reageren, staan hier niet tussen.
+              </p>
               {pilotCandidates.loading ? <p className="form-note" role="status">Piloten laden...</p> : null}
               {pilotCandidates.error ? <p className="form-error" role="alert">{pilotCandidates.error}</p> : null}
               {!pilotCandidates.loading && !pilotCandidates.error && filteredPilotCandidates.length > 0 ? (
@@ -1210,6 +1252,33 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
                       : 'Geen piloten gevonden voor deze zoekopdracht.')
                     : 'Geen piloten gevonden voor deze zoekopdracht.'}
                 </p>
+              ) : null}
+              {!pilotCandidates.loading && !pilotCandidates.error && pilotCandidatePagination.last_page > 1 ? (
+                <nav className="pilot-candidate-pagination" aria-label="Paginering koppelbare piloten">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={pilotCandidatePagination.current_page <= 1}
+                    onClick={() => {
+                      setSelectedPilotId('');
+                      setPilotCandidatePage((current) => Math.max(1, current - 1));
+                    }}
+                  >
+                    Vorige
+                  </button>
+                  <span>Pagina {pilotCandidatePagination.current_page} van {pilotCandidatePagination.last_page}</span>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={pilotCandidatePagination.current_page >= pilotCandidatePagination.last_page}
+                    onClick={() => {
+                      setSelectedPilotId('');
+                      setPilotCandidatePage((current) => Math.min(pilotCandidatePagination.last_page, current + 1));
+                    }}
+                  >
+                    Volgende
+                  </button>
+                </nav>
               ) : null}
             </fieldset>
             <label>

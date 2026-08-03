@@ -18,6 +18,7 @@ use App\Models\DispatchRequest;
 use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
+use App\Repositories\DeploymentPilotAssignmentRepository;
 use App\Services\Routing\RoutingService;
 use App\Support\AssetReadiness;
 use Illuminate\Database\Eloquent\Builder;
@@ -39,6 +40,7 @@ final class DispatchService
         private readonly DeploymentFormService $deploymentFormService,
         private readonly DeploymentRequestWorkflowService $deploymentRequestWorkflowService,
         private readonly DeploymentRequestPlanSynchronizationService $deploymentRequestPlanSynchronizationService,
+        private readonly DeploymentPilotAssignmentRepository $pilotAssignments,
         private readonly LocationService $locationService,
         private readonly RoutingService $routingService,
     ) {}
@@ -854,15 +856,37 @@ final class DispatchService
 
     public function respond(DispatchRequest $dispatch, User $actor, string $response, ?string $note): DispatchRecipient
     {
-        $dispatch->loadMissing('deployment');
+        [$dispatch, $recipient] = DB::transaction(function () use ($dispatch, $actor, $response, $note): array {
+            $deployment = Deployment::query()
+                ->whereKey($dispatch->deployment_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $dispatch = DispatchRequest::query()
+                ->whereKey($dispatch->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $dispatch->setRelation('deployment', $deployment);
+            $recipient = $dispatch->recipients()
+                ->where('user_id', $actor->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $this->assertDispatchResponseDoesNotConflictWithManualAssignment(
+                $deployment,
+                $dispatch,
+                (string) $actor->id,
+                $response,
+            );
+            $recipient->update([
+                'response_status' => $response,
+                'response_note' => $note ?? $this->defaultResponseNote($response, $dispatch->status === 'draft'),
+                'responded_at' => now(),
+            ]);
+
+            return [$dispatch, $recipient];
+        });
+
         $isPreannouncement = $dispatch->status === 'draft';
         $isTestAlert = (bool) $dispatch->deployment?->is_test;
-        $recipient = $dispatch->recipients()->where('user_id', $actor->id)->firstOrFail();
-        $recipient->update([
-            'response_status' => $response,
-            'response_note' => $note ?? $this->defaultResponseNote($response, $isPreannouncement),
-            'responded_at' => now(),
-        ]);
         $this->revokeLocationConsentAfterNonAttendance($dispatch, $actor, $actor, $response);
         $this->auditService->record('dispatch.responded', $dispatch, $actor, [
             'recipient_id' => $recipient->id,
@@ -942,11 +966,38 @@ final class DispatchService
             throw ValidationException::withMessages(['recipient' => ['Ontvanger hoort niet bij deze alarmering.']]);
         }
 
-        $recipient->update([
-            'response_status' => $response,
-            'response_note' => $note,
-            'responded_at' => $response === 'pending' ? null : now(),
-        ]);
+        [$dispatch, $recipient] = DB::transaction(function () use ($dispatch, $recipient, $response, $note): array {
+            $deployment = Deployment::query()
+                ->whereKey($dispatch->deployment_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $dispatch = DispatchRequest::query()
+                ->whereKey($dispatch->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $dispatch->setRelation('deployment', $deployment);
+            $recipient = DispatchRecipient::query()
+                ->whereKey($recipient->id)
+                ->where('dispatch_request_id', $dispatch->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            if ($recipient->user_id !== null) {
+                $this->assertDispatchResponseDoesNotConflictWithManualAssignment(
+                    $deployment,
+                    $dispatch,
+                    (string) $recipient->user_id,
+                    $response,
+                );
+            }
+            $recipient->update([
+                'response_status' => $response,
+                'response_note' => $note,
+                'responded_at' => $response === 'pending' ? null : now(),
+            ]);
+
+            return [$dispatch, $recipient];
+        });
+
         $recipient->loadMissing('user');
         if ($recipient->user !== null) {
             $this->revokeLocationConsentAfterNonAttendance($dispatch, $recipient->user, $actor, $response);
@@ -963,6 +1014,25 @@ final class DispatchService
         }
 
         return $recipient->refresh()->load('user');
+    }
+
+    private function assertDispatchResponseDoesNotConflictWithManualAssignment(
+        Deployment $deployment,
+        DispatchRequest $dispatch,
+        string $userId,
+        string $response,
+    ): void {
+        if (! in_array($dispatch->status, ['sent', 'escalated'], true)
+            || ! in_array($response, ['pending', 'accepted'], true)
+            || ! $this->pilotAssignments->hasManualAssignmentForUser($deployment, $userId)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'response' => [
+                'Deze piloot is al handmatig aan de inzet gekoppeld. De eerdere alarmreactie kan niet opnieuw op “Wacht op reactie” of “Ik kom” worden gezet.',
+            ],
+        ]);
     }
 
     private function revokeLocationConsentAfterNonAttendance(
