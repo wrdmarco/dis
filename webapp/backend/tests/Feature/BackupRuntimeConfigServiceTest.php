@@ -39,7 +39,14 @@ final class BackupRuntimeConfigServiceTest extends TestCase
     protected function tearDown(): void
     {
         foreach (glob($this->temporaryDirectory.DIRECTORY_SEPARATOR.'*') ?: [] as $path) {
-            if (is_file($path) || is_link($path)) {
+            if (is_dir($path) && ! is_link($path)) {
+                foreach (glob($path.DIRECTORY_SEPARATOR.'*') ?: [] as $child) {
+                    if (is_file($child) || is_link($child)) {
+                        unlink($child);
+                    }
+                }
+                rmdir($path);
+            } elseif (is_file($path) || is_link($path)) {
                 unlink($path);
             }
         }
@@ -115,6 +122,64 @@ final class BackupRuntimeConfigServiceTest extends TestCase
         self::assertSame('samba', $metadata['target']);
         self::assertSame(7, $metadata['retention_count']);
         self::assertSame('//backup.example.test/dis', $metadata['target_reference']);
+    }
+
+    public function test_request_snapshot_is_request_id_bound_and_cannot_be_overwritten(): void
+    {
+        $this->configureSettings(['backup.retention_count' => 7]);
+        $service = $this->service();
+        $requestId = str_repeat('c', 32);
+        $requestRoot = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'requests';
+        self::assertTrue(mkdir($requestRoot, 0750));
+
+        $metadata = $service->writeRequestSnapshot('local', $requestId, $requestRoot);
+        $snapshotPath = $requestRoot.DIRECTORY_SEPARATOR.$requestId.'.config';
+        $contents = file_get_contents($snapshotPath);
+        self::assertIsString($contents);
+        $snapshot = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($snapshot);
+        self::assertSame('7', $snapshot['BACKUP_RETENTION_COUNT'] ?? null);
+        self::assertSame($this->configFingerprint($snapshot), $metadata['sha256']);
+
+        SystemSetting::query()
+            ->where('key', 'backup.retention_count')
+            ->firstOrFail()
+            ->forceFill(['value' => 99])
+            ->save();
+        $service->write('samba');
+        self::assertSame($contents, file_get_contents($snapshotPath));
+
+        try {
+            $service->writeRequestSnapshot('local', $requestId, $requestRoot);
+            self::fail('An existing request-bound runtime configuration was overwritten.');
+        } catch (RuntimeException $exception) {
+            self::assertSame(
+                'Backup request runtime configuration could not be created exclusively.',
+                $exception->getMessage(),
+            );
+        }
+
+        self::assertSame($contents, file_get_contents($snapshotPath));
+        $service->discardRequestSnapshot($requestId, $requestRoot);
+        self::assertFileDoesNotExist($snapshotPath);
+    }
+
+    public function test_request_snapshot_restricts_permissions_before_writing_secret_payload_bytes(): void
+    {
+        $source = file_get_contents(app_path('Services/BackupRuntimeConfigService.php'));
+        self::assertIsString($source);
+        $publisher = strpos($source, 'private function publishExclusive');
+        self::assertIsInt($publisher);
+        $umask = strpos($source, 'umask(0177)', $publisher);
+        $permission = strpos($source, "function_exists('fchmod')", $publisher);
+        $payloadWrite = strpos($source, 'fwrite($handle, substr($payload, $offset))', $publisher);
+        self::assertIsInt($umask);
+        self::assertIsInt($permission);
+        self::assertIsInt($payloadWrite);
+        self::assertLessThan($permission, $umask);
+        self::assertLessThan($payloadWrite, $permission);
+        self::assertStringContainsString("DIRECTORY_SEPARATOR.\$requestId.'.config'", $source);
+        self::assertStringNotContainsString('backup-config-requests', $source);
     }
 
     public function test_control_characters_are_rejected_before_publication(): void
@@ -200,10 +265,10 @@ final class BackupRuntimeConfigServiceTest extends TestCase
         self::assertTrue(mkdir($requestRoot, 0750));
         $requestId = str_repeat('a', 32);
         $this->app->instance(BackupRequestService::class, new BackupRequestService(
-            $requestRoot,
-            static fn (): string => $requestId,
-            null,
-            static function (int $microseconds) use ($requestRoot, $requestId): void {
+            runtimeConfig: $this->service(),
+            requestRootOverride: $requestRoot,
+            requestIdGenerator: static fn (): string => $requestId,
+            sleeper: static function (int $microseconds) use ($requestRoot, $requestId): void {
                 unset($microseconds);
                 @unlink($requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending');
                 file_put_contents(
@@ -249,16 +314,23 @@ final class BackupRuntimeConfigServiceTest extends TestCase
         self::assertTrue(mkdir($requestRoot, 0750));
         $requestId = str_repeat('e', 32);
         $requestPayload = null;
+        $snapshotConfig = null;
         $this->app->instance(BackupRequestService::class, new BackupRequestService(
-            $requestRoot,
-            static fn (): string => $requestId,
-            null,
-            static function (int $microseconds) use ($requestRoot, $requestId, &$requestPayload): void {
+            runtimeConfig: $this->service(),
+            requestRootOverride: $requestRoot,
+            requestIdGenerator: static fn (): string => $requestId,
+            sleeper: function (int $microseconds) use ($requestRoot, $requestId, &$requestPayload, &$snapshotConfig): void {
                 unset($microseconds);
                 $pending = $requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending';
                 $contents = file_get_contents($pending);
                 self::assertIsString($contents);
                 $requestPayload = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+                $snapshotPath = $requestRoot.DIRECTORY_SEPARATOR.$requestId.'.config';
+                $snapshotContents = file_get_contents($snapshotPath);
+                self::assertIsString($snapshotContents);
+                $snapshotConfig = json_decode($snapshotContents, true, flags: JSON_THROW_ON_ERROR);
+                self::assertIsArray($snapshotConfig);
+                self::assertTrue(unlink($snapshotPath));
                 @unlink($pending);
                 SystemSetting::query()
                     ->where('key', 'backup.retention_count')
@@ -300,8 +372,9 @@ final class BackupRuntimeConfigServiceTest extends TestCase
             self::assertSame('local', $requestPayload['target'] ?? null);
             self::assertNull($requestPayload['backup_path'] ?? null);
             self::assertSame((string) $actor->id, $requestPayload['actor_id'] ?? null);
+            self::assertIsArray($snapshotConfig);
             self::assertSame(
-                $this->configFingerprint($this->readConfig()),
+                $this->configFingerprint($snapshotConfig),
                 $requestPayload['runtime_config_sha256'] ?? null,
             );
             self::assertArrayNotHasKey('BACKUP_SAMBA_PASSWORD', $requestPayload);
@@ -345,6 +418,63 @@ final class BackupRuntimeConfigServiceTest extends TestCase
         $this->asAdminClient($user)
             ->postJson('/api/admin/backups/prune', ['target' => 'local'])
             ->assertForbidden();
+    }
+
+    public function test_failed_manual_retention_returns_only_safe_diagnostic_commands_and_retry_guidance(): void
+    {
+        $this->configureSettings([
+            'backup.target' => 'local',
+            'backup.retention_count' => 2,
+        ]);
+        $this->app->instance(BackupRuntimeConfigService::class, $this->service());
+
+        $requestRoot = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'failed-prune-requests';
+        self::assertTrue(mkdir($requestRoot, 0750));
+        $requestId = str_repeat('d', 32);
+        $this->app->instance(BackupRequestService::class, new BackupRequestService(
+            runtimeConfig: $this->service(),
+            requestRootOverride: $requestRoot,
+            requestIdGenerator: static fn (): string => $requestId,
+            sleeper: static function (int $microseconds) use ($requestRoot, $requestId): void {
+                unset($microseconds);
+                @unlink($requestRoot.DIRECTORY_SEPARATOR.$requestId.'.config');
+                @unlink($requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending');
+                file_put_contents(
+                    $requestRoot.DIRECTORY_SEPARATOR.$requestId.'.result',
+                    json_encode([
+                        'exit_code' => 2,
+                        'output' => 'Backup request no longer has enough caller-bound execution time and was not started.',
+                    ], JSON_THROW_ON_ERROR)."\n",
+                );
+            },
+        ));
+
+        try {
+            $response = $this->asAdminClient($this->administrator())
+                ->postJson('/api/admin/backups/prune', ['target' => 'local']);
+
+            $response->assertStatus(500)
+                ->assertJsonPath('error.code', 'backup_prune_failed')
+                ->assertJsonPath(
+                    'error.details.retry_instruction',
+                    'Controleer de backup request service en het exclusieve operatieslot. Voer daarna het opruimen opnieuw uit via deze beheerpagina.',
+                )
+                ->assertJsonPath('error.details.shell_commands', [
+                    'sudo systemctl status dis-backup-request.service --no-pager',
+                    'sudo journalctl -u dis-backup-request.service --since "30 minutes ago" --no-pager',
+                    'sudo lslocks | grep dis-exclusive-operation.lock',
+                ]);
+
+            $details = json_encode($response->json('error.details'), JSON_THROW_ON_ERROR);
+            self::assertStringNotContainsString('rm -rf', $details);
+            self::assertStringNotContainsString('backup-config', $details);
+            self::assertStringNotContainsString('valid-backup-password', $details);
+        } finally {
+            foreach (glob($requestRoot.DIRECTORY_SEPARATOR.'*') ?: [] as $path) {
+                @unlink($path);
+            }
+            rmdir($requestRoot);
+        }
     }
 
     private function service(): BackupRuntimeConfigService

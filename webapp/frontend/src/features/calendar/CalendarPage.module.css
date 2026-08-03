@@ -376,6 +376,54 @@
   gap: 18px;
 }
 
+.registrationConfirmation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  padding: 24px;
+}
+
+.registrationConfirmationIcon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--dis-warning) 38%, transparent);
+  border-radius: 12px;
+  background: var(--dis-warning-soft);
+  color: var(--dis-warning);
+}
+
+.registrationConfirmationCopy h3 {
+  margin: 4px 0 8px;
+  color: var(--dis-text-strong);
+  font-size: 1.05rem;
+}
+
+.registrationConfirmationCopy p {
+  margin: 0;
+  color: var(--dis-muted-strong);
+  line-height: 1.6;
+}
+
+.registrationConfirmation > :global(.form-error),
+.registrationConfirmationActions {
+  grid-column: 1 / -1;
+}
+
+.registrationConfirmationActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--dis-border);
+  padding-top: 16px;
+}
+
+.registrationConfirmationActions button {
+  min-height: 44px;
+}
+
 .participantSearch {
   display: grid;
   gap: 8px;
@@ -505,6 +553,26 @@
 
   .participantSearch > div {
     grid-template-columns: 1fr;
+  }
+
+  .registrationConfirmation {
+    grid-template-columns: 1fr;
+    padding: 20px 16px;
+  }
+
+  .registrationConfirmation > :global(.form-error),
+  .registrationConfirmationActions {
+    grid-column: 1;
+  }
+
+  .registrationConfirmationActions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .registrationConfirmationActions button {
+    width: 100%;
+    justify-content: center;
   }
 }
 

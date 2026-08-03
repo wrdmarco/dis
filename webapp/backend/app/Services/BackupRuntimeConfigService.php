@@ -23,6 +23,67 @@ final class BackupRuntimeConfigService
      */
     public function write(string $target): array
     {
+        $config = $this->configuration($target);
+        $payload = json_encode($config, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)."\n";
+        $this->publish($payload, $this->sharedPath());
+
+        return $this->metadata($config, $target);
+    }
+
+    /**
+     * @return array{
+     *     sha256: string,
+     *     target: 'local'|'samba',
+     *     retention_count: int,
+     *     target_reference: string
+     * }
+     */
+    public function describe(string $target): array
+    {
+        return $this->metadata($this->configuration($target), $target);
+    }
+
+    /**
+     * Publish a configuration snapshot before its matching request envelope.
+     * The root worker claims the snapshot by request id, so another web or
+     * scheduler operation cannot replace the configuration while it is queued.
+     *
+     * @return array{
+     *     sha256: string,
+     *     target: 'local'|'samba',
+     *     retention_count: int,
+     *     target_reference: string
+     * }
+     */
+    public function writeRequestSnapshot(string $target, string $requestId, string $requestRoot): array
+    {
+        $this->assertRequestId($requestId);
+        $config = $this->configuration($target);
+        $payload = json_encode($config, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)."\n";
+
+        if (! is_dir($requestRoot) || is_link($requestRoot)) {
+            throw new RuntimeException('Backup request runtime configuration directory is unavailable.');
+        }
+        $this->publishExclusive($payload, $this->requestSnapshotPath($requestRoot, $requestId));
+
+        return $this->metadata($config, $target);
+    }
+
+    public function discardRequestSnapshot(string $requestId, string $requestRoot): void
+    {
+        $this->assertRequestId($requestId);
+        $path = $this->requestSnapshotPath($requestRoot, $requestId);
+
+        if (is_file($path) || is_link($path)) {
+            @unlink($path);
+        }
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function configuration(string $target): array
+    {
         if (! in_array($target, ['local', 'samba'], true)) {
             throw new RuntimeException('Backup runtime configuration target is invalid.');
         }
@@ -47,8 +108,22 @@ final class BackupRuntimeConfigService
         }
 
         $this->assertValidValues($config);
-        $payload = json_encode($config, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)."\n";
-        $this->publish($payload);
+
+        return $config;
+    }
+
+    /**
+     * @param  array<string, string>  $config
+     * @return array{
+     *     sha256: string,
+     *     target: 'local'|'samba',
+     *     retention_count: int,
+     *     target_reference: string
+     * }
+     */
+    private function metadata(array $config, string $target): array
+    {
+        /** @var 'local'|'samba' $target */
 
         return [
             'sha256' => $this->fingerprint($config),
@@ -87,13 +162,10 @@ final class BackupRuntimeConfigService
         return hash('sha256', $stream);
     }
 
-    private function publish(string $payload): void
+    private function publish(string $payload, string $path): void
     {
-        $path = $this->pathOverride ?? storage_path('app/backup-config.json');
         $directory = dirname($path);
-        if (! is_dir($directory) && ! mkdir($directory, 0750, true) && ! is_dir($directory)) {
-            throw new RuntimeException('Backup runtime configuration directory could not be created.');
-        }
+        $this->ensureDirectory($directory);
 
         $temporary = tempnam($directory, '.backup-config-');
         if ($temporary === false) {
@@ -136,6 +208,85 @@ final class BackupRuntimeConfigService
             if (! $published && (is_file($temporary) || is_link($temporary))) {
                 @unlink($temporary);
             }
+        }
+    }
+
+    private function publishExclusive(string $payload, string $path): void
+    {
+        $previousUmask = umask(0177);
+        try {
+            $handle = @fopen($path, 'xb');
+        } finally {
+            umask($previousUmask);
+        }
+        if ($handle === false) {
+            throw new RuntimeException('Backup request runtime configuration could not be created exclusively.');
+        }
+
+        $completed = false;
+        try {
+            if (function_exists('fchmod')) {
+                if (! \fchmod($handle, 0600)) {
+                    throw new RuntimeException('Backup request runtime configuration permissions could not be restricted.');
+                }
+                $status = fstat($handle);
+                if (! is_array($status) || (($status['mode'] ?? 0) & 0777) !== 0600) {
+                    throw new RuntimeException('Backup request runtime configuration permissions are unsafe.');
+                }
+            } elseif (PHP_OS_FAMILY !== 'Windows') {
+                throw new RuntimeException('Backup request runtime configuration permissions cannot be verified.');
+            } elseif (! chmod($path, 0600)) {
+                throw new RuntimeException('Backup request runtime configuration permissions could not be restricted.');
+            }
+
+            $offset = 0;
+            $length = strlen($payload);
+            while ($offset < $length) {
+                $written = fwrite($handle, substr($payload, $offset));
+                if ($written === false || $written === 0) {
+                    throw new RuntimeException('Backup request runtime configuration could not be written completely.');
+                }
+                $offset += $written;
+            }
+
+            if (! fflush($handle) || ! fsync($handle)) {
+                throw new RuntimeException('Backup request runtime configuration could not be durably stored.');
+            }
+            $completed = true;
+        } finally {
+            fclose($handle);
+            if (! $completed) {
+                @unlink($path);
+            }
+        }
+
+        if (! chmod($path, 0600)) {
+            @unlink($path);
+            throw new RuntimeException('Backup request runtime configuration permissions could not be restricted.');
+        }
+    }
+
+    private function ensureDirectory(string $directory): void
+    {
+        if (! is_dir($directory) && ! mkdir($directory, 0750, true) && ! is_dir($directory)) {
+            throw new RuntimeException('Backup runtime configuration directory could not be created.');
+        }
+    }
+
+    private function sharedPath(): string
+    {
+        return $this->pathOverride ?? storage_path('app/backup-config.json');
+    }
+
+    private function requestSnapshotPath(string $requestRoot, string $requestId): string
+    {
+        return rtrim($requestRoot, '/\\').DIRECTORY_SEPARATOR.$requestId.'.config';
+    }
+
+    private function assertRequestId(string $requestId): void
+    {
+        if (preg_match('/^[a-f0-9]{32}$/', $requestId) !== 1) {
+            throw new RuntimeException('Backup request runtime configuration id is invalid.');
         }
     }
 }

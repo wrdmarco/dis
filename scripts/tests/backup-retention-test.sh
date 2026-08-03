@@ -6,6 +6,8 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/dis-backup-retention-test.XXXXXX")"
 BACKUP_ROOT="${TEST_ROOT}/backups"
 OUTSIDE_ROOT="${TEST_ROOT}/outside"
 
+source "${APP_ROOT}/scripts/lib/common.sh"
+
 cleanup() {
   rm -rf -- "${TEST_ROOT}"
 }
@@ -31,6 +33,34 @@ secure_path_operation() {
 }
 
 source "${APP_ROOT}/scripts/lib/backup-retention.sh"
+
+SINGLE_TRAILING_SLASH_ENV="${TEST_ROOT}/single-trailing-slash.env"
+MULTIPLE_TRAILING_SLASHES_ENV="${TEST_ROOT}/multiple-trailing-slashes.env"
+printf 'DIS_DATA_PATH=/opt/dis-data/\n' > "${SINGLE_TRAILING_SLASH_ENV}"
+printf 'DIS_DATA_PATH=/opt/dis-data///\n' > "${MULTIPLE_TRAILING_SLASHES_ENV}"
+DIS_DATA_PATH=/unexpected
+load_data_path_from_env "${SINGLE_TRAILING_SLASH_ENV}"
+[ "${DIS_DATA_PATH}" = "/opt/dis-data" ]
+DIS_DATA_PATH=/unexpected
+load_data_path_from_env "${MULTIPLE_TRAILING_SLASHES_ENV}"
+[ "${DIS_DATA_PATH}" = "/opt/dis-data" ]
+
+RUNTIME_CONFIG="${TEST_ROOT}/backup-config.json"
+cat > "${RUNTIME_CONFIG}" <<'JSON'
+{
+  "BACKUP_TARGET": "local",
+  "BACKUP_ROOT": "/opt/dis-data/backup",
+  "BACKUP_RETENTION_COUNT": "7",
+  "BACKUP_ENCRYPTION_KEY_FILE": "/opt/dis-data/secrets/backup-encryption.key"
+}
+JSON
+DIS_DATA_PATH=/opt/dis-data
+DIS_SAFE_LOCAL_BACKUP=1
+DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0
+load_backup_runtime_config_for_operation "${RUNTIME_CONFIG}"
+[ "$(backup_runtime_config_sha256)" = "3e1dc4f5bf27a01542d3982e9d4c58079865826c61dec76ff4dcfe9e61ac6ded" ]
+DIS_SAFE_LOCAL_BACKUP=0
+BACKUP_ROOT="${TEST_ROOT}/backups"
 
 mkdir -p "${BACKUP_ROOT}" "${OUTSIDE_ROOT}"
 

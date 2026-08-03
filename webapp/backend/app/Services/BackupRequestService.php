@@ -22,6 +22,7 @@ final class BackupRequestService
     private const MAX_RESULT_BYTES = 8_388_608;
 
     public function __construct(
+        private readonly BackupRuntimeConfigService $runtimeConfig,
         private readonly ?string $requestRootOverride = null,
         private readonly ?Closure $requestIdGenerator = null,
         private readonly ?Closure $monotonicClock = null,
@@ -69,7 +70,6 @@ final class BackupRequestService
     public function prune(
         string $target,
         ?string $actorId,
-        string $runtimeConfigSha256,
         int $timeoutSeconds = self::PRUNE_TIMEOUT_SECONDS,
     ): array {
         return $this->run(
@@ -78,7 +78,6 @@ final class BackupRequestService
             null,
             $actorId,
             $timeoutSeconds,
-            $runtimeConfigSha256,
         );
     }
 
@@ -105,23 +104,22 @@ final class BackupRequestService
         ?string $backupPath,
         ?string $actorId,
         int $timeoutSeconds,
-        ?string $runtimeConfigSha256 = null,
     ): array {
         if ($timeoutSeconds < 1) {
             throw new \InvalidArgumentException('Backup request timeout must be at least one second.');
         }
+        $maximumTimeout = match ($operation) {
+            BackupRequestOperation::Create => self::CREATE_TIMEOUT_SECONDS,
+            BackupRequestOperation::Prune => self::PRUNE_TIMEOUT_SECONDS,
+            BackupRequestOperation::Verify => self::VERIFY_TIMEOUT_SECONDS,
+            BackupRequestOperation::Probe => self::PROBE_TIMEOUT_SECONDS,
+        };
+        if ($timeoutSeconds > $maximumTimeout) {
+            throw new \InvalidArgumentException('Backup request timeout exceeds the operation contract.');
+        }
         if (! in_array($target, ['local', 'samba'], true)) {
             throw new \InvalidArgumentException('Unsupported backup target.');
         }
-        if ($operation === BackupRequestOperation::Prune) {
-            if ($runtimeConfigSha256 === null
-                || preg_match('/^[a-f0-9]{64}$/', $runtimeConfigSha256) !== 1) {
-                throw new \InvalidArgumentException('Backup prune runtime configuration fingerprint is invalid.');
-            }
-        } elseif ($runtimeConfigSha256 !== null) {
-            throw new \InvalidArgumentException('Runtime configuration fingerprints are only valid for backup pruning.');
-        }
-
         $requestId = $this->newRequestId();
         $root = $this->requestRoot();
         if (! is_dir($root) || ! is_writable($root)) {
@@ -135,15 +133,31 @@ final class BackupRequestService
         $temporary = $root.'/'.$requestId.'.tmp';
         $pending = $root.'/'.$requestId.'.pending';
         $result = $root.'/'.$requestId.'.result';
+        $runtimeConfig = null;
+        if ($operation === BackupRequestOperation::Prune) {
+            try {
+                $runtimeConfig = $this->runtimeConfig->writeRequestSnapshot($target, $requestId, $root);
+            } catch (Throwable $exception) {
+                report($exception);
+
+                return $this->result(
+                    $requestId,
+                    1,
+                    'De request-gebonden backupconfiguratie kon niet veilig en duurzaam worden gepubliceerd.',
+                );
+            }
+        }
+        $createdAt = time();
         $request = [
             'operation' => $operation->value,
             'target' => $target,
             'backup_path' => $backupPath,
             'actor_id' => $actorId,
-            'created_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
+            'created_at' => gmdate('Y-m-d\\TH:i:s\\Z', $createdAt),
+            'expires_at' => gmdate('Y-m-d\\TH:i:s\\Z', $createdAt + $timeoutSeconds),
         ];
         if ($operation === BackupRequestOperation::Prune) {
-            $request['runtime_config_sha256'] = $runtimeConfigSha256;
+            $request['runtime_config_sha256'] = $runtimeConfig['sha256'];
         }
         $payload = json_encode($request, JSON_THROW_ON_ERROR)."\n";
 
@@ -153,13 +167,16 @@ final class BackupRequestService
             if (is_file($temporary) || is_link($temporary)) {
                 @unlink($temporary);
             }
+            if ($operation === BackupRequestOperation::Prune) {
+                $this->runtimeConfig->discardRequestSnapshot($requestId, $root);
+            }
             report($exception);
 
-            return $this->result(
+            return $this->withRuntimeConfig($this->result(
                 $requestId,
                 1,
                 'De backup request kon niet veilig en duurzaam worden gepubliceerd.',
-            );
+            ), $runtimeConfig);
         }
 
         $deadline = $this->now() + $timeoutSeconds;
@@ -168,7 +185,9 @@ final class BackupRequestService
         while (true) {
             clearstatcache(true, $result);
             if (is_file($result)) {
-                return $this->readResult($requestId, $result);
+                $this->runtimeConfig->discardRequestSnapshot($requestId, $root);
+
+                return $this->withRuntimeConfig($this->readResult($requestId, $result), $runtimeConfig);
             }
 
             clearstatcache(true, $pending);
@@ -186,30 +205,38 @@ final class BackupRequestService
         // Close the race between the last deadline check and an atomic result publication.
         clearstatcache(true, $result);
         if (is_file($result)) {
-            return $this->readResult($requestId, $result);
+            $this->runtimeConfig->discardRequestSnapshot($requestId, $root);
+
+            return $this->withRuntimeConfig($this->readResult($requestId, $result), $runtimeConfig);
         }
 
         clearstatcache(true, $pending);
         if (! $claimed && is_file($pending) && @unlink($pending)) {
-            return $this->result(
+            if ($operation === BackupRequestOperation::Prune) {
+                $this->runtimeConfig->discardRequestSnapshot($requestId, $root);
+            }
+
+            return $this->withRuntimeConfig($this->result(
                 $requestId,
                 124,
                 'De backup request is niet binnen '.$this->timeoutLabel($timeoutSeconds).' door de DIS backup request service geclaimd. Controleer dis-backup-request.path en dis-backup-request.service.',
-            );
+            ), $runtimeConfig);
         }
 
         // If cancellation lost the race with the worker, classify this as a
         // claimed request and check once more for an immediately published result.
         clearstatcache(true, $result);
         if (is_file($result)) {
-            return $this->readResult($requestId, $result);
+            $this->runtimeConfig->discardRequestSnapshot($requestId, $root);
+
+            return $this->withRuntimeConfig($this->readResult($requestId, $result), $runtimeConfig);
         }
 
-        return $this->result(
+        return $this->withRuntimeConfig($this->result(
             $requestId,
             124,
             'De backup request is door de DIS backup request service geclaimd, maar niet binnen '.$this->timeoutLabel($timeoutSeconds).' afgerond. Controleer dis-backup-request.service en de worker-logs.',
-        );
+        ), $runtimeConfig);
     }
 
     private function publish(
@@ -309,6 +336,20 @@ final class BackupRequestService
             'output' => 'Backup request-id: '.$requestId.($output === '' ? '' : "\n".$output),
             'request_id' => $requestId,
         ];
+    }
+
+    /**
+     * @param  array{exit_code: int, output: string, request_id: string}  $result
+     * @param  array{sha256: string, target: 'local'|'samba', retention_count: int, target_reference: string}|null  $runtimeConfig
+     * @return array<string, mixed>
+     */
+    private function withRuntimeConfig(array $result, ?array $runtimeConfig): array
+    {
+        if ($runtimeConfig !== null) {
+            $result['runtime_config'] = $runtimeConfig;
+        }
+
+        return $result;
     }
 
     private function requestRoot(): string

@@ -10,23 +10,29 @@ ENV_FILE="${APP_ROOT}/.env"
 REQUESTED_BACKUP_TARGET="${BACKUP_TARGET:-}"
 REQUESTED_SAFE_LOCAL_BACKUP="${DIS_SAFE_LOCAL_BACKUP:-0}"
 REQUESTED_RUNTIME_CONFIG_SHA256="${EXPECTED_BACKUP_RUNTIME_CONFIG_SHA256:-}"
+REQUESTED_RUNTIME_CONFIG_FILE="${BACKUP_RUNTIME_CONFIG_FILE:-}"
 
 require_root
 acquire_dis_operation_lock backup
 
 [[ "${REQUESTED_BACKUP_TARGET}" =~ ^(local|samba)$ ]] \
   || fail "An explicit local or samba backup target is required for retention."
+[ -n "${REQUESTED_RUNTIME_CONFIG_FILE}" ] \
+  && root_controlled_bundle_source_is_safe "${REQUESTED_RUNTIME_CONFIG_FILE}" \
+  || fail "A request-bound root-controlled backup runtime configuration is required for retention."
 
-load_data_path_from_env "${ENV_FILE}"
-ensure_data_links "${APP_ROOT}"
 require_file "${ENV_FILE}"
 set -a
 source "${ENV_FILE}"
 set +a
+# Sourcing the managed environment can restore a non-canonical value. Apply
+# the same normalization used by Laravel before validating the bound snapshot.
+load_data_path_from_env "${ENV_FILE}"
+ensure_data_links "${APP_ROOT}"
 DIS_SAFE_LOCAL_BACKUP="${REQUESTED_SAFE_LOCAL_BACKUP}"
 DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0
 export DIS_SAFE_LOCAL_BACKUP DIS_SAFE_LOCAL_PREUPDATE_BACKUP
-load_backup_runtime_config_for_operation "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
+load_backup_runtime_config_for_operation "${REQUESTED_RUNTIME_CONFIG_FILE}"
 require_backup_runtime_config_binding \
   "${REQUESTED_RUNTIME_CONFIG_SHA256}" \
   "${REQUESTED_BACKUP_TARGET}"

@@ -2,15 +2,22 @@
 
 namespace Tests\Feature;
 
+use App\Models\SystemSetting;
 use App\Services\BackupRequestService;
+use App\Services\BackupRuntimeConfigService;
 use FilesystemIterator;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Tests\TestCase;
 
 final class BackupRequestServiceTest extends TestCase
 {
+    use RefreshDatabase;
+
     private string $requestRoot;
+
+    private BackupRuntimeConfigService $runtimeConfig;
 
     protected function setUp(): void
     {
@@ -18,6 +25,13 @@ final class BackupRequestServiceTest extends TestCase
 
         $this->requestRoot = sys_get_temp_dir().DIRECTORY_SEPARATOR.'dis-backup-request-'.bin2hex(random_bytes(8));
         $this->assertTrue(mkdir($this->requestRoot, 0770, true));
+        $this->runtimeConfig = new BackupRuntimeConfigService(
+            $this->requestRoot.DIRECTORY_SEPARATOR.'runtime'.DIRECTORY_SEPARATOR.'backup-config.json',
+        );
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'backup.retention_count'],
+            ['value' => 7, 'is_sensitive' => false, 'updated_by' => null],
+        );
     }
 
     protected function tearDown(): void
@@ -48,6 +62,7 @@ final class BackupRequestServiceTest extends TestCase
         $requestPayload = null;
 
         $service = new BackupRequestService(
+            runtimeConfig: $this->runtimeConfig,
             requestRootOverride: $this->requestRoot,
             requestIdGenerator: static fn (): string => $requestId,
             monotonicClock: static fn (): float => 0.0,
@@ -80,6 +95,11 @@ final class BackupRequestServiceTest extends TestCase
             '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/',
             (string) ($requestPayload['created_at'] ?? ''),
         );
+        $this->assertSame(
+            5,
+            strtotime((string) ($requestPayload['expires_at'] ?? ''))
+                - strtotime((string) ($requestPayload['created_at'] ?? '')),
+        );
         $this->assertFileDoesNotExist($pending);
         $this->assertFileDoesNotExist($resultPath);
         $this->assertFileDoesNotExist($this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.tmp');
@@ -92,6 +112,7 @@ final class BackupRequestServiceTest extends TestCase
         $this->assertNotFalse(file_put_contents($pending, 'existing-request'));
 
         $service = new BackupRequestService(
+            runtimeConfig: $this->runtimeConfig,
             requestRootOverride: $this->requestRoot,
             requestIdGenerator: static fn (): string => $requestId,
         );
@@ -113,17 +134,25 @@ final class BackupRequestServiceTest extends TestCase
         $resultPath = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.result';
         $requestPayload = null;
         $actorId = '01J00000000000000000000000';
-        $runtimeConfigSha256 = str_repeat('f', 64);
+        $runtimeConfigSha256 = null;
 
         $service = new BackupRequestService(
+            runtimeConfig: $this->runtimeConfig,
             requestRootOverride: $this->requestRoot,
             requestIdGenerator: static fn (): string => $requestId,
             monotonicClock: static fn (): float => 0.0,
-            sleeper: function (int $microseconds) use ($pending, $resultPath, &$requestPayload): void {
+            sleeper: function (int $microseconds) use ($pending, $resultPath, $requestId, &$requestPayload, &$runtimeConfigSha256): void {
                 $this->assertSame(500_000, $microseconds);
                 $contents = file_get_contents($pending);
                 $this->assertIsString($contents);
                 $requestPayload = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+                $snapshot = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.config';
+                $snapshotContents = file_get_contents($snapshot);
+                $this->assertIsString($snapshotContents);
+                $runtimeConfig = json_decode($snapshotContents, true, flags: JSON_THROW_ON_ERROR);
+                $this->assertIsArray($runtimeConfig);
+                $runtimeConfigSha256 = $this->configFingerprint($runtimeConfig);
+                $this->assertTrue(unlink($snapshot));
                 $this->assertTrue(unlink($pending));
                 $this->assertNotFalse(file_put_contents($resultPath, json_encode([
                     'state' => 'succeeded',
@@ -134,7 +163,7 @@ final class BackupRequestServiceTest extends TestCase
             },
         );
 
-        $result = $service->prune('samba', $actorId, $runtimeConfigSha256, 5);
+        $result = $service->prune('samba', $actorId, 5);
 
         $this->assertSame(0, $result['exit_code']);
         $this->assertSame($requestId, $result['request_id']);
@@ -150,26 +179,34 @@ final class BackupRequestServiceTest extends TestCase
             'backup_path',
             'actor_id',
             'created_at',
+            'expires_at',
             'runtime_config_sha256',
         ], array_keys($requestPayload));
+        $this->assertSame(
+            5,
+            strtotime((string) ($requestPayload['expires_at'] ?? ''))
+                - strtotime((string) ($requestPayload['created_at'] ?? '')),
+        );
         $this->assertArrayNotHasKey('BACKUP_SAMBA_PASSWORD', $requestPayload);
     }
 
-    public function test_prune_rejects_an_invalid_runtime_configuration_fingerprint_before_publication(): void
+    public function test_prune_does_not_publish_when_its_request_snapshot_cannot_be_created_exclusively(): void
     {
+        $requestId = str_repeat('f', 32);
+        $snapshot = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.config';
+        $this->assertNotFalse(file_put_contents($snapshot, 'existing-snapshot'));
         $service = new BackupRequestService(
+            runtimeConfig: $this->runtimeConfig,
             requestRootOverride: $this->requestRoot,
-            requestIdGenerator: static fn (): string => str_repeat('f', 32),
+            requestIdGenerator: static fn (): string => $requestId,
         );
 
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Backup prune runtime configuration fingerprint is invalid.');
+        $result = $service->prune('local', '01J00000000000000000000000', 5);
 
-        try {
-            $service->prune('local', null, 'not-a-sha256', 5);
-        } finally {
-            $this->assertSame([], glob($this->requestRoot.DIRECTORY_SEPARATOR.'*') ?: []);
-        }
+        $this->assertSame(1, $result['exit_code']);
+        $this->assertStringContainsString('request-gebonden backupconfiguratie', $result['output']);
+        $this->assertSame('existing-snapshot', file_get_contents($snapshot));
+        $this->assertFileDoesNotExist($this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending');
     }
 
     public function test_timeout_before_claim_reports_that_the_path_service_did_not_claim_the_request(): void
@@ -177,6 +214,7 @@ final class BackupRequestServiceTest extends TestCase
         $requestId = str_repeat('c', 32);
         $clockValues = [0.0, 2.0];
         $service = new BackupRequestService(
+            runtimeConfig: $this->runtimeConfig,
             requestRootOverride: $this->requestRoot,
             requestIdGenerator: static fn (): string => $requestId,
             monotonicClock: static function () use (&$clockValues): float {
@@ -202,6 +240,7 @@ final class BackupRequestServiceTest extends TestCase
         $pending = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending';
         $clockValues = [0.0, 0.0, 2.0];
         $service = new BackupRequestService(
+            runtimeConfig: $this->runtimeConfig,
             requestRootOverride: $this->requestRoot,
             requestIdGenerator: static fn (): string => $requestId,
             monotonicClock: static function () use (&$clockValues): float {
@@ -229,5 +268,37 @@ final class BackupRequestServiceTest extends TestCase
         $this->assertSame(1020, BackupRequestService::PRUNE_TIMEOUT_SECONDS);
         $this->assertSame(720, BackupRequestService::VERIFY_TIMEOUT_SECONDS);
         $this->assertSame(30, BackupRequestService::PROBE_TIMEOUT_SECONDS);
+    }
+
+    public function test_operation_timeout_cannot_exceed_the_worker_protocol_window(): void
+    {
+        $service = new BackupRequestService(
+            runtimeConfig: $this->runtimeConfig,
+            requestRootOverride: $this->requestRoot,
+            requestIdGenerator: static fn (): string => str_repeat('9', 32),
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Backup request timeout exceeds the operation contract.');
+
+        $service->prune(
+            'local',
+            '01J00000000000000000000000',
+            BackupRequestService::PRUNE_TIMEOUT_SECONDS + 1,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function configFingerprint(array $config): string
+    {
+        $stream = '';
+        foreach ($config as $key => $value) {
+            $this->assertIsString($value);
+            $stream .= $key."\0".$value."\0";
+        }
+
+        return hash('sha256', $stream);
     }
 }

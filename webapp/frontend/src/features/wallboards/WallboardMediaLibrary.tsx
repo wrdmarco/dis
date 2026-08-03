@@ -30,6 +30,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { ApiClientError } from '../../lib/apiClient';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -73,6 +74,7 @@ interface UploadQueueItem {
 
 export function WallboardMediaLibrary() {
   const { api } = useAuth();
+  const confirmAction = useConfirmDialog();
   const [view, setView] = useState<LibraryView>('assets');
   const [folders, setFolders] = useState<WallboardMediaFolder[]>([]);
   const [assetsPage, setAssetsPage] = useState<WallboardMediaAssetPage>({ items: [], pagination: EMPTY_PAGINATION });
@@ -310,7 +312,12 @@ export function WallboardMediaLibrary() {
   }
 
   async function deleteFolder(folder: WallboardMediaFolder) {
-    if (!window.confirm(`Map "${folder.name}" verwijderen?`)) return;
+    if (!await confirmAction({
+      title: 'Mediamap verwijderen?',
+      message: `Je verwijdert de map “${folder.name}”. Dit lukt alleen wanneer de map leeg is.`,
+      confirmLabel: 'Map verwijderen',
+      intent: 'danger',
+    })) return;
     setBusy(`folder-${folder.id}`);
     clearFeedback();
     try {
@@ -464,7 +471,13 @@ export function WallboardMediaLibrary() {
   }
 
   async function deleteAsset(asset: WallboardMediaAsset) {
-    if (!window.confirm(`${asset.kind === 'video' ? 'Video' : 'Foto'} "${asset.display_name}" verwijderen?`)) return;
+    const assetKind = asset.kind === 'video' ? 'Video' : 'Foto';
+    if (!await confirmAction({
+      title: `${assetKind} verwijderen?`,
+      message: `Je verwijdert “${asset.display_name}” permanent uit de mediabibliotheek.`,
+      confirmLabel: `${assetKind} verwijderen`,
+      intent: 'danger',
+    })) return;
     setBusy(`asset-${asset.id}`);
     clearFeedback();
     try {
@@ -543,7 +556,12 @@ export function WallboardMediaLibrary() {
   }
 
   async function deletePlaylist(playlist: WallboardMediaPlaylist) {
-    if (!window.confirm(`Fotoplaylist "${playlist.name}" verwijderen?`)) return;
+    if (!await confirmAction({
+      title: 'Fotoplaylist verwijderen?',
+      message: `Je verwijdert de fotoplaylist “${playlist.name}”. De mediabestanden zelf blijven bewaard.`,
+      confirmLabel: 'Playlist verwijderen',
+      intent: 'danger',
+    })) return;
     setBusy('playlist-delete');
     clearFeedback();
     try {

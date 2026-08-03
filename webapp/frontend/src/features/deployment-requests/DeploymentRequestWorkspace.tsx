@@ -31,6 +31,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AddressAutocomplete } from '../../components/AddressAutocomplete';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import {
@@ -125,6 +126,7 @@ export const DeploymentRequestWorkspace = forwardRef<
   } = props;
   const router = useRouter();
   const { api, hasPermission } = useAuth();
+  const confirmAction = useConfirmDialog();
   const canOverride = hasPermission('deployment-requests.priority.override');
   const teams = useApiResource<Team[]>(
     '/teams',
@@ -642,7 +644,7 @@ export const DeploymentRequestWorkspace = forwardRef<
     window.setTimeout(() => void saveAllRef.current(), 0);
   };
 
-  const changeSubject = (subjectType: DeploymentRequestSubjectType) => {
+  const changeSubject = async (subjectType: DeploymentRequestSubjectType) => {
     if (
       interactionDisabled
       || saveAllActiveRef.current
@@ -653,7 +655,12 @@ export const DeploymentRequestWorkspace = forwardRef<
       .some((field) => deploymentRequestFieldIsAnswered(field, draft.answers[field.key]));
     if (
       oldBranchHasAnswers
-      && !window.confirm('Van type wisselen? De eerdere typespecifieke antwoorden blijven in de aanvraaggeschiedenis bewaard.')
+      && !await confirmAction({
+        title: 'Type zoekonderwerp wijzigen?',
+        message: 'De eerdere typespecifieke antwoorden blijven in de aanvraaggeschiedenis bewaard, maar zijn niet meer zichtbaar in de huidige uitvraag.',
+        confirmLabel: 'Type wijzigen',
+        intent: 'warning',
+      })
     ) {
       return;
     }
@@ -825,7 +832,12 @@ export const DeploymentRequestWorkspace = forwardRef<
         return;
       }
     }
-    if (!window.confirm('Conceptinzet voorbereiden vanuit deze aanvraag? Er wordt nog geen alarm verstuurd.')) return;
+    if (!await confirmAction({
+      title: 'Conceptinzet voorbereiden?',
+      message: 'DIS maakt vanuit deze aanvraag een conceptinzet. Er wordt nog geen alarm verstuurd.',
+      confirmLabel: 'Conceptinzet voorbereiden',
+      intent: 'default',
+    })) return;
 
     setPreparingDeployment(true);
     try {
@@ -1038,7 +1050,7 @@ export const DeploymentRequestWorkspace = forwardRef<
                     name={`deployment-request-subject-${draft.id}`}
                     checked={draft.subject_type === subject.key}
                     disabled={!editable}
-                    onChange={() => changeSubject(subject.key)}
+                    onChange={() => void changeSubject(subject.key)}
                   />
                   <Search size={20} aria-hidden />
                   <span>{subject.label}</span>

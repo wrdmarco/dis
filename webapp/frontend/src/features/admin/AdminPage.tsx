@@ -1,5 +1,6 @@
 import { Panel } from '../../components/Panel';
 import dynamic from 'next/dynamic';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
@@ -179,6 +180,7 @@ function adminTabAllowed(
 
 export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const { api, isAuthenticated, hasPermission } = useAuth();
+  const confirmAction = useConfirmDialog();
   const availableTabs = mode === 'forms' ? formTabs : adminTabs;
   const canManageSettings = hasPermission('settings.manage');
   const canManageForms = hasPermission('forms.manage');
@@ -962,14 +964,18 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     setDeploymentFormLayout((current) => reorderLayoutItem(current, sourceKey, targetKey));
   }
 
-  function changeActiveTab(nextTab: AdminTab) {
-    if (!adminTabChangeAllowed({
+  async function changeActiveTab(nextTab: AdminTab) {
+    const requiresConfirmation = !adminTabChangeAllowed({
       currentTab: activeTab,
       nextTab,
       deploymentRequestWorkflowDirty,
-      confirmLeave: () => window.confirm(
-        'Er zijn niet-opgeslagen wijzigingen in de uitvraag. Dit onderdeel toch verlaten?',
-      ),
+      confirmLeave: () => false,
+    });
+    if (requiresConfirmation && !await confirmAction({
+      title: 'Onderdeel verlaten?',
+      message: 'Er zijn niet-opgeslagen wijzigingen in de uitvraag. Deze wijzigingen gaan verloren wanneer je naar een ander onderdeel gaat.',
+      confirmLabel: 'Onderdeel verlaten',
+      intent: 'warning',
     })) {
       return;
     }
@@ -987,7 +993,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             type="button"
             role="tab"
             aria-selected={activeTab === tab.id}
-            onClick={() => changeActiveTab(tab.id)}
+            onClick={() => void changeActiveTab(tab.id)}
           >
             {tab.label}
           </button>

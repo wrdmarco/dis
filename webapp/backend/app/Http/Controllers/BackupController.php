@@ -260,13 +260,14 @@ final class BackupController extends Controller
         ]);
         $target = (string) $data['target'];
         $this->ensureTargetReady($target);
-        $runtimeConfig = $this->runtimeConfig->write($target);
         $actorId = $request->user()?->id;
         $result = $backupRequests->prune(
             $target,
             is_string($actorId) ? $actorId : null,
-            $runtimeConfig['sha256'],
         );
+        $runtimeConfig = is_array($result['runtime_config'] ?? null)
+            ? $result['runtime_config']
+            : $this->runtimeConfig->describe($target);
         $output = $this->cleanOutput($result['output']);
         $successful = $result['exit_code'] === 0;
 
@@ -283,6 +284,14 @@ final class BackupController extends Controller
                 'backup_prune_failed',
                 $output ?: 'Backupretentie toepassen mislukt.',
                 500,
+                [
+                    'retry_instruction' => 'Controleer de backup request service en het exclusieve operatieslot. Voer daarna het opruimen opnieuw uit via deze beheerpagina.',
+                    'shell_commands' => [
+                        'sudo systemctl status dis-backup-request.service --no-pager',
+                        'sudo journalctl -u dis-backup-request.service --since "30 minutes ago" --no-pager',
+                        'sudo lslocks | grep dis-exclusive-operation.lock',
+                    ],
+                ],
             );
         }
 

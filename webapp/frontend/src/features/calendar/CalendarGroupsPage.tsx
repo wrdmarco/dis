@@ -10,6 +10,7 @@ import {
   UserRound,
   UsersRound,
 } from 'lucide-react';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { ApiClientError } from '../../lib/apiClient';
@@ -37,6 +38,7 @@ const initialForm: CalendarGroupFormState = {
 
 export function CalendarGroupsPage() {
   const { api } = useAuth();
+  const confirmAction = useConfirmDialog();
   const groups = useApiResource<CalendarGroup[]>('/calendar-groups');
   const memberOptions = useApiResource<CalendarGroupMemberOptions>(
     '/calendar-groups/member-options',
@@ -162,7 +164,12 @@ export function CalendarGroupsPage() {
   async function deleteGroup(group: CalendarGroup) {
     if (
       group.is_everyone
-      || !window.confirm(`Agendagroep "${group.name}" verwijderen?`)
+      || !await confirmAction({
+        title: 'Agendagroep verwijderen?',
+        message: `Je verwijdert de agendagroep “${group.name}”.`,
+        confirmLabel: 'Groep verwijderen',
+        intent: 'danger',
+      })
     ) {
       return;
     }

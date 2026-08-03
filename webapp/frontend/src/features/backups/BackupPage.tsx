@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { ApiClientError } from '../../lib/apiClient';
@@ -86,6 +87,11 @@ interface BackupActionResult {
   request_id?: string;
 }
 
+interface BackupRecoveryGuidance {
+  commands: string[];
+  instruction: string | null;
+}
+
 type BackupActionLabel = 'settings' | 'create' | 'verify' | 'restore' | 'uploadRestore' | 'prune' | 'refresh';
 
 interface SambaShareOption {
@@ -116,10 +122,17 @@ const DEFAULT_BACKUP_ROOTS: Record<BackupTarget, string> = {
   samba: '/mnt/dis-backup',
 };
 
+const SAFE_BACKUP_RECOVERY_COMMANDS = [
+  'sudo systemctl status dis-backup-request.service --no-pager',
+  'sudo journalctl -u dis-backup-request.service --since "30 minutes ago" --no-pager',
+  'sudo lslocks | grep dis-exclusive-operation.lock',
+] as const;
+
 const RESTORE_CONFIRMATION_TEXT = 'HERSTEL BACKUP';
 
 export function BackupPage() {
   const { api } = useAuth();
+  const confirmAction = useConfirmDialog();
   const backups = useApiResource<BackupIndex>('/admin/backups');
   const backupList = useMemo(() => Array.isArray(backups.data?.backups) ? backups.data.backups : [], [backups.data]);
   const recipients = useMemo(() => Array.isArray(backups.data?.report_recipients) ? backups.data.report_recipients : [], [backups.data]);
@@ -152,6 +165,7 @@ export function BackupPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [output, setOutput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recoveryGuidance, setRecoveryGuidance] = useState<BackupRecoveryGuidance | null>(null);
   const [sambaShares, setSambaShares] = useState<SambaShareOption[]>([]);
   const [sharesLoading, setSharesLoading] = useState(false);
   const [sharesError, setSharesError] = useState<string | null>(null);
@@ -226,6 +240,7 @@ export function BackupPage() {
     setMessage(null);
     setOutput(null);
     setError(null);
+    setRecoveryGuidance(null);
 
     try {
       const result = await action();
@@ -251,6 +266,7 @@ export function BackupPage() {
       }
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Actie mislukt.');
+      setRecoveryGuidance(label === 'prune' ? backupRecoveryGuidance(err) : null);
     } finally {
       setBusy(null);
     }
@@ -290,9 +306,12 @@ export function BackupPage() {
     const inventoryText = inventoryAvailable
       ? `De huidige telling voor ${targetLabel(target)} is ${backupCount} ${backupCount === 1 ? 'backup' : 'backups'} bij een bewaarlimiet van ${retentionLimit}.`
       : `De huidige telling voor ${targetLabel(target)} is onbekend omdat de Samba-share niet is gekoppeld. De server probeert de share eerst te koppelen.`;
-    const confirmed = window.confirm(
-      `${inventoryText} De server controleert de actuele inhoud en bepaalt daarna hoeveel oudste backups boven de bewaarlimiet worden verwijderd uit ${roots[target]}. Dit kan niet ongedaan worden gemaakt. Doorgaan?`,
-    );
+    const confirmed = await confirmAction({
+      title: `Oude ${targetLabel(target).toLowerCase()} backups opruimen?`,
+      message: `${inventoryText} De server controleert de actuele inhoud en verwijdert daarna de oudste backups boven de bewaarlimiet uit ${roots[target]}. Dit kan niet ongedaan worden gemaakt.`,
+      confirmLabel: 'Backups opruimen',
+      intent: 'danger',
+    });
 
     if (!confirmed) {
       return;
@@ -307,7 +326,12 @@ export function BackupPage() {
   }
 
   async function refreshOverview() {
-    if (settingsDirty && !window.confirm('Je hebt onopgeslagen backupinstellingen. Bij vernieuwen vervallen deze wijzigingen. Wil je het overzicht toch vernieuwen?')) {
+    if (settingsDirty && !await confirmAction({
+      title: 'Wijzigingen verwerpen?',
+      message: 'Je hebt onopgeslagen backupinstellingen. Bij vernieuwen vervallen deze wijzigingen.',
+      confirmLabel: 'Toch vernieuwen',
+      intent: 'warning',
+    })) {
       return;
     }
 
@@ -315,6 +339,7 @@ export function BackupPage() {
     setMessage(null);
     setOutput(null);
     setError(null);
+    setRecoveryGuidance(null);
 
     try {
       const response = await api.get<BackupIndex>('/admin/backups');
@@ -548,6 +573,16 @@ export function BackupPage() {
               {busy === 'refresh' ? <p className="form-note" role="status">Backupoverzicht wordt vernieuwd.</p> : null}
               {message ? <p className="form-note" role="status">{message}</p> : null}
               {error ? <p className="form-error" role="alert">{error}</p> : null}
+              {recoveryGuidance !== null ? (
+                <aside className="backup-recovery-guidance" aria-labelledby="backup-recovery-guidance-title">
+                  <strong id="backup-recovery-guidance-title">Veilige shellcommando&apos;s</strong>
+                  <p>
+                    {recoveryGuidance.instruction
+                      ?? 'Controleer de worker en de exclusieve operation-lock. Probeer het opruimen daarna opnieuw via dit scherm.'}
+                  </p>
+                  <pre><code>{recoveryGuidance.commands.join('\n')}</code></pre>
+                </aside>
+              ) : null}
             </div>
           </div>
           <form className="form-grid restore-upload" onSubmit={uploadRestore}>
@@ -879,6 +914,23 @@ function formatBytes(bytes: number): string {
   }
 
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function backupRecoveryGuidance(error: unknown): BackupRecoveryGuidance {
+  const serverCommands = error instanceof ApiClientError && Array.isArray(error.details?.shell_commands)
+    ? error.details.shell_commands.filter((command): command is string => typeof command === 'string')
+    : [];
+  const approvedCommands = serverCommands.filter((command) => (
+    SAFE_BACKUP_RECOVERY_COMMANDS.includes(command as (typeof SAFE_BACKUP_RECOVERY_COMMANDS)[number])
+  ));
+  const instruction = error instanceof ApiClientError && typeof error.details?.retry_instruction === 'string'
+    ? error.details.retry_instruction
+    : null;
+
+  return {
+    commands: approvedCommands.length > 0 ? approvedCommands : [...SAFE_BACKUP_RECOVERY_COMMANDS],
+    instruction,
+  };
 }
 
 function targetLabel(target: BackupTarget): string {

@@ -143,7 +143,7 @@ test('allows deployment preparation to flush locally complete answers before che
   expect(prepareFlow).toContain('currentDeploymentRequest = adoptActionResponse(decided)');
   expect(prepareFlow).toContain('selected_deployment_profile_id: currentDeploymentRequest.deployment_proposal?.profile_id ?? null');
   expect(workspace).toContain('Het geadviseerde inzetvoorstel en de teams worden bij voorbereiden automatisch vastgelegd.');
-  expect(prepareFlow.indexOf("window.confirm('Conceptinzet voorbereiden"))
+  expect(prepareFlow.indexOf("title: 'Conceptinzet voorbereiden?'"))
     .toBeLessThan(prepareFlow.indexOf('currentDeploymentRequest = adoptActionResponse(decided)'));
 });
 

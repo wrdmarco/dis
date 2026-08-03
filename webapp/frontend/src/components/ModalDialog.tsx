@@ -3,21 +3,25 @@ import { type ReactNode, useEffect, useId, useRef } from 'react';
 
 interface ModalDialogProps {
   children: ReactNode;
+  className?: string;
   closeDisabled?: boolean;
   description?: ReactNode;
   eyebrow: string;
   narrow?: boolean;
   onClose: () => void;
+  role?: 'dialog' | 'alertdialog';
   title: string;
 }
 
 export function ModalDialog({
   children,
+  className,
   closeDisabled = false,
   description,
   eyebrow,
   narrow = false,
   onClose,
+  role = 'dialog',
   title,
 }: ModalDialogProps) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -106,8 +110,12 @@ export function ModalDialog({
     >
       <section
         ref={dialogRef}
-        className={narrow ? 'modal modal--narrow' : 'modal'}
-        role="dialog"
+        className={[
+          'modal',
+          narrow ? 'modal--narrow' : null,
+          className,
+        ].filter(Boolean).join(' ')}
+        role={role}
         tabIndex={-1}
         aria-modal="true"
         aria-labelledby={titleId}

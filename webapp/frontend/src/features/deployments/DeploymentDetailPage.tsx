@@ -4,6 +4,7 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 're
 import Link from 'next/link';
 import { Ban, BellRing, CheckCircle2, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, UserRound, Users, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -23,6 +24,7 @@ import { parseMapPoint } from './pilotRoutePresentation';
 export function DeploymentDetailPage({ deploymentId }: { deploymentId: string }) {
   const router = useRouter();
   const { api, hasPermission } = useAuth();
+  const confirmAction = useConfirmDialog();
   const canManageDeployments = hasPermission('deployments.manage');
   const canDeleteDeployments = hasPermission('deployments.delete');
   const canViewDispatches = hasPermission('deployments.dispatch.view');
@@ -469,7 +471,12 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
       return;
     }
 
-    const confirmed = window.confirm(`Inzet ${deployment.data.reference} permanent verwijderen? Bijbehorende opkomst, tijdlijn, live locatiegegevens en opgeslagen rapportdata worden ook verwijderd.`);
+    const confirmed = await confirmAction({
+      title: `Inzet ${deployment.data.reference} verwijderen?`,
+      message: 'De inzet, bijbehorende opkomst, tijdlijn, live locatiegegevens en opgeslagen rapportdata worden permanent verwijderd.',
+      confirmLabel: 'Inzet verwijderen',
+      intent: 'danger',
+    });
     if (!confirmed) {
       return;
     }

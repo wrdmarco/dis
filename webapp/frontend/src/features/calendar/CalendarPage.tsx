@@ -17,6 +17,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -46,6 +47,7 @@ import styles from './CalendarPage.module.css';
 
 export function CalendarPage() {
   const { api, hasPermission } = useAuth();
+  const confirmAction = useConfirmDialog();
   const canManageAgenda = hasPermission('calendar.manage');
   const canManageGroups = hasPermission('calendar.groups.manage');
   const events = useApiResource<CalendarEvent[]>('/calendar-events');
@@ -200,7 +202,12 @@ export function CalendarPage() {
   }
 
   async function deleteEvent(eventId: string) {
-    if (!window.confirm('Agenda-item verwijderen? Bestaande inschrijvingen blijven in de audit bewaard.')) {
+    if (!await confirmAction({
+      title: 'Agenda-item verwijderen?',
+      message: 'Het agenda-item verdwijnt uit de agenda. Bestaande inschrijvingen blijven voor de audit bewaard.',
+      confirmLabel: 'Agenda-item verwijderen',
+      intent: 'danger',
+    })) {
       return;
     }
 

@@ -1,5 +1,5 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { UserPlus, Users, X } from 'lucide-react';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { TriangleAlert, UserPlus, Users, X } from 'lucide-react';
 import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import type {
@@ -25,15 +25,23 @@ export function CalendarRegistrationDialog({
   const { api } = useAuth();
   const dialogRef = useRef<HTMLElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const cancelRemovalButtonRef = useRef<HTMLButtonElement>(null);
+  const removalTriggerUserIdRef = useRef<string | null>(null);
+  const restoreRemovalFocusRef = useRef(false);
   const [participants, setParticipants] = useState<CalendarRegistration[]>([]);
   const [options, setOptions] = useState<CalendarRegistrationOption[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+  const [participantToRemove, setParticipantToRemove] = useState<CalendarRegistration | null>(null);
   const [error, setError] = useState<string | null>(null);
   const registration = event.registration;
   const canManage = registration?.can_manage_participants === true;
+  const cancelParticipantRemoval = useCallback(() => {
+    restoreRemovalFocusRef.current = true;
+    setParticipantToRemove(null);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -77,12 +85,38 @@ export function CalendarRegistrationDialog({
     const currentDialog = dialog;
 
     const animationFrame = window.requestAnimationFrame(() => {
+      if (participantToRemove !== null) {
+        if (pendingUserId !== null) {
+          currentDialog.focus();
+        } else {
+          cancelRemovalButtonRef.current?.focus();
+        }
+        return;
+      }
+
+      if (restoreRemovalFocusRef.current) {
+        restoreRemovalFocusRef.current = false;
+        const triggerUserId = removalTriggerUserIdRef.current;
+        removalTriggerUserIdRef.current = null;
+        const trigger = Array.from(currentDialog.querySelectorAll<HTMLButtonElement>(
+          '[data-calendar-removal-trigger]',
+        )).find((candidate) => candidate.dataset.calendarRemovalTrigger === triggerUserId);
+        if (trigger !== undefined && !trigger.disabled) {
+          trigger.focus();
+          return;
+        }
+      }
+
       (canManage ? searchInputRef.current : currentDialog)?.focus();
     });
     function handleKeyDown(keyEvent: KeyboardEvent) {
       if (keyEvent.key === 'Escape' && pendingUserId === null) {
         keyEvent.preventDefault();
-        onClose();
+        if (participantToRemove !== null) {
+          cancelParticipantRemoval();
+        } else {
+          onClose();
+        }
         return;
       }
       if (keyEvent.key !== 'Tab') {
@@ -111,7 +145,7 @@ export function CalendarRegistrationDialog({
       window.cancelAnimationFrame(animationFrame);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [canManage, onClose, pendingUserId]);
+  }, [canManage, cancelParticipantRemoval, onClose, participantToRemove, pendingUserId]);
 
   async function searchUsers(searchEvent: FormEvent<HTMLFormElement>) {
     searchEvent.preventDefault();
@@ -154,10 +188,6 @@ export function CalendarRegistrationDialog({
   }
 
   async function removeParticipant(participant: CalendarRegistration) {
-    if (!window.confirm(`${participant.user.name} uitschrijven voor dit agenda-item?`)) {
-      return;
-    }
-
     setPendingUserId(participant.user.id);
     setError(null);
     try {
@@ -166,6 +196,7 @@ export function CalendarRegistrationDialog({
       );
       onEventUpdated(response.data);
       await reloadLists();
+      setParticipantToRemove(null);
     } catch (err) {
       setError(errorMessage(err, 'Gebruiker uitschrijven mislukt.'));
     } finally {
@@ -202,18 +233,27 @@ export function CalendarRegistrationDialog({
       role="presentation"
       onMouseDown={(mouseEvent) => {
         if (mouseEvent.target === mouseEvent.currentTarget && pendingUserId === null) {
-          onClose();
+          if (participantToRemove !== null) {
+            cancelParticipantRemoval();
+          } else {
+            onClose();
+          }
         }
       }}
     >
       <section
         ref={dialogRef}
         className={`modal ${styles.registrationDialog}`}
-        role="dialog"
+        role={participantToRemove !== null ? 'alertdialog' : 'dialog'}
         tabIndex={-1}
         aria-modal="true"
-        aria-labelledby="calendar-registration-title"
-        aria-describedby="calendar-registration-description"
+        aria-busy={pendingUserId !== null}
+        aria-labelledby={participantToRemove !== null
+          ? 'calendar-registration-confirm-title'
+          : 'calendar-registration-title'}
+        aria-describedby={participantToRemove !== null
+          ? 'calendar-registration-confirm-description'
+          : 'calendar-registration-description'}
       >
         <header className="modal__header">
           <div>
@@ -223,22 +263,62 @@ export function CalendarRegistrationDialog({
           <button
             className="icon-button"
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              if (participantToRemove !== null) {
+                cancelParticipantRemoval();
+              } else {
+                onClose();
+              }
+            }}
             disabled={pendingUserId !== null}
-            aria-label="Deelnemersvenster sluiten"
+            aria-label={participantToRemove !== null ? 'Bevestiging sluiten' : 'Deelnemersvenster sluiten'}
           >
             <X size={18} aria-hidden />
           </button>
         </header>
 
-        <div className={styles.dialogBody}>
-          <div id="calendar-registration-description" className={styles.capacitySummary}>
-            <Users size={20} aria-hidden />
-            <div>
-              <strong>{registration ? participantCountLabel(registration) : 'Deelnemers'}</strong>
-              {registration ? <span>{remainingPlacesLabel(registration) ?? 'Onbeperkte capaciteit'}</span> : null}
+        {participantToRemove !== null ? (
+          <div className={styles.registrationConfirmation}>
+            <span className={styles.registrationConfirmationIcon} aria-hidden="true">
+              <TriangleAlert size={24} />
+            </span>
+            <div className={styles.registrationConfirmationCopy}>
+              <span className={styles.dialogEyebrow}>Bevestiging</span>
+              <h3 id="calendar-registration-confirm-title">Deelnemer uitschrijven?</h3>
+              <p id="calendar-registration-confirm-description">
+                Je schrijft {participantToRemove.user.name} uit voor “{event.title}”.
+              </p>
+            </div>
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
+            <div className={styles.registrationConfirmationActions}>
+              <button
+                ref={cancelRemovalButtonRef}
+                className="secondary-button"
+                type="button"
+                onClick={cancelParticipantRemoval}
+                disabled={pendingUserId !== null}
+              >
+                Annuleren
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                onClick={() => void removeParticipant(participantToRemove)}
+                disabled={pendingUserId !== null}
+              >
+                {pendingUserId === participantToRemove.user.id ? 'Uitschrijven...' : 'Deelnemer uitschrijven'}
+              </button>
             </div>
           </div>
+        ) : (
+          <div className={styles.dialogBody}>
+            <div id="calendar-registration-description" className={styles.capacitySummary}>
+              <Users size={20} aria-hidden />
+              <div>
+                <strong>{registration ? participantCountLabel(registration) : 'Deelnemers'}</strong>
+                {registration ? <span>{remainingPlacesLabel(registration) ?? 'Onbeperkte capaciteit'}</span> : null}
+              </div>
+            </div>
 
           {canManage ? (
             <form className={styles.participantSearch} onSubmit={searchUsers}>
@@ -305,7 +385,13 @@ export function CalendarRegistrationDialog({
                     <button
                       className="secondary-button"
                       type="button"
-                      onClick={() => void removeParticipant(participant)}
+                      data-calendar-removal-trigger={participant.user.id}
+                      onClick={(clickEvent) => {
+                        removalTriggerUserIdRef.current = clickEvent.currentTarget.dataset.calendarRemovalTrigger
+                          ?? null;
+                        setError(null);
+                        setParticipantToRemove(participant);
+                      }}
                       disabled={pendingUserId !== null}
                     >
                       {pendingUserId === participant.user.id ? 'Uitschrijven...' : 'Uitschrijven'}
@@ -315,7 +401,8 @@ export function CalendarRegistrationDialog({
               ))}
             </ul>
           </section>
-        </div>
+          </div>
+        )}
       </section>
     </div>
   );

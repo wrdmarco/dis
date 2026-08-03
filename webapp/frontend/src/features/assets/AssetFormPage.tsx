@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { ApiClientError } from '../../lib/apiClient';
@@ -45,6 +46,7 @@ const assetStatuses: Array<{ value: AssetStatus; label: string }> = [
 export function AssetFormPage({ assetId }: { assetId?: string }) {
   const router = useRouter();
   const { api } = useAuth();
+  const confirmAction = useConfirmDialog();
   const isEditing = assetId !== undefined;
   const asset = useApiResource<Asset>(`/assets/${assetId ?? ''}`, isEditing);
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
@@ -94,14 +96,20 @@ export function AssetFormPage({ assetId }: { assetId?: string }) {
   }
 
   async function deleteAsset() {
-    if (asset.data === null || !window.confirm(`${asset.data.name} verwijderen?`)) {
+    const currentAsset = asset.data;
+    if (currentAsset === null || !await confirmAction({
+      title: 'Asset verwijderen?',
+      message: `Je verwijdert “${currentAsset.name}” permanent uit het assetbeheer.`,
+      confirmLabel: 'Asset verwijderen',
+      intent: 'danger',
+    })) {
       return;
     }
 
     setSaving(true);
     setError(null);
     try {
-      await api.delete(`/assets/${asset.data.id}`);
+      await api.delete(`/assets/${currentAsset.id}`);
       router.push('/assets');
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Asset kon niet worden verwijderd.');

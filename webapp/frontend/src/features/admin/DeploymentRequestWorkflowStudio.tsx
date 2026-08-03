@@ -13,7 +13,9 @@ import {
   ShieldCheck,
   Trash2,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { ApiClientError } from '../../lib/apiClient';
@@ -98,6 +100,8 @@ export function DeploymentRequestWorkflowStudio({
   mode?: DeploymentRequestWorkflowStudioMode;
 }) {
   const { api, hasPermission } = useAuth();
+  const router = useRouter();
+  const confirmAction = useConfirmDialog();
   const canManageForms = hasPermission('forms.manage');
   const workflow = useApiResource<DeploymentRequestWorkflowAdminEnvelope>(
     '/admin/deployment-request-workflow/config',
@@ -114,6 +118,7 @@ export function DeploymentRequestWorkflowStudio({
   const [conflictRevision, setConflictRevision] = useState<DeploymentRequestWorkflowRevision | null>(null);
   const skipNextWorkflowHydration = useRef(false);
   const allowNavigationRef = useRef(false);
+  const navigationConfirmationPendingRef = useRef(false);
 
   useEffect(() => {
     if (workflow.data === null) {
@@ -178,15 +183,34 @@ export function DeploymentRequestWorkflowStudio({
       ) {
         return;
       }
-      if (!window.confirm(`Er zijn niet-opgeslagen wijzigingen in de ${workflowName}. Deze pagina toch verlaten?`)) {
-        event.preventDefault();
-        event.stopPropagation();
+      event.preventDefault();
+      event.stopPropagation();
+      if (navigationConfirmationPendingRef.current) {
         return;
       }
-      allowNavigationRef.current = true;
-      window.setTimeout(() => {
-        allowNavigationRef.current = false;
-      }, 1_500);
+
+      navigationConfirmationPendingRef.current = true;
+      void confirmAction({
+        title: 'Pagina verlaten?',
+        message: `Er zijn niet-opgeslagen wijzigingen in de ${workflowName}. Deze wijzigingen gaan verloren wanneer je deze pagina verlaat.`,
+        confirmLabel: 'Pagina verlaten',
+        intent: 'warning',
+      }).then((confirmed) => {
+        navigationConfirmationPendingRef.current = false;
+        if (!confirmed) {
+          return;
+        }
+
+        allowNavigationRef.current = true;
+        window.setTimeout(() => {
+          allowNavigationRef.current = false;
+        }, 1_500);
+        if (destination.origin === window.location.origin) {
+          router.push(`${destination.pathname}${destination.search}${destination.hash}`);
+        } else {
+          window.location.assign(destination.href);
+        }
+      });
     };
     const confirmHistoryNavigation = (event: InterceptableNavigationEvent) => {
       if (
@@ -209,9 +233,19 @@ export function DeploymentRequestWorkflowStudio({
         return;
       }
 
-      if (!window.confirm(`Er zijn niet-opgeslagen wijzigingen in de ${workflowName}. Deze pagina toch verlaten?`)) {
-        event.preventDefault();
-      }
+      event.intercept({
+        precommitHandler: async () => {
+          const confirmed = await confirmAction({
+            title: 'Pagina verlaten?',
+            message: `Er zijn niet-opgeslagen wijzigingen in de ${workflowName}. Deze wijzigingen gaan verloren wanneer je deze pagina verlaat.`,
+            confirmLabel: 'Pagina verlaten',
+            intent: 'warning',
+          });
+          if (!confirmed) {
+            throw new DOMException('Navigatie geannuleerd vanwege niet-opgeslagen wijzigingen.', 'AbortError');
+          }
+        },
+      });
     };
     const navigation = browserNavigationController();
 
@@ -223,7 +257,7 @@ export function DeploymentRequestWorkflowStudio({
       document.removeEventListener('click', confirmInternalNavigation, true);
       navigation?.removeEventListener('navigate', confirmHistoryNavigation);
     };
-  }, [dirty, workflowName]);
+  }, [confirmAction, dirty, router, workflowName]);
 
   function applyEnvelope(envelope: DeploymentRequestWorkflowAdminEnvelope, successMessage: string) {
     skipNextWorkflowHydration.current = true;
@@ -290,9 +324,12 @@ export function DeploymentRequestWorkflowStudio({
   }
 
   async function publishDraft() {
-    if (workflow.data === null || dirty || !window.confirm(
-      'Deze conceptversie publiceren? Nieuwe aanvragen gebruiken daarna deze configuratie.',
-    )) {
+    if (workflow.data === null || dirty || !await confirmAction({
+      title: 'Conceptversie publiceren?',
+      message: 'Nieuwe aanvragen gebruiken na publicatie direct deze configuratie.',
+      confirmLabel: 'Concept publiceren',
+      intent: 'default',
+    })) {
       return;
     }
 
@@ -326,9 +363,12 @@ export function DeploymentRequestWorkflowStudio({
       setMessage(null);
       return;
     }
-    if (!window.confirm(
-      `Versie ${revision.version} als nieuw concept terugzetten? De gepubliceerde versie blijft actief.`,
-    )) {
+    if (!await confirmAction({
+      title: `Versie ${revision.version} terugzetten?`,
+      message: 'Deze versie wordt het nieuwe concept. De gepubliceerde versie blijft actief.',
+      confirmLabel: 'Als concept terugzetten',
+      intent: 'warning',
+    })) {
       return;
     }
 
@@ -348,10 +388,13 @@ export function DeploymentRequestWorkflowStudio({
     }
   }
 
-  function useServerConflictRevision() {
-    if (workflow.data === null || conflictRevision === null || !window.confirm(
-      'Je lokale wijzigingen verwerpen en het nieuwste serverconcept laden?',
-    )) {
+  async function useServerConflictRevision() {
+    if (workflow.data === null || conflictRevision === null || !await confirmAction({
+      title: 'Serverconcept gebruiken?',
+      message: 'Je lokale wijzigingen worden verworpen en het nieuwste serverconcept wordt geladen.',
+      confirmLabel: 'Lokale wijzigingen verwerpen',
+      intent: 'danger',
+    })) {
       return;
     }
 
@@ -363,10 +406,13 @@ export function DeploymentRequestWorkflowStudio({
     setMessage('Nieuwste serverconcept geladen.');
   }
 
-  function keepLocalConflictRevision() {
-    if (workflow.data === null || conflictRevision === null || !window.confirm(
-      'Je lokale configuratie behouden op basis van de nieuwste serverrevisie? Controleer de wijzigingen en kies daarna opnieuw Concept opslaan.',
-    )) {
+  async function keepLocalConflictRevision() {
+    if (workflow.data === null || conflictRevision === null || !await confirmAction({
+      title: 'Lokale configuratie behouden?',
+      message: 'Je lokale configuratie wordt op de nieuwste serverrevisie geplaatst. Controleer de wijzigingen en kies daarna opnieuw Concept opslaan.',
+      confirmLabel: 'Lokale versie behouden',
+      intent: 'warning',
+    })) {
       return;
     }
 
@@ -378,7 +424,12 @@ export function DeploymentRequestWorkflowStudio({
   }
 
   async function reloadAfterUnknownConflict() {
-    if (!window.confirm('Je lokale wijzigingen verwerpen en het nieuwste serverconcept ophalen?')) {
+    if (!await confirmAction({
+      title: 'Serverconcept opnieuw laden?',
+      message: 'Je lokale wijzigingen worden verworpen en het nieuwste serverconcept wordt opgehaald.',
+      confirmLabel: 'Lokale wijzigingen verwerpen',
+      intent: 'danger',
+    })) {
       return;
     }
 
@@ -572,6 +623,7 @@ function QuestionsPanel(props: {
   onChange: (configuration: DeploymentRequestWorkflowConfiguration) => void;
 }) {
   const { configuration, onChange } = props;
+  const confirmAction = useConfirmDialog();
   const [scope, setScope] = useState<DeploymentRequestWorkflowScope>('common');
   const [newType, setNewType] = useState<DeploymentRequestWorkflowFieldType>('text');
   const scopedFields = fieldsForScope(configuration.fields, scope);
@@ -595,27 +647,37 @@ function QuestionsPanel(props: {
     });
   }
 
-  function removeField(field: DeploymentRequestWorkflowField) {
+  async function removeField(field: DeploymentRequestWorkflowField) {
     const referenced = configuration.bindings.some((binding) => binding.field_key === field.key)
       || configuration.priority_rules.some((rule) => rule.conditions.some((condition) => condition.field_key === field.key));
     const warning = referenced
-      ? `"${field.label}" wordt ook uit koppelingen en prioriteitsregels verwijderd. Doorgaan?`
-      : `"${field.label}" verwijderen?`;
+      ? `“${field.label}” wordt ook uit koppelingen en prioriteitsregels verwijderd.`
+      : `Je verwijdert “${field.label}” uit de uitvraag.`;
 
-    if (window.confirm(warning)) {
-      onChange(removeWorkflowField(configuration, field.key));
+    if (!await confirmAction({
+      title: 'Uitvraagveld verwijderen?',
+      message: warning,
+      confirmLabel: 'Veld verwijderen',
+      intent: 'danger',
+    })) {
+      return;
     }
+
+    onChange(removeWorkflowField(configuration, field.key));
   }
 
-  function removeOption(field: DeploymentRequestWorkflowField, option: DeploymentRequestWorkflowOption) {
+  async function removeOption(field: DeploymentRequestWorkflowField, option: DeploymentRequestWorkflowOption) {
     const referenced = configuration.priority_rules.some((rule) => rule.conditions.some(
       (condition) => condition.field_key === field.key && condition.value === option.value,
     ));
     if (
       referenced
-      && !window.confirm(
-        `"${option.label}" wordt ook uit de gekoppelde prioriteitsvoorwaarden verwijderd. Doorgaan?`,
-      )
+      && !await confirmAction({
+        title: 'Keuze verwijderen?',
+        message: `“${option.label}” wordt ook uit de gekoppelde prioriteitsvoorwaarden verwijderd.`,
+        confirmLabel: 'Keuze verwijderen',
+        intent: 'danger',
+      })
     ) {
       return;
     }
@@ -698,8 +760,8 @@ function QuestionsPanel(props: {
             first={index === 0}
             last={index === scopedFields.length - 1}
             onMove={(direction) => moveField(field, direction)}
-            onRemove={() => removeField(field)}
-            onRemoveOption={(option) => removeOption(field, option)}
+            onRemove={() => void removeField(field)}
+            onRemoveOption={(option) => void removeOption(field, option)}
             onUpdate={(changes) => updateField(field.key, changes)}
           />
         ))}
@@ -979,6 +1041,7 @@ function RulesPanel(props: {
   onChange: (configuration: DeploymentRequestWorkflowConfiguration) => void;
 }) {
   const { configuration, operatorCatalog, decisionMode, onChange } = props;
+  const confirmAction = useConfirmDialog();
   const [activeSubject, setActiveSubject] = useState<DeploymentSubjectType>('person');
   const visibleRules = decisionMode
     ? workflowPriorityRulesForSubject(configuration.priority_rules, activeSubject)
@@ -1011,6 +1074,54 @@ function RulesPanel(props: {
             )
           : createWorkflowPriorityRule(configuration.priority_rules, configuration.fields),
       ],
+    });
+  }
+
+  async function moveRule(
+    rule: DeploymentRequestWorkflowPriorityRule,
+    index: number,
+    direction: -1 | 1,
+  ) {
+    const adjacentRule = visibleRules[index + direction];
+    if (
+      decisionMode
+      && (rule.subject_types.length > 1 || (adjacentRule?.subject_types.length ?? 0) > 1)
+      && !await confirmAction({
+        title: 'Gedeelde regel verplaatsen?',
+        message: 'Deze verplaatsing raakt een gedeelde regel en wijzigt de regelvolgorde ook voor de andere aanvraagtypen.',
+        confirmLabel: 'Regel verplaatsen',
+        intent: 'warning',
+      })
+    ) {
+      return;
+    }
+
+    onChange({
+      ...configuration,
+      priority_rules: decisionMode
+        ? moveWorkflowPriorityRuleForSubject(
+            configuration.priority_rules,
+            rule.id,
+            activeSubject,
+            direction,
+          )
+        : moveWorkflowItem(configuration.priority_rules, index, direction),
+    });
+  }
+
+  async function removeRule(rule: DeploymentRequestWorkflowPriorityRule) {
+    if (!await confirmAction({
+      title: 'Prioriteitsregel verwijderen?',
+      message: `Je verwijdert de regel “${rule.label}” uit het concept.`,
+      confirmLabel: 'Regel verwijderen',
+      intent: 'danger',
+    })) {
+      return;
+    }
+
+    onChange({
+      ...configuration,
+      priority_rules: configuration.priority_rules.filter((candidate) => candidate.id !== rule.id),
     });
   }
 
@@ -1081,37 +1192,8 @@ function RulesPanel(props: {
             first={index === 0}
             last={index === visibleRules.length - 1}
             onUpdate={(updater) => updateRule(rule.id, updater)}
-            onMove={(direction) => {
-              const adjacentRule = visibleRules[index + direction];
-              if (
-                decisionMode
-                && (rule.subject_types.length > 1 || (adjacentRule?.subject_types.length ?? 0) > 1)
-                && !window.confirm(
-                  'Deze verplaatsing raakt een gedeelde regel. De regelvolgorde ook voor de andere aanvraagtypen wijzigen?',
-                )
-              ) {
-                return;
-              }
-              onChange({
-                ...configuration,
-                priority_rules: decisionMode
-                  ? moveWorkflowPriorityRuleForSubject(
-                      configuration.priority_rules,
-                      rule.id,
-                      activeSubject,
-                      direction,
-                    )
-                  : moveWorkflowItem(configuration.priority_rules, index, direction),
-              });
-            }}
-            onRemove={() => {
-              if (window.confirm(`Prioriteitsregel "${rule.label}" verwijderen?`)) {
-                onChange({
-                  ...configuration,
-                  priority_rules: configuration.priority_rules.filter((candidate) => candidate.id !== rule.id),
-                });
-              }
-            }}
+            onMove={(direction) => void moveRule(rule, index, direction)}
+            onRemove={() => void removeRule(rule)}
           />
         ))}
       </div>
@@ -1483,6 +1565,7 @@ function ProfilesPanel(props: {
   onChange: (configuration: DeploymentRequestWorkflowConfiguration) => void;
 }) {
   const { configuration, teams, certificationTypes, decisionMode, onChange } = props;
+  const confirmAction = useConfirmDialog();
 
   function updateProfile(
     profileId: string,
@@ -1500,6 +1583,25 @@ function ProfilesPanel(props: {
         ...configuration.deployment_profiles,
         createWorkflowDeploymentProfile(configuration.deployment_profiles),
       ],
+    });
+  }
+
+  async function removeProfile(profile: DeploymentRequestWorkflowDeploymentProfile) {
+    if (!await confirmAction({
+      title: 'Inzetprofiel verwijderen?',
+      message: `Je verwijdert het profiel “${profile.label}”. Gekoppelde regels verliezen dit inzetvoorstel.`,
+      confirmLabel: 'Profiel verwijderen',
+      intent: 'danger',
+    })) {
+      return;
+    }
+
+    onChange({
+      ...configuration,
+      deployment_profiles: configuration.deployment_profiles.filter((candidate) => candidate.id !== profile.id),
+      priority_rules: configuration.priority_rules.map((rule) => rule.deployment_profile_id === profile.id
+        ? { ...rule, deployment_profile_id: null }
+        : rule),
     });
   }
 
@@ -1544,18 +1646,7 @@ function ProfilesPanel(props: {
               ...configuration,
               deployment_profiles: moveWorkflowItem(configuration.deployment_profiles, index, direction),
             })}
-            onRemove={() => {
-              if (!window.confirm(`Inzetprofiel "${profile.label}" verwijderen? Gekoppelde regels verliezen dit voorstel.`)) {
-                return;
-              }
-              onChange({
-                ...configuration,
-                deployment_profiles: configuration.deployment_profiles.filter((candidate) => candidate.id !== profile.id),
-                priority_rules: configuration.priority_rules.map((rule) => rule.deployment_profile_id === profile.id
-                  ? { ...rule, deployment_profile_id: null }
-                  : rule),
-              });
-            }}
+            onRemove={() => void removeProfile(profile)}
           />
         ))}
       </div>

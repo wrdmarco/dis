@@ -39,8 +39,8 @@ final class BackupRequestWorkerProbeTest extends TestCase
         self::assertStringContainsString('[ "${operation}" = "probe" ] && [ "${request_owner}" != "${DIS_USER}" ]', $worker);
 
         $probeStart = strpos($worker, 'if [ "${operation}" = "probe" ]; then');
-        $operationDispatch = strpos($worker, 'case "${operation}" in');
         self::assertIsInt($probeStart);
+        $operationDispatch = strpos($worker, 'case "${operation}" in', $probeStart);
         self::assertIsInt($operationDispatch);
         self::assertLessThan($operationDispatch, $probeStart);
 
@@ -60,6 +60,36 @@ final class BackupRequestWorkerProbeTest extends TestCase
         self::assertStringContainsString('backup_request_recovered request_id=${request_id} state=failed exit_code=124', $worker);
         self::assertStringContainsString("process_request \"\${request_file}\"\n    # Bound one systemd invocation to one request.", $worker);
         self::assertStringContainsString("request.\n    break", $worker);
+
+        $probeScan = strpos($worker, '# Health probes never require the global mutation lock.');
+        self::assertIsInt($probeScan);
+        $workerLock = strpos($worker, 'flock -n 9 || exit 0', $probeScan);
+        $operationLock = strpos($worker, 'exec {DIS_OPERATION_LOCK_FD}>/run/lock/dis-exclusive-operation.lock');
+        self::assertIsInt($workerLock);
+        self::assertIsInt($operationLock);
+        $normalScan = strpos(
+            $worker,
+            'for request_file in "${REQUEST_DIR}"/*.pending; do',
+            $operationLock,
+        );
+        self::assertIsInt($normalScan);
+        self::assertLessThan($workerLock, $probeScan);
+        self::assertLessThan($operationLock, $workerLock);
+        self::assertLessThan($operationLock, $probeScan);
+        self::assertLessThan($normalScan, $operationLock);
+        self::assertStringContainsString('process_request "${request_file}" 1', $worker);
+        self::assertStringContainsString(
+            '[ "${probe_only}" = "1" ] && [ "${operation}" != "probe" ]',
+            $worker,
+        );
+        self::assertStringContainsString(
+            'A pre-lock probe scan claimed a non-probe request; it was rejected without execution.',
+            $worker,
+        );
+        self::assertStringContainsString('running_file="${WORK_DIR}/${request_id}.probe"', $worker);
+        self::assertStringContainsString('recover_abandoned_probe_claim "${probe_file}"', $worker);
+        self::assertStringContainsString('flock -n "${DIS_OPERATION_LOCK_FD}" || exit 0', $worker);
+        self::assertStringContainsString('export DIS_OPERATION_LOCK_HELD DIS_OPERATION_LOCK_FD', $worker);
     }
 
     #[Test]
@@ -86,6 +116,39 @@ final class BackupRequestWorkerProbeTest extends TestCase
             'EXPECTED_BACKUP_RUNTIME_CONFIG_SHA256="${runtime_config_sha256}"',
             $worker,
         );
+        self::assertStringContainsString(
+            'BACKUP_RUNTIME_CONFIG_FILE="${claimed_runtime_config_file}"',
+            $worker,
+        );
+        self::assertStringContainsString(
+            'source="${REQUEST_DIR}/${request_id}.config"',
+            $worker,
+        );
+        self::assertStringContainsString('mv -T -- "${source}" "${destination}"', $worker);
+        self::assertStringContainsString(
+            'root_owned_runtime_file_is_safe "${destination}" 600',
+            $worker,
+        );
+        self::assertStringContainsString('discard_runtime_config_snapshot "${request_id}"', $worker);
+        self::assertStringContainsString('rm -f -- "${claimed_runtime_config_file}"', $worker);
+        self::assertStringContainsString('sweep_orphaned_runtime_config_snapshots', $worker);
+        self::assertStringContainsString('[ "${snapshot_age}" -ge 1800 ] || continue', $worker);
+        self::assertStringContainsString('[ -e "${REQUEST_DIR}/${request_id}.pending" ]', $worker);
+        self::assertStringContainsString(
+            '.expires_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T',
+            $worker,
+        );
+        self::assertStringContainsString('create|prune) maximum_request_lifetime=1020', $worker);
+        self::assertStringContainsString('verify) maximum_request_lifetime=720', $worker);
+        self::assertStringContainsString('probe) maximum_request_lifetime=30', $worker);
+        self::assertStringContainsString('create|prune|verify) required_budget=105', $worker);
+        self::assertStringContainsString('operation_timeout_seconds="$(( remaining_budget - 45 ))"', $worker);
+        self::assertStringContainsString(
+            'timeout --signal=TERM --kill-after=30s "${operation_timeout_seconds}s"',
+            $worker,
+        );
+        self::assertStringContainsString('[ "${remaining_budget}" -gt 0 ] || return 0', $worker);
+        self::assertStringContainsString('pending_request_has_required_budget "${request_file}"', $worker);
         self::assertStringContainsString(
             'backup_retention_requested request_id=${request_id} claimed_actor_id=${actor_id} target=${target}',
             $worker,
@@ -119,7 +182,28 @@ final class BackupRequestWorkerProbeTest extends TestCase
             'REQUESTED_RUNTIME_CONFIG_SHA256="${EXPECTED_BACKUP_RUNTIME_CONFIG_SHA256:-}"',
             $prune,
         );
+        self::assertStringContainsString(
+            'REQUESTED_RUNTIME_CONFIG_FILE="${BACKUP_RUNTIME_CONFIG_FILE:-}"',
+            $prune,
+        );
+        self::assertStringContainsString(
+            'root_controlled_bundle_source_is_safe "${REQUESTED_RUNTIME_CONFIG_FILE}"',
+            $prune,
+        );
+        self::assertStringContainsString(
+            'load_backup_runtime_config_for_operation "${REQUESTED_RUNTIME_CONFIG_FILE}"',
+            $prune,
+        );
+        self::assertStringNotContainsString(
+            'load_backup_runtime_config_for_operation "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"',
+            $prune,
+        );
         self::assertStringContainsString('acquire_dis_operation_lock backup', $prune);
+        $environmentLoad = strpos($prune, 'source "${ENV_FILE}"');
+        $pathNormalization = strpos($prune, 'load_data_path_from_env "${ENV_FILE}"');
+        self::assertIsInt($environmentLoad);
+        self::assertIsInt($pathNormalization);
+        self::assertLessThan($pathNormalization, $environmentLoad);
         self::assertStringContainsString('require_backup_runtime_config_binding', $prune);
         self::assertStringContainsString('BACKUP_ROOT="$(resolve_backup_root "${APP_ROOT}")"', $prune);
         self::assertStringContainsString('prune_old_backups "${BACKUP_ROOT}"', $prune);

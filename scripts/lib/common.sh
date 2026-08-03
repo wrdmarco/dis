@@ -1120,7 +1120,14 @@ load_data_path_from_env() {
   configured_path="${configured_path#\'}"
 
   if [ -n "${configured_path}" ]; then
-    if [[ ! "${configured_path}" =~ ^/[A-Za-z0-9._/-]+$ ]] \
+    # Laravel normalizes the managed data root before it fingerprints backup
+    # configuration. Keep the root broker on the same canonical string so an
+    # otherwise harmless trailing slash cannot invalidate a bound request.
+    while [[ "${configured_path}" == */ ]]; do
+      configured_path="${configured_path%/}"
+    done
+    if [ -z "${configured_path}" ] \
+      || [[ ! "${configured_path}" =~ ^/[A-Za-z0-9._/-]+$ ]] \
       || [[ "/${configured_path}/" == *"/../"* ]] \
       || [[ "/${configured_path}/" == *"/./"* ]] \
       || [[ "${configured_path}" == *"//"* ]]; then

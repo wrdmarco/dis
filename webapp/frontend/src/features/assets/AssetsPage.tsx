@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Pencil, Plus } from 'lucide-react';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -15,6 +16,7 @@ import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 export function AssetsPage() {
   const { api, hasPermission } = useAuth();
+  const confirmAction = useConfirmDialog();
   const assets = useApiResource<Asset[]>('/assets');
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +30,12 @@ export function AssetsPage() {
   const canManageAssets = hasPermission('assets.manage');
 
   async function deleteDroneType(droneType: DroneType) {
-    if (!window.confirm(`${droneType.model} verwijderen?`)) {
+    if (!await confirmAction({
+      title: 'Dronetype verwijderen?',
+      message: `Je verwijdert het dronetype “${droneType.model}”. Dit lukt alleen wanneer het niet meer wordt gebruikt.`,
+      confirmLabel: 'Dronetype verwijderen',
+      intent: 'danger',
+    })) {
       return;
     }
 

@@ -87,8 +87,10 @@ test('blocks a forms-tab switch while the deploymentRequest workflow has unsaved
   expect(confirmations).toBe(1);
 
   const adminPage = source('../src/features/admin/AdminPage.tsx');
-  expect(adminPage).toContain('onClick={() => changeActiveTab(tab.id)}');
+  expect(adminPage).toContain('onClick={() => void changeActiveTab(tab.id)}');
   expect(adminPage).toContain('deploymentRequestWorkflowDirty');
+  expect(adminPage).toContain("title: 'Onderdeel verlaten?'");
+  expect(adminPage).toContain('const requiresConfirmation = !adminTabChangeAllowed({');
 });
 
 test('keeps boolean simulation explicitly three-state', () => {

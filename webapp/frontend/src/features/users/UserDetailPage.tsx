@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, KeyRound, LogOut, Mail, Pencil, Trash2, X } from 'lucide-react';
+import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -25,6 +26,7 @@ interface RevokeSessionsResult {
 export function UserDetailPage({ userId }: { userId: string }) {
   const router = useRouter();
   const { api, hasPermission, user: currentUser } = useAuth();
+  const confirmAction = useConfirmDialog();
   const canManageUsers = hasPermission('users.manage');
   const canDeleteUsers = hasPermission('users.delete');
   const canResetMfa = hasPermission('users.mfa.reset');
@@ -108,11 +110,17 @@ export function UserDetailPage({ userId }: { userId: string }) {
   }
 
   async function revokeUserSessions() {
-    if (targetUser.data === null) {
+    const user = targetUser.data;
+    if (user === null) {
       return;
     }
 
-    const confirmed = window.confirm(`Alle sessies van ${targetUser.data.name} intrekken? De gebruiker wordt uitgelogd op web en mobiele apps en moet opnieuw inloggen.`);
+    const confirmed = await confirmAction({
+      title: 'Alle sessies intrekken?',
+      message: `${user.name} wordt uitgelogd op de webapp en mobiele apps en moet daarna opnieuw inloggen.`,
+      confirmLabel: 'Sessies intrekken',
+      intent: 'danger',
+    });
     if (!confirmed) {
       return;
     }
@@ -121,7 +129,7 @@ export function UserDetailPage({ userId }: { userId: string }) {
     setActionError(null);
     setSessionMessage(null);
     try {
-      const response = await api.post<RevokeSessionsResult>(`/users/${targetUser.data.id}/sessions/revoke`);
+      const response = await api.post<RevokeSessionsResult>(`/users/${user.id}/sessions/revoke`);
       setSessionMessage([
         'Sessies ingetrokken.',
         `${response.data.access_tokens_revoked} toegangstoken(s)`,
