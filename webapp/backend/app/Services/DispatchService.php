@@ -480,8 +480,14 @@ final class DispatchService
 
         $eligibleUsers = collect();
         $blockedReasons = [];
+        $manualAssignmentUserIds = $this->manualAssignmentUserIdMap($deployment);
         foreach ($targetTeams as $targetTeam) {
-            $eligibility = $this->eligibleUsers($targetTeam, (bool) ($options['include_unavailable'] ?? false));
+            $eligibility = $this->eligibleDispatchUsers(
+                $deployment,
+                $targetTeam,
+                (bool) ($options['include_unavailable'] ?? false),
+                manualAssignmentUserIds: $manualAssignmentUserIds,
+            );
             $eligibleUsers = $eligibleUsers->merge($eligibility['users']);
             if ($eligibility['users']->isEmpty()) {
                 $blockedReasons[] = $eligibility['message'];
@@ -980,6 +986,9 @@ final class DispatchService
                 ->where('user_id', $target->id)
                 ->where('response_status', 'accepted'))
             ->exists();
+        $stillAttending = $stillAttending || $dispatch->deployment->pilotAssignments()
+            ->where('user_id', $target->id)
+            ->exists();
         if (! $stillAttending) {
             $this->locationService->revokeForDeployment($dispatch->deployment, $target, $actor);
         }
@@ -991,7 +1000,7 @@ final class DispatchService
     public function sendAdditionalInfo(DispatchRequest $dispatch, User $actor, string $message): array
     {
         $dispatch->load([
-            'deployment',
+            'deployment.pilotAssignments.user.fcmTokens',
             'recipients.user.fcmTokens',
             'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
         ]);
@@ -1002,17 +1011,29 @@ final class DispatchService
             'body' => $message,
             'created_at' => now(),
         ]);
-        $recipients = $dispatch->recipients
+        $dispatchParticipants = $dispatch->recipients
             ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted'
                 || in_array($recipient->user?->statuses->first()?->status, ['en_route', 'on_scene'], true))
+            ->pluck('user')
+            ->filter()
+            ->values();
+        $manualParticipants = $dispatch->deployment === null
+            ? collect()
+            : $dispatch->deployment->pilotAssignments
+                ->pluck('user')
+                ->filter()
+                ->values();
+        $participants = $dispatchParticipants
+            ->merge($manualParticipants)
+            ->unique('id')
             ->values();
 
         $queuedTokens = 0;
         $tokens = $this->pushTemplateTokens($dispatch->deployment, ['message' => $message]);
         $title = $this->pushTemplate('additional_info_title', 'D.I.S aanvullende info', $tokens);
         $body = $this->pushTemplate('additional_info_body', '{{message}}', $tokens);
-        foreach ($recipients as $recipient) {
-            foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
+        foreach ($participants as $participant) {
+            foreach ($participant->fcmTokens->where('is_active', true) as $token) {
                 SendFcmNotification::dispatch(
                     (string) $token->id,
                     'dispatch_update',
@@ -1032,14 +1053,14 @@ final class DispatchService
 
         $this->auditService->record('dispatch.additional_info_sent', $dispatch, $actor, [
             'message_id' => $dispatchMessage->id,
-            'recipient_users' => $recipients->count(),
+            'recipient_users' => $participants->count(),
             'queued_tokens' => $queuedTokens,
         ]);
         $this->broadcastDispatchChange($dispatch->refresh(), 'additional_info_sent');
 
         return [
             'queued_tokens' => $queuedTokens,
-            'recipient_users' => $recipients->count(),
+            'recipient_users' => $participants->count(),
         ];
     }
 
@@ -1060,7 +1081,19 @@ final class DispatchService
         }
 
         $newTeams = $this->teamsForEscalation($dispatch, $teamIds);
-        $eligibility = $newTeams->mapWithKeys(fn (Team $team): array => [$team->id => $this->eligibleUsers($team, $includeUnavailable)]);
+        $deployment = $dispatch->deployment;
+        if ($deployment === null) {
+            throw ValidationException::withMessages(['dispatch' => ['Deze alarmering is niet gekoppeld aan een inzet.']]);
+        }
+        $manualAssignmentUserIds = $this->manualAssignmentUserIdMap($deployment);
+        $eligibility = $newTeams->mapWithKeys(fn (Team $team): array => [
+            $team->id => $this->eligibleDispatchUsers(
+                $deployment,
+                $team,
+                $includeUnavailable,
+                manualAssignmentUserIds: $manualAssignmentUserIds,
+            ),
+        ]);
         $blocked = $eligibility->filter(fn (array $result): bool => $result['users']->isEmpty());
 
         if ($blocked->isNotEmpty()) {
@@ -1689,13 +1722,68 @@ final class DispatchService
     {
         $deployment->loadMissing('dispatchRequests.recipients');
 
-        return $deployment->dispatchRequests
+        $dispatchParticipantUserIds = $deployment->dispatchRequests
             ->whereIn('status', ['sent', 'escalated'])
             ->flatMap(fn (DispatchRequest $dispatch): Collection => $dispatch->recipients)
             ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
             ->pluck('user_id')
+            ->values();
+        $manualParticipantUserIds = $deployment->pilotAssignments()
+            ->whereNotNull('user_id')
+            ->pluck('user_id');
+
+        return $dispatchParticipantUserIds
+            ->merge($manualParticipantUserIds)
+            ->map(fn (mixed $userId): string => (string) $userId)
             ->unique()
             ->values();
+    }
+
+    /**
+     * @param  array<string, true>|null  $manualAssignmentUserIds
+     * @return array{users: Collection<int, User>, message: string}
+     */
+    private function eligibleDispatchUsers(
+        Deployment $deployment,
+        Team $targetTeam,
+        bool $includeUnavailable = false,
+        ?array $manualAssignmentUserIds = null,
+    ): array {
+        $eligibility = $this->eligibleUsers($targetTeam, $includeUnavailable);
+        if ($eligibility['users']->isEmpty()) {
+            return $eligibility;
+        }
+
+        $manualAssignmentUserIds ??= $this->manualAssignmentUserIdMap($deployment);
+        if ($manualAssignmentUserIds === []) {
+            return $eligibility;
+        }
+
+        $eligibleUsers = $eligibility['users']
+            ->reject(fn (User $user): bool => isset($manualAssignmentUserIds[(string) $user->id]))
+            ->values();
+        if ($eligibleUsers->isEmpty()) {
+            $eligibility['message'] = "Alle alarmeerbare gebruikers voor team {$targetTeam->code} zijn al handmatig aan deze inzet gekoppeld.";
+        }
+        $eligibility['users'] = $eligibleUsers;
+
+        return $eligibility;
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private function manualAssignmentUserIdMap(Deployment $deployment): array
+    {
+        $userIds = $deployment->pilotAssignments()
+            ->whereNotNull('user_id')
+            ->pluck('user_id')
+            ->map(fn (mixed $userId): string => (string) $userId)
+            ->filter(fn (string $userId): bool => $userId !== '')
+            ->unique()
+            ->all();
+
+        return array_fill_keys($userIds, true);
     }
 
     /**
@@ -2085,30 +2173,32 @@ final class DispatchService
 
     private function transitionDeploymentToInProgressWhenEveryoneOnScene(DispatchRequest $dispatch, User $actor): void
     {
-        $dispatch->loadMissing(['deployment.dispatchRequests.recipients']);
+        $dispatch->loadMissing(['deployment.dispatchRequests.recipients', 'deployment.pilotAssignments']);
         $deployment = $dispatch->deployment;
         if ($deployment === null || $deployment->is_test || $deployment->status !== 'dispatching') {
             return;
         }
 
-        $acceptedUserIds = $deployment->dispatchRequests
+        $participantUserIds = $deployment->dispatchRequests
             ->whereIn('status', ['sent', 'escalated'])
             ->flatMap(fn (DispatchRequest $existingDispatch) => $existingDispatch->recipients)
             ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
             ->pluck('user_id')
+            ->merge($deployment->pilotAssignments->pluck('user_id'))
+            ->filter(fn (mixed $userId): bool => is_string($userId) && $userId !== '')
             ->unique()
             ->values();
 
-        if ($acceptedUserIds->isEmpty()) {
+        if ($participantUserIds->isEmpty()) {
             return;
         }
 
         $latestStatuses = AvailabilityStatus::query()
             ->latestPerUser()
-            ->whereIn('user_id', $acceptedUserIds->all())
+            ->whereIn('user_id', $participantUserIds->all())
             ->pluck('status', 'user_id');
 
-        $everyoneOnScene = $acceptedUserIds
+        $everyoneOnScene = $participantUserIds
             ->every(fn (string $userId): bool => $latestStatuses->get($userId) === 'on_scene');
 
         if ($everyoneOnScene) {

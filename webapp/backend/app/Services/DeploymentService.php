@@ -641,19 +641,30 @@ final class DeploymentService
     {
         $deployment->load([
             'dispatchRequests.recipients.user',
+            'pilotAssignments.user',
         ]);
 
-        $deployment->dispatchRequests
+        $dispatchParticipants = $deployment->dispatchRequests
             ->whereIn('status', ['sent', 'escalated'])
             ->flatMap(fn ($dispatch) => $dispatch->recipients)
             ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted'
-                && $recipient->user !== null
-                && (bool) $recipient->user->push_enabled)
-            ->unique('user_id')
-            ->each(function ($recipient) use ($actor, $terminalStatus): void {
+                && $recipient->user !== null)
+            ->map(fn ($recipient) => $recipient->user);
+        $manualParticipants = $deployment->pilotAssignments
+            ->pluck('user')
+            ->filter();
+
+        $dispatchParticipants
+            ->merge($manualParticipants)
+            ->unique('id')
+            ->each(function (User $participant) use ($actor, $terminalStatus): void {
                 try {
-                    $isAvailable = $this->availabilityScheduleResolver
-                        ->availabilityFor($recipient->user)['is_available'];
+                    $scheduledAvailable = $this->availabilityScheduleResolver
+                        ->availabilityFor($participant)['is_available'];
+                    // Push disabled is always authoritative unavailability,
+                    // including for a manually linked participant who never
+                    // needed a reachable device to join the deployment.
+                    $isAvailable = (bool) $participant->push_enabled && $scheduledAvailable;
                     $targetStatus = $isAvailable ? 'available' : 'unavailable';
                     $reason = match ($terminalStatus) {
                         'resolved' => $isAvailable
@@ -666,8 +677,15 @@ final class DeploymentService
                             ? 'Inzet geannuleerd; gebruiker automatisch weer beschikbaar gezet.'
                             : 'Inzet geannuleerd; gebruiker volgens de beschikbaarheidsplanning niet beschikbaar gezet.',
                     };
+                    if (! $participant->push_enabled) {
+                        $reason = match ($terminalStatus) {
+                            'resolved' => 'Inzet afgerond; gebruiker wegens uitgeschakelde push niet beschikbaar gezet.',
+                            'deleted' => 'Inzet verwijderd; gebruiker wegens uitgeschakelde push niet beschikbaar gezet.',
+                            default => 'Inzet geannuleerd; gebruiker wegens uitgeschakelde push niet beschikbaar gezet.',
+                        };
+                    }
 
-                    $this->statusService->setStatus($recipient->user, $targetStatus, $actor, $reason, true);
+                    $this->statusService->setStatus($participant, $targetStatus, $actor, $reason, true);
                 } catch (Throwable $exception) {
                     report($exception);
                 }

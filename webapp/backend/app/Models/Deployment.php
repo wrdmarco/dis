@@ -107,6 +107,11 @@ final class Deployment extends Model
         return $this->hasMany(PilotDeploymentReport::class);
     }
 
+    public function pilotAssignments(): HasMany
+    {
+        return $this->hasMany(DeploymentPilotAssignment::class);
+    }
+
     public function deploymentRequest(): HasOne
     {
         return $this->hasOne(DeploymentRequest::class);

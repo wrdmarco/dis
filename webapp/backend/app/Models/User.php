@@ -127,6 +127,11 @@ final class User extends Authenticatable
         return $this->hasMany(CalendarEventRegistration::class);
     }
 
+    public function pilotAssignments(): HasMany
+    {
+        return $this->hasMany(DeploymentPilotAssignment::class);
+    }
+
     public function hasPermission(string $permission): bool
     {
         $query = $this->roles()

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\TransientPushDeliveryException;
 use App\Jobs\SendFcmNotification;
+use App\Models\Deployment;
 use App\Models\FcmToken;
 use App\Models\Team;
 use App\Models\User;
@@ -84,6 +85,36 @@ final class PushNotificationService
             'queued_tokens' => $queuedTokens,
             'recipient_users' => $users->count(),
         ];
+    }
+
+    public function sendDeploymentAssignment(User $target, Deployment $deployment): int
+    {
+        $tokens = $target->fcmTokens()
+            ->reachable()
+            ->get(['id']);
+        $reference = trim((string) $deployment->reference);
+        $body = $reference === ''
+            ? 'Je bent gekoppeld aan een inzet. Open D.I.S. voor de details.'
+            : "Je bent gekoppeld aan inzet {$reference}. Open D.I.S. voor de details.";
+
+        foreach ($tokens as $token) {
+            SendFcmNotification::dispatch(
+                (string) $token->id,
+                'manual_admin',
+                'Aan inzet gekoppeld',
+                $body,
+                [
+                    'type' => 'manual_admin',
+                    'deployment_event_type' => 'manual_admin',
+                    'deployment_id' => (string) $deployment->id,
+                    'incident_id' => (string) $deployment->id,
+                    'deployment_reference' => $reference,
+                    'incident_reference' => $reference,
+                ],
+            )->onQueue('push');
+        }
+
+        return $tokens->count();
     }
 
     public function revokeToken(FcmToken $token, ?User $actor): void

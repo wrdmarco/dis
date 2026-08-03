@@ -2,9 +2,10 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Ban, BellRing, CheckCircle2, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, UserRound, Users, X } from 'lucide-react';
+import { Ban, BellRing, CheckCircle2, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, UserPlus, UserRound, Users, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useConfirmDialog } from '../../components/ConfirmDialogContext';
+import { ModalDialog } from '../../components/ModalDialog';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -12,13 +13,14 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Deployment, DeploymentInternalNotes, DeploymentLiveLocation, DeploymentTimelineItem, DispatchDeliveryStatus, DispatchPreview, DispatchRequest, DroneFlightContext, ReportDeployment, Team } from '../../types/api';
+import type { Deployment, DeploymentInternalNotes, DeploymentLiveLocation, DeploymentPilot, DeploymentPilotCandidate, DeploymentPilotLinkResult, DeploymentTimelineItem, DispatchDeliveryStatus, DispatchPreview, DispatchRequest, DroneFlightContext, ReportDeployment, Team } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { dispatchDeliveryNotice } from './dispatchDeliveryPresentation';
 import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLocationEtaLabel } from './etaPresentation';
 import { DeploymentRequestPanel } from '../deployment-requests/DeploymentRequestPanel';
 import { presentDeploymentTimelineItem } from './deploymentTimelinePresentation';
 import { deploymentLifecycleActionForStatus, type DeploymentLifecycleAction } from './deploymentStatusFlow';
+import { allowsDeploymentPilotMutations, deploymentAdditionalInfoRecipientCount, deploymentPilotLinkSuccessMessage, deploymentPilotTeamsLabel, filterDeploymentPilotCandidates } from './deploymentPilotPresentation';
 import { parseMapPoint } from './pilotRoutePresentation';
 
 export function DeploymentDetailPage({ deploymentId }: { deploymentId: string }) {
@@ -31,6 +33,10 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
   const canManageDispatches = hasPermission('deployments.dispatch.manage');
   const canOverrideStatus = hasPermission('status.override');
   const canOpenReports = hasPermission('deployments.view') && canViewDispatches;
+  const canAccessPilots = canViewDispatches || canManageDispatches;
+  const [pilotLinkDialogOpen, setPilotLinkDialogOpen] = useState(false);
+  const [pilotSearch, setPilotSearch] = useState('');
+  const [pilotCandidateQuery, setPilotCandidateQuery] = useState('');
   const [dispatchRecipientCount, setDispatchRecipientCount] = useState('');
   const dispatchRecipientCountNumber = Number.parseInt(dispatchRecipientCount, 10);
   const dispatchPreviewUrl = `/deployments/${deploymentId}/dispatch-preview${Number.isFinite(dispatchRecipientCountNumber) && dispatchRecipientCountNumber > 0 ? `?dispatch_recipient_count=${dispatchRecipientCountNumber}` : ''}`;
@@ -39,12 +45,22 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
   const preview = useApiResource<DispatchPreview>(dispatchPreviewUrl, Boolean(deploymentId) && canViewDispatches);
   const dispatches = useApiResource<DispatchRequest[]>(`/deployments/${deploymentId}/dispatches`, Boolean(deploymentId) && canViewDispatches);
   const reloadDispatchesSilently = dispatches.silentReload;
+  const pilots = useApiResource<DeploymentPilot[]>(`/deployments/${deploymentId}/pilots`, Boolean(deploymentId) && canAccessPilots);
+  const reloadPilotsSilently = pilots.silentReload;
   const liveLocations = useApiResource<DeploymentLiveLocation[]>(`/deployments/${deploymentId}/live-locations`, Boolean(deploymentId));
   const reloadLiveLocationsSilently = liveLocations.silentReload;
   const timeline = useApiResource<DeploymentTimelineItem[]>(`/deployments/${deploymentId}/timeline`, Boolean(deploymentId));
   const reportDeployments = useApiResource<ReportDeployment[]>('/reports/deployments?limit=100', Boolean(deploymentId));
   const internalNotes = useApiResource<DeploymentInternalNotes>(`/deployments/${deploymentId}/internal-notes`, Boolean(deploymentId) && canManageDeployments);
   const teams = useApiResource<Team[]>('/teams', canViewDispatches && canManageDispatches);
+  const deploymentAllowsPilotChanges = allowsDeploymentPilotMutations(deployment.data);
+  const canManageLinkedPilots = canManageDispatches && deploymentAllowsPilotChanges;
+  const canManagePilotStatus = (canManageDispatches || canOverrideStatus) && deploymentAllowsPilotChanges;
+  const pilotCandidatesPath = `/deployments/${deploymentId}/pilot-candidates${pilotCandidateQuery === '' ? '' : `?search=${encodeURIComponent(pilotCandidateQuery)}`}`;
+  const pilotCandidates = useApiResource<DeploymentPilotCandidate[]>(
+    pilotCandidatesPath,
+    Boolean(deploymentId) && pilotLinkDialogOpen && canManageLinkedPilots,
+  );
   const [deploymentError, setDeploymentError] = useState<string | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
@@ -66,6 +82,13 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
   const [recipientUpdatingId, setRecipientUpdatingId] = useState<string | null>(null);
   const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
   const [operatorStatusUpdatingUserId, setOperatorStatusUpdatingUserId] = useState<string | null>(null);
+  const [selectedPilotId, setSelectedPilotId] = useState('');
+  const [pilotLinkReason, setPilotLinkReason] = useState('');
+  const [pilotLinking, setPilotLinking] = useState(false);
+  const [pilotUnlinkingId, setPilotUnlinkingId] = useState<string | null>(null);
+  const [pilotActionMessage, setPilotActionMessage] = useState<string | null>(null);
+  const [pilotActionError, setPilotActionError] = useState<string | null>(null);
+  const [pilotLinkError, setPilotLinkError] = useState<string | null>(null);
   const [locationRequestingUserId, setLocationRequestingUserId] = useState<string | null>(null);
   const [reportDownloading, setReportDownloading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -102,6 +125,29 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
     () => (reportDeployments.data ?? []).find((item) => item.id === deploymentId) ?? null,
     [deploymentId, reportDeployments.data],
   );
+  const filteredPilotCandidates = useMemo(
+    () => filterDeploymentPilotCandidates(pilotCandidates.data ?? [], pilotSearch),
+    [pilotCandidates.data, pilotSearch],
+  );
+  const selectedPilotCandidate = useMemo(
+    () => (pilotCandidates.data ?? []).find((candidate) => candidate.id === selectedPilotId) ?? null,
+    [pilotCandidates.data, selectedPilotId],
+  );
+  const latestAdditionalInfoRecipientCount = latestDispatch === null
+    ? 0
+    : deploymentAdditionalInfoRecipientCount(latestDispatch, pilots.data ?? []);
+
+  useEffect(() => {
+    if (!pilotLinkDialogOpen) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setPilotCandidateQuery(pilotSearch.trim());
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [pilotLinkDialogOpen, pilotSearch]);
 
   useEffect(() => {
     if (!deploymentId || deployment.data?.status === 'resolved' || deployment.data?.status === 'cancelled') {
@@ -363,6 +409,103 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
     }
   };
 
+  const openPilotLinkDialog = () => {
+    setPilotSearch('');
+    setPilotCandidateQuery('');
+    setSelectedPilotId('');
+    setPilotLinkReason('');
+    setPilotLinkError(null);
+    setPilotActionMessage(null);
+    setPilotActionError(null);
+    setPilotLinkDialogOpen(true);
+  };
+
+  const closePilotLinkDialog = () => {
+    if (pilotLinking) {
+      return;
+    }
+
+    setPilotLinkDialogOpen(false);
+    setPilotCandidateQuery('');
+    setPilotLinkError(null);
+  };
+
+  const linkPilot = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canManageLinkedPilots || selectedPilotCandidate === null || pilotLinkReason.trim() === '') {
+      return;
+    }
+
+    setPilotLinking(true);
+    setPilotLinkError(null);
+    setPilotActionMessage(null);
+    setPilotActionError(null);
+    try {
+      const response = await api.post<DeploymentPilotLinkResult>(`/deployments/${deploymentId}/pilots`, {
+        user_id: selectedPilotCandidate.id,
+        reason: pilotLinkReason.trim(),
+      });
+      pilots.mutate((current) => [
+        ...(current ?? []).filter((pilot) => pilot.user_id !== response.data.user_id),
+        response.data,
+      ]);
+      setPilotActionMessage(deploymentPilotLinkSuccessMessage(
+        response.data,
+        selectedPilotCandidate.name,
+        response.meta,
+      ));
+      setPilotLinkDialogOpen(false);
+      setPilotCandidateQuery('');
+      await Promise.all([
+        pilots.silentReload(),
+        dispatches.silentReload(),
+        liveLocations.silentReload(),
+        timeline.silentReload(),
+        reportDeployments.silentReload(),
+      ]);
+    } catch (err) {
+      setPilotLinkError(err instanceof ApiClientError ? err.message : 'De piloot kon niet aan deze inzet worden gekoppeld.');
+    } finally {
+      setPilotLinking(false);
+    }
+  };
+
+  const unlinkPilot = async (pilot: DeploymentPilot) => {
+    if (!canManageLinkedPilots || pilot.source !== 'manual') {
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Piloot ontkoppelen?',
+      message: `Je verwijdert de handmatige koppeling van ${pilot.user.name} aan deze inzet.`,
+      confirmLabel: 'Piloot ontkoppelen',
+      intent: 'danger',
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    setPilotUnlinkingId(pilot.id);
+    setPilotActionMessage(null);
+    setPilotActionError(null);
+    try {
+      await api.delete(`/deployments/${deploymentId}/pilots/${encodeURIComponent(pilot.id)}`);
+      pilots.mutate((current) => current?.filter((item) => item.id !== pilot.id) ?? []);
+      setPilotActionMessage(`${pilot.user.name} is van deze inzet ontkoppeld.`);
+      await Promise.all([
+        pilots.silentReload(),
+        dispatches.silentReload(),
+        liveLocations.silentReload(),
+        timeline.silentReload(),
+        reportDeployments.silentReload(),
+      ]);
+    } catch (err) {
+      setPilotActionError(err instanceof ApiClientError ? err.message : 'De piloot kon niet van deze inzet worden ontkoppeld.');
+    } finally {
+      setPilotUnlinkingId(null);
+    }
+  };
+
   const updateRecipientResponse = async (recipientId: string, response: 'pending' | 'accepted' | 'declined' | 'no_response') => {
     if (!latestDispatch) {
       return;
@@ -388,18 +531,22 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
 
   const updateOperatorStatus = async (userId: string, status: 'en_route' | 'on_scene') => {
     setOperatorStatusUpdatingUserId(userId);
-    setRecipientUpdateMessage(null);
+    setPilotActionMessage(null);
+    setPilotActionError(null);
     try {
-      await api.post(`/availability-statuses/users/${userId}/override`, {
+      await api.post(`/deployments/${deploymentId}/pilots/${encodeURIComponent(userId)}/status`, {
         status,
         reason: 'Handmatig aangepast vanuit inzetdetail.',
       });
-      setRecipientUpdateMessage('Gebruikersstatus aangepast.');
-      await dispatches.reload();
-      await liveLocations.reload();
-      await timeline.reload();
+      setPilotActionMessage('Gebruikersstatus aangepast.');
+      await Promise.all([
+        pilots.silentReload(),
+        dispatches.silentReload(),
+        liveLocations.silentReload(),
+        timeline.silentReload(),
+      ]);
     } catch (err) {
-      setRecipientUpdateMessage(err instanceof ApiClientError ? err.message : 'Gebruikersstatus kon niet worden aangepast.');
+      setPilotActionError(err instanceof ApiClientError ? err.message : 'Gebruikersstatus kon niet worden aangepast.');
     } finally {
       setOperatorStatusUpdatingUserId(null);
     }
@@ -556,6 +703,7 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
         void reloadDeploymentSilently();
         void preview.silentReload();
         void dispatches.silentReload();
+        void reloadPilotsSilently();
         void reloadLiveLocationsSilently();
         void timeline.silentReload();
         setDeploymentRequestRefreshVersion((current) => current + 1);
@@ -621,7 +769,7 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
                 <SummaryItem label="Prioriteit" value={priorityLabel(deployment.data.priority)} />
                 <SummaryItem label="Ontvangers" value={recipientCount === null ? '-' : String(recipientCount)} />
                 <SummaryItem label={latestDispatchIsPreannouncement ? 'Beschikbaar' : 'Komt'} value={latestDispatch ? String(countResponses(latestDispatch, 'accepted')) : '-'} />
-                <SummaryItem label="Onderweg" value={latestDispatch ? String(countOperatorStatuses(latestDispatch, 'en_route')) : '-'} />
+                <SummaryItem label="Onderweg" value={pilots.data ? String(countPilotStatuses(pilots.data, 'en_route')) : '-'} />
                 <SummaryItem label="Live locaties" value={String(liveSharedCount)} />
               </div>
               {deploymentError ? <p className="form-error">{deploymentError}</p> : null}
@@ -641,7 +789,7 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
           refreshVersion={deploymentRequestRefreshVersion}
           additionalInfoRecipientCount={
             canManageDispatches && latestDispatch !== null && !latestDispatchIsPreannouncement
-              ? additionalInfoRecipientCount(latestDispatch)
+              ? latestAdditionalInfoRecipientCount
               : null
           }
           onSendAdditionalInfo={
@@ -782,7 +930,6 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
                   {latestDispatch.recipients?.map((recipient) => {
                     const userStatus = recipient.user?.statuses?.[0]?.status;
                     const location = liveLocationByUserId.get(recipient.user_id);
-                    const canEditOperatorStatus = canOverrideStatus && !latestDispatchIsPreannouncement && recipient.response_status === 'accepted' && recipient.user_id !== '';
 
                     return (
                       <article className={`recipient-row recipient-row--${recipient.response_status}`} key={recipient.id}>
@@ -812,16 +959,6 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
                             <option value="no_response">Geen reactie</option>
                           </select>
                         ) : null}
-                        {canEditOperatorStatus ? (
-                          <div className="table-actions">
-                            <button className="secondary-button" type="button" onClick={() => void updateOperatorStatus(recipient.user_id, 'en_route')} disabled={operatorStatusUpdatingUserId === recipient.user_id || userStatus === 'en_route'}>
-                              Onderweg
-                            </button>
-                            <button className="secondary-button" type="button" onClick={() => void updateOperatorStatus(recipient.user_id, 'on_scene')} disabled={operatorStatusUpdatingUserId === recipient.user_id || userStatus === 'on_scene'}>
-                              Op locatie
-                            </button>
-                          </div>
-                        ) : null}
                         {recipient.response_note ? <p className="recipient-row__note">{recipient.response_note}</p> : null}
                       </article>
                     );
@@ -834,7 +971,7 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
                       Nadere info voor opkomende gebruikers
                       <textarea value={additionalInfo} maxLength={2000} onChange={(event) => setAdditionalInfo(event.target.value)} />
                     </label>
-                    <button className="primary-button" type="submit" disabled={additionalInfoSending || additionalInfo.trim() === '' || additionalInfoRecipientCount(latestDispatch) === 0}>
+                    <button className="primary-button" type="submit" disabled={additionalInfoSending || additionalInfo.trim() === '' || latestAdditionalInfoRecipientCount === 0}>
                       <MessageSquare size={16} /> {additionalInfoSending ? 'Versturen...' : 'Info versturen'}
                     </button>
                     {additionalInfoMessage ? <p className={additionalInfoMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{additionalInfoMessage}</p> : null}
@@ -842,6 +979,87 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
                 ) : null}
                 </>
               ) : null}
+            </div>
+          </ResourceState>
+        </Panel>
+      ) : null}
+
+      {canAccessPilots ? (
+        <Panel
+          title="Gekoppelde piloten"
+          action={canManageLinkedPilots ? (
+            <button className="primary-button" type="button" onClick={openPilotLinkDialog}>
+              <UserPlus size={16} /> Piloot koppelen
+            </button>
+          ) : null}
+        >
+          <ResourceState loading={pilots.loading} error={pilots.error} empty={false}>
+            <div className="panel-body deployment-pilots">
+              <p className="form-note">
+                Handmatig koppelen voegt een piloot toe aan de inzet. De piloot ontvangt een informatief pushbericht, maar er klinkt geen alarm.
+              </p>
+              <div className="summary-grid">
+                <SummaryItem label="Gekoppeld" value={String(pilots.data?.length ?? 0)} />
+                <SummaryItem label="Via alarmering" value={String(countPilotSources(pilots.data ?? [], 'dispatch'))} />
+                <SummaryItem label="Handmatig" value={String(countPilotSources(pilots.data ?? [], 'manual'))} />
+                <SummaryItem label="Onderweg" value={String(countPilotStatuses(pilots.data ?? [], 'en_route'))} />
+                <SummaryItem label="Op locatie" value={String(countPilotStatuses(pilots.data ?? [], 'on_scene'))} />
+              </div>
+              {(pilots.data?.length ?? 0) > 0 ? (
+                <div className="deployment-pilot-list">
+                  {pilots.data?.map((pilot) => {
+                    const userStatus = pilot.user.statuses?.[0]?.status;
+                    const pilotUserId = typeof pilot.user_id === 'string' && pilot.user_id !== ''
+                      ? pilot.user_id
+                      : null;
+                    const canChangeStatus = canManagePilotStatus && pilotUserId !== null;
+
+                    return (
+                      <article className={`deployment-pilot-row deployment-pilot-row--${pilot.source}`} key={`${pilot.source}-${pilot.id}`}>
+                        <div className="deployment-pilot-row__identity">
+                          <strong>{pilot.user.name}</strong>
+                          <span>{pilot.user.email}</span>
+                          <small>{deploymentPilotTeamsLabel(pilot.user.teams)}</small>
+                        </div>
+                        <div className="deployment-pilot-row__states">
+                          <StatusPill
+                            value={pilot.source === 'manual' ? 'Handmatig gekoppeld' : 'Via alarmering'}
+                            tone={pilot.source === 'manual' ? 'neutral' : 'good'}
+                          />
+                          <StatusPill value={operatorStatusLabel(userStatus)} tone={operatorStatusTone(userStatus)} />
+                        </div>
+                        <div className="deployment-pilot-row__time">
+                          <span>Gekoppeld</span>
+                          <strong>{formatDate(pilot.linked_at)}</strong>
+                        </div>
+                        {canChangeStatus || (canManageLinkedPilots && pilot.source === 'manual') ? (
+                          <div className="deployment-pilot-row__actions">
+                            {canChangeStatus ? (
+                              <>
+                                <button className="secondary-button" type="button" onClick={() => void updateOperatorStatus(pilotUserId, 'en_route')} disabled={operatorStatusUpdatingUserId === pilotUserId || userStatus === 'en_route'}>
+                                  Onderweg
+                                </button>
+                                <button className="secondary-button" type="button" onClick={() => void updateOperatorStatus(pilotUserId, 'on_scene')} disabled={operatorStatusUpdatingUserId === pilotUserId || userStatus === 'on_scene'}>
+                                  Op locatie
+                                </button>
+                              </>
+                            ) : null}
+                            {canManageLinkedPilots && pilot.source === 'manual' ? (
+                              <button className="danger-button" type="button" onClick={() => void unlinkPilot(pilot)} disabled={pilotUnlinkingId !== null}>
+                                <Trash2 size={16} /> {pilotUnlinkingId === pilot.id ? 'Ontkoppelen...' : 'Ontkoppelen'}
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="form-note">Er zijn nog geen piloten aan deze inzet gekoppeld.</p>
+              )}
+              {pilotActionMessage ? <p className="form-note" role="status">{pilotActionMessage}</p> : null}
+              {pilotActionError ? <p className="form-error" role="alert">{pilotActionError}</p> : null}
             </div>
           </ResourceState>
         </Panel>
@@ -929,6 +1147,93 @@ export function DeploymentDetailPage({ deploymentId }: { deploymentId: string })
           </div>
         </ResourceState>
       </Panel>
+
+      {pilotLinkDialogOpen && canManageLinkedPilots ? (
+        <ModalDialog
+          className="modal--deployment-action"
+          closeDisabled={pilotLinking}
+          description="De piloot wordt aan deze inzet gekoppeld en ontvangt een informatief pushbericht. Er klinkt geen alarm."
+          eyebrow="Inzetbemanning"
+          onClose={closePilotLinkDialog}
+          title="Piloot koppelen"
+        >
+          <form className="pilot-link-form" onSubmit={linkPilot}>
+            <label>
+              Piloot zoeken
+              <input
+                data-dialog-initial="true"
+                type="search"
+                maxLength={100}
+                value={pilotSearch}
+                onChange={(event) => {
+                  setPilotSearch(event.target.value);
+                  setSelectedPilotId('');
+                }}
+                placeholder="Zoek op naam of e-mailadres"
+                disabled={pilotLinking}
+              />
+            </label>
+            <fieldset className="pilot-candidate-fieldset" disabled={pilotLinking || pilotCandidates.loading}>
+              <legend>Koppelbare piloten</legend>
+              {pilotCandidates.loading ? <p className="form-note" role="status">Piloten laden...</p> : null}
+              {pilotCandidates.error ? <p className="form-error" role="alert">{pilotCandidates.error}</p> : null}
+              {!pilotCandidates.loading && !pilotCandidates.error && filteredPilotCandidates.length > 0 ? (
+                <div className="pilot-candidate-list">
+                  {filteredPilotCandidates.map((candidate) => {
+                    const status = candidate.statuses?.[0]?.status;
+
+                    return (
+                      <label className="pilot-candidate" key={candidate.id}>
+                        <input
+                          type="radio"
+                          name="deployment-pilot"
+                          value={candidate.id}
+                          checked={selectedPilotId === candidate.id}
+                          onChange={() => setSelectedPilotId(candidate.id)}
+                        />
+                        <span className="pilot-candidate__identity">
+                          <strong>{candidate.name}</strong>
+                          <small>{candidate.email}</small>
+                          <small>{deploymentPilotTeamsLabel(candidate.teams)}</small>
+                        </span>
+                        <StatusPill value={operatorStatusLabel(status)} tone={operatorStatusTone(status)} />
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {!pilotCandidates.loading && !pilotCandidates.error && filteredPilotCandidates.length === 0 ? (
+                <p className="form-note">
+                  {(pilotCandidates.data?.length ?? 0) === 0
+                    ? (pilotSearch.trim() === ''
+                      ? 'Er zijn geen andere piloten die handmatig kunnen worden gekoppeld.'
+                      : 'Geen piloten gevonden voor deze zoekopdracht.')
+                    : 'Geen piloten gevonden voor deze zoekopdracht.'}
+                </p>
+              ) : null}
+            </fieldset>
+            <label>
+              Reden voor koppeling
+              <textarea
+                required
+                rows={4}
+                maxLength={1000}
+                value={pilotLinkReason}
+                onChange={(event) => setPilotLinkReason(event.target.value)}
+                placeholder="Leg vast waarom deze piloot handmatig wordt gekoppeld."
+                disabled={pilotLinking}
+              />
+            </label>
+            {pilotLinkError ? <p className="form-error" role="alert">{pilotLinkError}</p> : null}
+            <div className="form-actions">
+              <button className="secondary-button" type="button" onClick={closePilotLinkDialog} disabled={pilotLinking}>Annuleren</button>
+              <button className="primary-button" type="submit" disabled={pilotLinking || pilotCandidates.loading || pilotCandidateQuery !== pilotSearch.trim() || selectedPilotCandidate === null || pilotLinkReason.trim() === ''}>
+                <UserPlus size={16} /> {pilotLinking ? 'Koppelen...' : 'Piloot koppelen'}
+              </button>
+            </div>
+          </form>
+        </ModalDialog>
+      ) : null}
 
       {escalationModalOpen && latestDispatch && canManageDispatches ? (
         <div className="modal-backdrop" role="presentation">
@@ -1626,9 +1931,12 @@ function countOperatorStatuses(dispatch: DispatchRequest, status: 'en_route' | '
   return dispatch.recipients?.filter((recipient) => recipient.user?.statuses?.[0]?.status === status).length ?? 0;
 }
 
-function additionalInfoRecipientCount(dispatch: DispatchRequest): number {
-  return dispatch.recipients?.filter((recipient) => recipient.response_status === 'accepted'
-    || ['en_route', 'on_scene'].includes(recipient.user?.statuses?.[0]?.status ?? '')).length ?? 0;
+function countPilotSources(pilots: DeploymentPilot[], source: DeploymentPilot['source']): number {
+  return pilots.filter((pilot) => pilot.source === source).length;
+}
+
+function countPilotStatuses(pilots: DeploymentPilot[], status: 'en_route' | 'on_scene'): number {
+  return pilots.filter((pilot) => pilot.user.statuses?.[0]?.status === status).length;
 }
 
 interface MapBounds {

@@ -7,6 +7,7 @@ use App\DTO\Routing\RouteGeometry;
 use App\DTO\Routing\RoutePoint;
 use App\Models\AvailabilityStatus;
 use App\Models\Deployment;
+use App\Models\DeploymentPilotAssignment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\LocationSharingConsent;
@@ -750,6 +751,14 @@ final class WallboardStateService
                 'dispatch_requests.deployment_id as deployment_id',
                 'dispatch_recipients.user_id as user_id',
             ])
+            ->unique(fn ($row): string => (string) $row->deployment_id.'|'.(string) $row->user_id)
+            ->values();
+        $manualPairs = DeploymentPilotAssignment::query()
+            ->whereIn('deployment_id', $deploymentIds)
+            ->whereNotNull('user_id')
+            ->get(['deployment_id', 'user_id']);
+        $acceptedPairs = $acceptedPairs
+            ->concat($manualPairs)
             ->unique(fn ($row): string => (string) $row->deployment_id.'|'.(string) $row->user_id)
             ->values();
         if ($acceptedPairs->isEmpty()) {

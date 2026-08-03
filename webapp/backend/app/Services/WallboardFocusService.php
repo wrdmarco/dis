@@ -345,11 +345,31 @@ final class WallboardFocusService
                 ? 'deleted:'.(string) $recipient->id
                 : 'user:'.(string) $recipient->user_id)
             ->values();
+        $manualAssignments = $deployment->pilotAssignments()
+            ->with('user')
+            ->get();
         $statusCounts = $recipients->countBy(
             static fn (DispatchRecipient $recipient): string => (string) $recipient->response_status,
         );
+        $acceptedDispatchParticipantKeys = $recipients
+            ->filter(static fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
+            ->map(static fn (DispatchRecipient $recipient): string => $recipient->user_id === null
+                    ? 'dispatch:'.(string) $recipient->id
+                    : 'user:'.(string) $recipient->user_id)
+            ->all();
+        $manualParticipantKeys = $manualAssignments
+            ->map(static fn ($assignment): string => $assignment->user_id === null
+                ? 'manual:'.(string) $assignment->id
+                : 'user:'.(string) $assignment->user_id)
+            ->all();
+        $acceptedParticipantCount = collect([
+            ...$acceptedDispatchParticipantKeys,
+            ...$manualParticipantKeys,
+        ])
+            ->unique()
+            ->count();
         $coming = $includeComing
-            ? $this->acceptedComing($recipients, $deployment)
+            ? $this->acceptedComing($recipients, $manualAssignments, $deployment)
             : [];
 
         $items = $recipients
@@ -376,7 +396,7 @@ final class WallboardFocusService
                 'targeted' => $recipients->count(),
                 'contacted' => $recipients->whereNotNull('notified_at')->count(),
                 'pending' => (int) $statusCounts->get('pending', 0),
-                'accepted' => (int) $statusCounts->get('accepted', 0),
+                'accepted' => $acceptedParticipantCount,
                 'declined' => (int) $statusCounts->get('declined', 0),
                 'no_response' => (int) $statusCounts->get('no_response', 0),
             ],
@@ -391,12 +411,17 @@ final class WallboardFocusService
      * whose latest activity falls outside RESPONSE_ITEM_LIMIT.
      *
      * @param  Collection<int, DispatchRecipient>  $recipients
+     * @param  Collection<int, mixed>  $manualAssignments
      * @return list<array{name: string, response_status: string, responded_at: string|null, eta_minutes: int|null, eta_source: string|null}>
      */
-    private function acceptedComing(Collection $recipients, Deployment $deployment): array
+    private function acceptedComing(Collection $recipients, Collection $manualAssignments, Deployment $deployment): array
     {
         $accepted = $recipients
             ->filter(static fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
+            ->concat($manualAssignments)
+            ->unique(static fn ($participant): string => $participant->user_id === null
+                ? ($participant instanceof DispatchRecipient ? 'dispatch:' : 'manual:').(string) $participant->id
+                : 'user:'.(string) $participant->user_id)
             ->values();
         if ($accepted->isEmpty()) {
             return [];
@@ -405,15 +430,19 @@ final class WallboardFocusService
         $routeEstimates = $this->currentRouteEstimates($accepted, $deployment);
 
         return $accepted
-            ->map(static function (DispatchRecipient $recipient) use ($routeEstimates): array {
-                $estimate = $recipient->user_id === null
+            ->map(static function ($participant) use ($routeEstimates): array {
+                $estimate = $participant->user_id === null
                     ? RouteEstimate::unknown()
-                    : ($routeEstimates[(string) $recipient->user_id] ?? RouteEstimate::unknown());
+                    : ($routeEstimates[(string) $participant->user_id] ?? RouteEstimate::unknown());
 
                 return [
-                    'name' => (string) $recipient->user_name,
+                    'name' => (string) ($participant->user?->name ?? $participant->user_name),
                     'response_status' => 'accepted',
-                    'responded_at' => ApiDateTime::dateTime($recipient->responded_at),
+                    'responded_at' => ApiDateTime::dateTime(
+                        $participant instanceof DispatchRecipient
+                            ? $participant->responded_at
+                            : ($participant->assigned_at ?? $participant->created_at),
+                    ),
                     'eta_minutes' => $estimate->duration === null
                         ? null
                         : max(1, (int) ceil($estimate->duration / 60)),

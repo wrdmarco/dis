@@ -240,7 +240,7 @@ final class PilotDeploymentReportService
     {
         if (! $this->acceptedDeploymentsForUser($user, ['active', 'dispatching', 'in_progress', 'resolved', 'cancelled'])->contains('id', $deployment->id)) {
             throw ValidationException::withMessages([
-                'deployment' => ['Alleen geaccepteerde opkomers kunnen een inzetverslag voor deze inzet invullen.'],
+                'deployment' => ['Alleen aan deze inzet gekoppelde piloten kunnen een inzetverslag voor deze inzet invullen.'],
             ]);
         }
     }
@@ -287,11 +287,16 @@ final class PilotDeploymentReportService
     {
         return Deployment::query()
             ->whereIn('status', $statuses)
-            ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                ->whereIn('status', ['sent', 'escalated'])
-                ->whereHas('recipients', fn ($recipients) => $recipients
-                    ->where('user_id', $user->id)
-                    ->where('response_status', 'accepted')))
+            ->where(function ($participation) use ($user): void {
+                $participation
+                    ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
+                        ->whereIn('status', ['sent', 'escalated'])
+                        ->whereHas('recipients', fn ($recipients) => $recipients
+                            ->where('user_id', $user->id)
+                            ->where('response_status', 'accepted')))
+                    ->orWhereHas('pilotAssignments', fn ($assignments) => $assignments
+                        ->where('user_id', $user->id));
+            })
             ->get();
     }
 }

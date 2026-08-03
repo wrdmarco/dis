@@ -75,6 +75,7 @@ final class ReportingController extends Controller
                 'team',
                 'coordinator',
                 'pilotReports.user' => fn ($query) => $query->withTrashed(),
+                'pilotAssignments.user' => fn ($query) => $query->withTrashed(),
                 'dispatchRequests.recipients.user' => fn ($query) => $query->withTrashed(),
             ]);
         $access->scopeDeployments($query, $request->user());
@@ -95,22 +96,35 @@ final class ReportingController extends Controller
                     ->filter(fn ($recipient): bool => is_string($recipient->user_id) && $recipient->user_id !== '')
                     ->unique('user_id')
                     ->values();
-                $submittedReports = $deployment->pilotReports
-                    ->where('status', 'submitted')
-                    ->filter(fn ($report): bool => is_string($report->user_id) && $report->user_id !== '')
-                    ->keyBy('user_id');
-                $acceptedUserIds = $acceptedRecipients->pluck('user_id');
-                $missingReports = $acceptedRecipients
-                    ->filter(fn ($recipient): bool => ! $submittedReports->has($recipient->user_id))
+                $participants = $acceptedRecipients
                     ->map(fn ($recipient): array => [
                         'user_id' => $recipient->user_id,
                         'name' => $recipient->user?->name ?? $recipient->user_name ?? 'Onbekende gebruiker',
                         'email' => $recipient->user?->email ?? $recipient->user_email,
                         'responded_at' => MobileApiPayload::dateTime($recipient->responded_at),
                     ])
+                    ->concat($deployment->pilotAssignments
+                        ->filter(fn ($assignment): bool => is_string($assignment->user_id) && $assignment->user_id !== '')
+                        ->map(fn ($assignment): array => [
+                            'user_id' => $assignment->user_id,
+                            'name' => $assignment->user?->name ?? $assignment->user_name ?? 'Onbekende gebruiker',
+                            'email' => $assignment->user?->email ?? $assignment->user_email,
+                            // A manual link is deliberately not represented as
+                            // an alarm response in reporting.
+                            'responded_at' => null,
+                        ]))
+                    ->unique('user_id')
+                    ->values();
+                $submittedReports = $deployment->pilotReports
+                    ->where('status', 'submitted')
+                    ->filter(fn ($report): bool => is_string($report->user_id) && $report->user_id !== '')
+                    ->keyBy('user_id');
+                $participantUserIds = $participants->pluck('user_id');
+                $missingReports = $participants
+                    ->filter(fn (array $participant): bool => ! $submittedReports->has($participant['user_id']))
                     ->values();
                 $unfinalizedReports = $submittedReports
-                    ->filter(fn ($report, mixed $userId): bool => $acceptedUserIds->contains($userId) && $report->finalized_at === null)
+                    ->filter(fn ($report, mixed $userId): bool => $participantUserIds->contains($userId) && $report->finalized_at === null)
                     ->map(fn ($report): array => [
                         'user_id' => $report->user_id,
                         'name' => $report->user?->name ?? $report->user_name ?? 'Onbekende gebruiker',
@@ -123,8 +137,10 @@ final class ReportingController extends Controller
                     ->filter()
                     ->sortDesc()
                     ->first();
-                $expectedReportCount = $acceptedRecipients->count();
-                $submittedReportCount = $submittedReports->count();
+                $expectedReportCount = $participants->count();
+                $submittedReportCount = $submittedReports
+                    ->filter(fn ($report, mixed $userId): bool => $participantUserIds->contains($userId))
+                    ->count();
                 $missingReportCount = $missingReports->count();
                 $unfinalizedReportCount = $unfinalizedReports->count();
                 $reportStatus = $missingReportCount === 0 && $unfinalizedReportCount === 0 ? 'final' : 'draft';

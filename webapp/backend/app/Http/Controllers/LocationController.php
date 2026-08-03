@@ -6,6 +6,7 @@ use App\DTO\Routing\RouteEstimate;
 use App\DTO\Routing\RouteGeometry;
 use App\DTO\Routing\RoutePoint;
 use App\Http\Responses\ApiResponse;
+use App\Models\AvailabilityStatus;
 use App\Models\Deployment;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
@@ -102,21 +103,34 @@ final class LocationController extends Controller
             return ApiResponse::success([]);
         }
 
-        $acceptedRecipients = $deployment->dispatchRequests()
+        $dispatchParticipantUserIds = $deployment->dispatchRequests()
             ->whereIn('status', ['sent', 'escalated'])
-            ->with(['recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser()])
+            ->with('recipients')
             ->latest()
             ->get()
             ->flatMap->recipients
             ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted')
-            // LocationService normally revokes consent on arrival. This
-            // server-side projection also closes the small race between the
-            // status write and that revocation without an N+1 status query.
-            ->reject(fn ($recipient): bool => $recipient->user?->statuses->first()?->status === 'on_scene')
-            ->unique('user_id')
+            ->pluck('user_id')
+            ->filter(fn (mixed $userId): bool => is_string($userId) && $userId !== '')
             ->values();
-
-        $acceptedUserIds = $acceptedRecipients->pluck('user_id')->unique()->values();
+        $manualParticipantUserIds = $deployment->pilotAssignments()
+            ->whereNotNull('user_id')
+            ->pluck('user_id');
+        $acceptedUserIds = $dispatchParticipantUserIds
+            ->merge($manualParticipantUserIds)
+            ->map(fn (mixed $userId): string => (string) $userId)
+            ->unique()
+            ->values();
+        // LocationService normally revokes consent on arrival. This
+        // server-side projection also closes the small race between the
+        // status write and that revocation for both dispatch and manual
+        // participants.
+        $onSceneUserIds = AvailabilityStatus::query()
+            ->latestPerUser()
+            ->whereIn('user_id', $acceptedUserIds)
+            ->where('status', 'on_scene')
+            ->pluck('user_id');
+        $acceptedUserIds = $acceptedUserIds->diff($onSceneUserIds)->values();
         $activeConsentUserIds = LocationSharingConsent::query()
             ->where('deployment_id', $deployment->id)
             ->where('is_active', true)
@@ -130,6 +144,11 @@ final class LocationController extends Controller
             $locationUserIds = $locationUserIds->filter(fn (string $userId): bool => $userId === (string) $request->user()->id)->values();
         }
         $activeLocationUserIds = $locationUserIds->intersect($activeConsentUserIds)->values();
+        $participantUsersById = User::query()
+            ->withTrashed()
+            ->whereIn('id', $locationUserIds)
+            ->get()
+            ->keyBy('id');
 
         $consents = LocationSharingConsent::query()
             ->with('user')
@@ -183,7 +202,6 @@ final class LocationController extends Controller
             })
             ->keyBy('user_id');
 
-        $acceptedRecipientsByUser = $acceptedRecipients->keyBy('user_id');
         $routeGeometries = $includeRoutes
             ? $this->liveRouteGeometries($deployment, $latestLocations)
             : [];
@@ -193,11 +211,10 @@ final class LocationController extends Controller
         $includeLegacyMobileUserFields = in_array($request->user()->currentClientType(), ['operator', 'admin'], true);
 
         return ApiResponse::success($locationUserIds
-            ->map(function (string $userId) use ($acceptedRecipientsByUser, $consentsByUser, $latestLocations, $routeEstimates, $routeGeometries, $includeRoutes, $includeLegacyMobileUserFields): array {
-                $recipient = $acceptedRecipientsByUser->get($userId);
+            ->map(function (string $userId) use ($participantUsersById, $consentsByUser, $latestLocations, $routeEstimates, $routeGeometries, $includeRoutes, $includeLegacyMobileUserFields): array {
                 $consent = $consentsByUser->get($userId);
                 $location = $latestLocations->get($userId);
-                $user = $recipient?->user ?? $consent?->user ?? $location?->user;
+                $user = $participantUsersById->get($userId) ?? $consent?->user ?? $location?->user;
                 $sharingStatus = $this->locationSharingStatus($consent, $location);
                 $locationIsCurrent = $this->isCurrentLocation($location);
                 $estimate = $locationIsCurrent

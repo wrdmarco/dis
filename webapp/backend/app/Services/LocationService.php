@@ -174,6 +174,16 @@ final class LocationService
         }
 
         $this->auditService->record('location.consent_revoked', $deployment, $actor, ['user_id' => $target->id]);
+
+        // A caller such as manual-participant removal may own a wider
+        // transaction. The consent mutation remains atomic with that workflow,
+        // while realtime consumers only observe it after the outer commit.
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit(fn () => $this->broadcastLocationSharingChange($deployment));
+
+            return;
+        }
+
         $this->broadcastLocationSharingChange($deployment);
     }
 
@@ -319,8 +329,11 @@ final class LocationService
                 ->where('user_id', $target->id)
                 ->where('response_status', 'accepted'))
             ->exists();
+        $isManualParticipant = $deployment->pilotAssignments()
+            ->where('user_id', $target->id)
+            ->exists();
 
-        if (! $isAcceptedRecipient) {
+        if (! $isAcceptedRecipient && ! $isManualParticipant) {
             throw ValidationException::withMessages(['user_id' => ['Locatie delen kan alleen worden gevraagd aan gebruikers die voor deze inzet opkomen.']]);
         }
 

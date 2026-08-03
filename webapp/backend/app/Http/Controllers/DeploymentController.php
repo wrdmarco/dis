@@ -57,6 +57,7 @@ final class DeploymentController extends Controller
                     'team',
                     'teams',
                     'deploymentRequest.workflowRevision',
+                    'pilotAssignments' => fn ($assignments) => $assignments->where('user_id', $userId),
                     'dispatchRequests' => fn ($dispatches) => $dispatches
                         ->where(function ($query) use ($userId, $attendanceDispatchStatuses): void {
                             $query
@@ -73,6 +74,12 @@ final class DeploymentController extends Controller
                                         ->whereHas('recipients', fn ($recipients) => $recipients
                                             ->where('user_id', $userId)
                                             ->whereIn('response_status', ['pending', 'accepted']));
+                                })
+                                ->orWhere(function ($manualParticipation) use ($userId, $attendanceDispatchStatuses): void {
+                                    $manualParticipation
+                                        ->whereIn('status', $attendanceDispatchStatuses)
+                                        ->whereHas('deployment.pilotAssignments', fn ($assignments) => $assignments
+                                            ->where('user_id', $userId));
                                 });
                         })
                         ->with(['recipients' => fn ($recipients) => $recipients->where('user_id', $userId)])
@@ -84,24 +91,29 @@ final class DeploymentController extends Controller
                             $normalDeployment
                                 ->whereNotIn('status', ['resolved', 'cancelled'])
                                 ->where('is_test', false)
-                                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                                    ->where(function ($dispatchQuery) use ($userId, $attendanceDispatchStatuses): void {
-                                        $dispatchQuery
-                                            ->where(function ($preannouncement) use ($userId): void {
-                                                $preannouncement
-                                                    ->where('status', 'draft')
-                                                    ->whereHas('recipients', fn ($recipients) => $recipients
-                                                        ->where('user_id', $userId)
-                                                        ->where('response_status', 'pending'));
-                                            })
-                                            ->orWhere(function ($attendance) use ($userId, $attendanceDispatchStatuses): void {
-                                                $attendance
-                                                    ->whereIn('status', $attendanceDispatchStatuses)
-                                                    ->whereHas('recipients', fn ($recipients) => $recipients
-                                                        ->where('user_id', $userId)
-                                                        ->whereIn('response_status', ['pending', 'accepted']));
-                                            });
-                                    }));
+                                ->where(function ($participation) use ($userId, $attendanceDispatchStatuses): void {
+                                    $participation
+                                        ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
+                                            ->where(function ($dispatchQuery) use ($userId, $attendanceDispatchStatuses): void {
+                                                $dispatchQuery
+                                                    ->where(function ($preannouncement) use ($userId): void {
+                                                        $preannouncement
+                                                            ->where('status', 'draft')
+                                                            ->whereHas('recipients', fn ($recipients) => $recipients
+                                                                ->where('user_id', $userId)
+                                                                ->where('response_status', 'pending'));
+                                                    })
+                                                    ->orWhere(function ($attendance) use ($userId, $attendanceDispatchStatuses): void {
+                                                        $attendance
+                                                            ->whereIn('status', $attendanceDispatchStatuses)
+                                                            ->whereHas('recipients', fn ($recipients) => $recipients
+                                                                ->where('user_id', $userId)
+                                                                ->whereIn('response_status', ['pending', 'accepted']));
+                                                    });
+                                            }))
+                                        ->orWhereHas('pilotAssignments', fn ($assignments) => $assignments
+                                            ->where('user_id', $userId));
+                                });
                         })
                         ->orWhere(function ($testDeployment) use ($userId): void {
                             $testDeployment
@@ -120,11 +132,16 @@ final class DeploymentController extends Controller
                                 ->whereDoesntHave('pilotReports', fn ($reports) => $reports
                                     ->where('user_id', $userId)
                                     ->whereNotNull('finalized_at'))
-                                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                                    ->whereIn('status', $attendanceDispatchStatuses)
-                                    ->whereHas('recipients', fn ($recipients) => $recipients
-                                        ->where('user_id', $userId)
-                                        ->where('response_status', 'accepted')));
+                                ->where(function ($participation) use ($userId, $attendanceDispatchStatuses): void {
+                                    $participation
+                                        ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
+                                            ->whereIn('status', $attendanceDispatchStatuses)
+                                            ->whereHas('recipients', fn ($recipients) => $recipients
+                                                ->where('user_id', $userId)
+                                                ->where('response_status', 'accepted')))
+                                        ->orWhereHas('pilotAssignments', fn ($assignments) => $assignments
+                                            ->where('user_id', $userId));
+                                });
                         });
                 })
                 ->latest()
@@ -225,7 +242,7 @@ final class DeploymentController extends Controller
         $this->access->assertCanViewDeployment($request->user(), $deployment);
 
         $payload = $this->deploymentPayloadForActor(
-            $deployment->load(['coordinator', 'team', 'teams', 'deploymentRequest.workflowRevision']),
+            $deployment->load(['coordinator', 'team', 'teams', 'deploymentRequest.workflowRevision', 'pilotAssignments']),
             $request->user(),
         );
 
@@ -419,6 +436,13 @@ final class DeploymentController extends Controller
                 'user_id' => $recipient->user_id,
                 'started_at' => $recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at,
             ]))
+            ->concat($deployment->pilotAssignments()
+                ->whereNotNull('user_id')
+                ->get(['user_id', 'assigned_at', 'created_at'])
+                ->map(fn ($assignment): array => [
+                    'user_id' => $assignment->user_id,
+                    'started_at' => $assignment->assigned_at ?? $assignment->created_at,
+                ]))
             ->filter(fn (array $recipient): bool => $recipient['started_at'] !== null)
             ->groupBy('user_id')
             ->map(fn ($recipients) => $recipients->pluck('started_at')->min());
@@ -670,6 +694,9 @@ final class DeploymentController extends Controller
             'deployments.active_cancelled_notification_sent' => 'Annulering verstuurd',
             'deployments.internal_notes_updated' => 'Meldkamer kladblok bijgewerkt',
             'deployments.internal_note_added' => 'Meldkamer kladblok',
+            'deployments.pilot_manually_linked' => 'Piloot handmatig gekoppeld',
+            'deployments.pilot_manual_notification_queued' => 'Koppelingsmelding ingepland',
+            'deployments.pilot_manual_link_removed' => 'Handmatige pilootkoppeling verwijderd',
             'deployment_requests.operational_plan_synced' => 'Inzetteams gekoppeld aan aanvraag',
             'dispatch.created' => 'Alarmeringsconcept gemaakt',
             'dispatch.sent' => 'Alarmering verstuurd',
@@ -730,6 +757,10 @@ final class DeploymentController extends Controller
             return $payload;
         }
 
+        $manuallyAssigned = $deployment->relationLoaded('pilotAssignments')
+            ? $deployment->pilotAssignments->contains(fn ($assignment): bool => (string) $assignment->user_id === (string) $actor->id)
+            : $deployment->pilotAssignments()->where('user_id', $actor->id)->exists();
+
         $dispatch = $deployment->relationLoaded('dispatchRequests')
             ? $deployment->dispatchRequests->first()
             : $this->access->relevantDispatch($deployment, $actor);
@@ -772,7 +803,7 @@ final class DeploymentController extends Controller
         $payload['active_dispatch'] = $dispatch === null ? null : [
             'id' => $dispatch->id,
             'status' => $dispatch->status,
-            'response_status' => $recipient?->response_status,
+            'response_status' => $manuallyAssigned ? 'accepted' : $recipient?->response_status,
         ];
 
         return $payload;

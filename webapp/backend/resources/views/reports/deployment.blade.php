@@ -98,6 +98,7 @@
     };
     $responseLabel = fn ($value) => match ($value) {
         'accepted' => 'Komt',
+        'manual' => 'Handmatig gekoppeld',
         'declined' => 'Komt niet',
         'no_response' => 'Geen reactie',
         default => 'Wacht op reactie',
@@ -290,7 +291,7 @@
                 <td>{{ $formatMinutes($row['total_minutes']) }}</td>
             </tr>
         @empty
-            <tr><td colspan="8">Geen alarmeringsontvangers geregistreerd.</td></tr>
+            <tr><td colspan="8">Geen gekoppelde piloten geregistreerd.</td></tr>
         @endforelse
         </tbody>
     </table>

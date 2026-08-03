@@ -62,5 +62,10 @@ test('matches dispatch help to the actual view and manage gates', () => {
   expect(help).toContain(compositeGate);
   expect(operationManual).toContain("permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage']");
   expect(operationManual).toContain("oneOfPermissions: ['deployments.view', 'deployments.manage']");
+  expect(operationManual).toContain("id: 'dispatch-link-pilot'");
+  expect(operationManual).toContain('ontvangt een informatief pushbericht. Er klinkt geen alarm.');
+  expect(operationManual).toContain("id: 'dispatch-correct-arrival'");
+  expect(operationManual).toContain("permissions: ['deployments.dispatch.manage', 'status.override']");
+  expect(operationManual).toContain('De participantstatus voor deze inzet is vastgelegd.');
   expect(help).toContain('oneOfPermissions.some((permission) => access.permissions.has(permission))');
 });

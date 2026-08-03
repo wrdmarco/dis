@@ -92,8 +92,13 @@ final class DeploymentAccessService
                                 ->where(function (Builder $normal) use ($userId): void {
                                     $normal
                                         ->where('is_test', false)
-                                        ->whereHas('dispatchRequests', function (Builder $dispatches) use ($userId): void {
-                                            $this->scopeActiveOperatorDispatches($dispatches, $userId);
+                                        ->where(function (Builder $participation) use ($userId): void {
+                                            $participation
+                                                ->whereHas('dispatchRequests', function (Builder $dispatches) use ($userId): void {
+                                                    $this->scopeActiveOperatorDispatches($dispatches, $userId);
+                                                })
+                                                ->orWhereHas('pilotAssignments', fn (Builder $assignments) => $assignments
+                                                    ->where('user_id', $userId));
                                         });
                                 })
                                 ->orWhere(function (Builder $test) use ($userId): void {
@@ -111,11 +116,16 @@ final class DeploymentAccessService
                     $closed
                         ->whereIn('status', self::TERMINAL_DEPLOYMENT_STATUSES)
                         ->where('is_test', false)
-                        ->whereHas('dispatchRequests', fn (Builder $dispatches) => $dispatches
-                            ->whereIn('status', self::ATTENDANCE_DISPATCH_STATUSES)
-                            ->whereHas('recipients', fn (Builder $recipients) => $recipients
-                                ->where('user_id', $userId)
-                                ->where('response_status', 'accepted')))
+                        ->where(function (Builder $participation) use ($userId): void {
+                            $participation
+                                ->whereHas('dispatchRequests', fn (Builder $dispatches) => $dispatches
+                                    ->whereIn('status', self::ATTENDANCE_DISPATCH_STATUSES)
+                                    ->whereHas('recipients', fn (Builder $recipients) => $recipients
+                                        ->where('user_id', $userId)
+                                        ->where('response_status', 'accepted')))
+                                ->orWhereHas('pilotAssignments', fn (Builder $assignments) => $assignments
+                                    ->where('user_id', $userId));
+                        })
                         ->whereDoesntHave('pilotReports', fn (Builder $reports) => $reports
                             ->where('user_id', $userId)
                             ->whereNotNull('finalized_at'));
@@ -202,6 +212,12 @@ final class DeploymentAccessService
                         ->whereHas('recipients', fn (Builder $recipients) => $recipients
                             ->where('user_id', $userId)
                             ->whereIn('response_status', ['pending', 'accepted']));
+                })
+                ->orWhere(function (Builder $manualParticipation) use ($userId): void {
+                    $manualParticipation
+                        ->whereIn('status', self::ATTENDANCE_DISPATCH_STATUSES)
+                        ->whereHas('deployment.pilotAssignments', fn (Builder $assignments) => $assignments
+                            ->where('user_id', $userId));
                 });
         });
     }

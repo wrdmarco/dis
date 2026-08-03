@@ -53,7 +53,12 @@ final class DeploymentReportService
      */
     public function data(Deployment $deployment, bool $preserveExistingMaps = false): array
     {
-        $deployment->loadMissing(['creator', 'coordinator', 'team']);
+        $deployment->loadMissing([
+            'creator',
+            'coordinator',
+            'team',
+            'pilotAssignments.user' => fn ($query) => $query->withTrashed(),
+        ]);
         $dispatches = $deployment->dispatchRequests()
             ->with([
                 'targetTeam',
@@ -63,7 +68,8 @@ final class DeploymentReportService
             ->oldest()
             ->get();
 
-        $travelRows = $this->travelRows($dispatches);
+        $travelRows = $this->travelRows($deployment, $dispatches);
+        $dispatchTravelRows = $travelRows->where('source', 'dispatch');
         $timeline = $this->timeline($deployment, $dispatches);
         $droneFlightContext = $deployment->drone_flight_context ?? $this->droneFlightContextService->previewForDeployment($deployment);
         $pilotReports = $deployment->pilotReports()
@@ -83,10 +89,12 @@ final class DeploymentReportService
             'map' => $this->mapData($deployment, is_array($droneFlightContext) ? $droneFlightContext : null, $preserveExistingMaps),
             'droneFlightContext' => $droneFlightContext,
             'summary' => [
-                'recipients' => $travelRows->count(),
-                'accepted' => $travelRows->where('response_status', 'accepted')->count(),
-                'declined' => $travelRows->where('response_status', 'declined')->count(),
-                'no_response' => $travelRows->whereIn('response_status', ['pending', 'no_response'])->count(),
+                // Alarm statistics remain dispatch-only. A manual link is
+                // participation, but never an alarm delivery or response.
+                'recipients' => $dispatchTravelRows->count(),
+                'accepted' => $dispatchTravelRows->where('response_status', 'accepted')->count(),
+                'declined' => $dispatchTravelRows->where('response_status', 'declined')->count(),
+                'no_response' => $dispatchTravelRows->whereIn('response_status', ['pending', 'no_response'])->count(),
                 'en_route' => $travelRows->whereNotNull('en_route_at')->count(),
                 'on_scene' => $travelRows->whereNotNull('on_scene_at')->count(),
             ],
@@ -716,12 +724,20 @@ final class DeploymentReportService
             ->whereIn('status', ['sent', 'escalated'])
             ->get();
 
-        return $dispatches
+        $dispatchParticipantUserIds = $dispatches
             ->flatMap(fn (DispatchRequest $dispatch) => $dispatch->recipients)
             ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted'
                 && is_string($recipient->user_id)
                 && $recipient->user_id !== '')
             ->pluck('user_id')
+            ->values();
+        $manualParticipantUserIds = $deployment->pilotAssignments()
+            ->whereNotNull('user_id')
+            ->pluck('user_id');
+
+        return $dispatchParticipantUserIds
+            ->merge($manualParticipantUserIds)
+            ->map(fn (mixed $userId): string => (string) $userId)
             ->unique()
             ->values();
     }
@@ -730,19 +746,28 @@ final class DeploymentReportService
      * @param  Collection<int, DispatchRequest>  $dispatches
      * @return Collection<int, array<string, mixed>>
      */
-    private function travelRows(Collection $dispatches): Collection
+    private function travelRows(Deployment $deployment, Collection $dispatches): Collection
     {
+        $manualAssignments = $deployment->pilotAssignments;
         $userIds = $dispatches
             ->flatMap(fn (DispatchRequest $dispatch) => $dispatch->recipients->pluck('user_id'))
+            ->merge($manualAssignments->pluck('user_id'))
+            ->filter(fn (mixed $userId): bool => is_string($userId) && $userId !== '')
             ->unique()
             ->values();
 
-        $firstNotifiedAt = $dispatches
+        $firstParticipationAt = $dispatches
             ->flatMap(fn (DispatchRequest $dispatch) => $dispatch->recipients->map(fn ($recipient): array => [
                 'user_id' => $recipient->user_id,
                 'started_at' => $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at,
             ]))
-            ->filter(fn (array $row): bool => $row['started_at'] !== null)
+            ->concat($manualAssignments->map(fn ($assignment): array => [
+                'user_id' => $assignment->user_id,
+                'started_at' => $assignment->assigned_at ?? $assignment->created_at,
+            ]))
+            ->filter(fn (array $row): bool => is_string($row['user_id'])
+                && $row['user_id'] !== ''
+                && $row['started_at'] !== null)
             ->groupBy('user_id')
             ->map(fn (Collection $rows) => $rows->pluck('started_at')->min());
 
@@ -756,15 +781,16 @@ final class DeploymentReportService
                 ->get()
                 ->groupBy('user_id');
 
-        return $dispatches
-            ->flatMap(fn (DispatchRequest $dispatch) => $dispatch->recipients->map(function ($recipient) use ($dispatch, $firstNotifiedAt, $statusesByUser): array {
-                $startedAt = $firstNotifiedAt->get($recipient->user_id) ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at;
+        $dispatchRows = $dispatches
+            ->flatMap(fn (DispatchRequest $dispatch) => $dispatch->recipients->map(function ($recipient) use ($dispatch, $firstParticipationAt, $statusesByUser): array {
+                $startedAt = $firstParticipationAt->get($recipient->user_id) ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at;
                 $userStatuses = $statusesByUser->get($recipient->user_id, collect())
                     ->filter(fn (AvailabilityStatus $status): bool => $startedAt === null || $status->effective_at?->greaterThanOrEqualTo($startedAt) === true);
                 $enRoute = $userStatuses->firstWhere('status', 'en_route');
                 $onScene = $userStatuses->firstWhere('status', 'on_scene');
 
                 return [
+                    'source' => 'dispatch',
                     'dispatch' => $dispatch,
                     'user' => $recipient->user,
                     'user_name' => $this->recipientName($recipient),
@@ -779,7 +805,36 @@ final class DeploymentReportService
                     'drive_minutes' => $this->minutesBetween($enRoute?->effective_at, $onScene?->effective_at),
                     'total_minutes' => $this->minutesBetween($recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at, $onScene?->effective_at),
                 ];
-            }))
+            }));
+        $manualRows = $manualAssignments->map(function ($assignment) use ($firstParticipationAt, $statusesByUser): array {
+            $startedAt = $firstParticipationAt->get($assignment->user_id) ?? $assignment->assigned_at ?? $assignment->created_at;
+            $userStatuses = $statusesByUser->get($assignment->user_id, collect())
+                ->filter(fn (AvailabilityStatus $status): bool => $startedAt === null || $status->effective_at?->greaterThanOrEqualTo($startedAt) === true);
+            $enRoute = $userStatuses->firstWhere('status', 'en_route');
+            $onScene = $userStatuses->firstWhere('status', 'on_scene');
+
+            return [
+                'source' => 'manual',
+                'dispatch' => null,
+                'user' => $assignment->user,
+                'user_name' => $assignment->user?->name ?? $assignment->user_name ?? 'Verwijderde gebruiker',
+                'user_email' => $assignment->user?->email ?? $assignment->user_email,
+                'response_status' => 'manual',
+                'response_note' => $assignment->reason,
+                // No alarm was sent and no response was recorded. Keep both
+                // timestamps empty instead of presenting the link as a push.
+                'notified_at' => null,
+                'responded_at' => null,
+                'en_route_at' => $enRoute?->effective_at,
+                'on_scene_at' => $onScene?->effective_at,
+                'response_minutes' => null,
+                'drive_minutes' => $this->minutesBetween($enRoute?->effective_at, $onScene?->effective_at),
+                'total_minutes' => null,
+            ];
+        });
+
+        return $dispatchRows
+            ->concat($manualRows)
             ->sortBy(fn (array $row) => strtolower((string) ($row['user_name'] ?? '')))
             ->values();
     }
@@ -866,6 +921,13 @@ final class DeploymentReportService
                 'user_id' => $recipient->user_id,
                 'started_at' => $recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at,
             ]))
+            ->concat($deployment->pilotAssignments()
+                ->whereNotNull('user_id')
+                ->get(['user_id', 'assigned_at', 'created_at'])
+                ->map(fn ($assignment): array => [
+                    'user_id' => $assignment->user_id,
+                    'started_at' => $assignment->assigned_at ?? $assignment->created_at,
+                ]))
             ->filter(fn (array $recipient): bool => $recipient['started_at'] !== null)
             ->groupBy('user_id')
             ->map(fn (Collection $recipients) => $recipients->pluck('started_at')->min());

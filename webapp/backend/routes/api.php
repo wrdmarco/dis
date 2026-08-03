@@ -24,6 +24,7 @@ use App\Http\Controllers\CalendarGroupController;
 use App\Http\Controllers\CertificationController;
 use App\Http\Controllers\DeploymentController;
 use App\Http\Controllers\DeploymentFormController;
+use App\Http\Controllers\DeploymentPilotController;
 use App\Http\Controllers\DeploymentRequestController;
 use App\Http\Controllers\DeploymentRequestWorkflowController;
 use App\Http\Controllers\DeveloperDispatchDiagnosticsController;
@@ -206,6 +207,21 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/deployments/{deployment}/dispatches', [DispatchController::class, 'deploymentDispatches'])
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::get('/deployments/{deployment}/pilots', [DeploymentPilotController::class, 'index'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.dispatch.view,deployments.dispatch.manage', 'throttle:alarm-read']);
+        Route::get('/deployments/{deployment}/pilot-candidates', [DeploymentPilotController::class, 'candidates'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-read']);
+        Route::post('/deployments/{deployment}/pilots', [DeploymentPilotController::class, 'store'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:operational-action']);
+        Route::post('/deployments/{deployment}/pilots/{pilot}/status', [DeploymentPilotController::class, 'updateStatus'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.dispatch.manage,status.override', 'throttle:operational-action']);
+        Route::delete('/deployments/{deployment}/pilots/{assignment}', [DeploymentPilotController::class, 'destroy'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:operational-action']);
         Route::get('/deployments/{deployment}/live-locations', [LocationController::class, 'liveLocations'])
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);

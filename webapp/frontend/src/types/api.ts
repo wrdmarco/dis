@@ -1320,6 +1320,41 @@ export interface DispatchRecipient {
   user?: User;
 }
 
+export interface DeploymentPilotUser {
+  id: string | null;
+  name: string;
+  email: string | null;
+  account_status: User['account_status'];
+  push_enabled: boolean;
+  max_operator_devices: number;
+  two_factor_enabled: boolean;
+  teams: Team[];
+  statuses: AvailabilityStatus[];
+}
+
+export interface DeploymentPilot {
+  id: string;
+  user_id: string | null;
+  source: 'dispatch' | 'manual';
+  linked_at: string;
+  user: DeploymentPilotUser;
+}
+
+export interface DeploymentPilotCandidate {
+  id: string;
+  name: string;
+  email: string;
+  teams?: Team[];
+  statuses?: AvailabilityStatus[];
+}
+
+export interface DeploymentPilotLinkResult extends DeploymentPilot {
+  notification_queued_tokens?: number;
+  notification?: {
+    queued_tokens?: number;
+  } | null;
+}
+
 export interface DispatchPreview {
   team: Pick<Team, 'id' | 'code' | 'name'> | null;
   teams?: Array<Pick<Team, 'id' | 'code' | 'name'>>;
