@@ -195,6 +195,7 @@ log "Stopping and disabling DIS services"
 # Legacy backup entries remain here so uninstall also cleans hosts upgraded from
 # releases that installed the retired standalone backup helpers.
 for service in dis-media dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-scheduler dis-websocket dis-osrm dis-deployment-enrichment dis-incident-enrichment dis-knmi dis-knmi-realtime \
+  dis-storage-metrics.timer dis-storage-metrics \
   dis-osrm-admin-request.timer dis-osrm-admin-request.path dis-osrm-admin-request \
   dis-backup-request.timer dis-backup-request.path dis-backup-request \
   dis-backup-mount dis-backup.timer dis-backup; do
@@ -215,6 +216,8 @@ for unit in \
   /etc/systemd/system/dis-scheduler.service \
   /etc/systemd/system/dis-websocket.service \
   /etc/systemd/system/dis-frontend.service \
+  /etc/systemd/system/dis-storage-metrics.service \
+  /etc/systemd/system/dis-storage-metrics.timer \
   /etc/systemd/system/dis-osrm.service \
   /etc/systemd/system/dis-osrm-admin-request.service \
   /etc/systemd/system/dis-osrm-admin-request.path \
@@ -245,6 +248,7 @@ run_cmd rm -f -- \
   /usr/local/bin/dis-backup-verify \
   /usr/local/bin/dis-backup-restore \
   /usr/local/bin/dis-snapshot-backup-input \
+  /usr/local/bin/dis-storage-usage-snapshot \
   /usr/local/bin/dis-osrm-admin-request-worker \
   /usr/local/bin/dis-update-runner
 if [ -d "${OSRM_ADMIN_RUNTIME_DIR}" ] && [ ! -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; then
@@ -254,6 +258,11 @@ elif [ -e "${OSRM_ADMIN_RUNTIME_DIR}" ] || [ -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; t
 fi
 run_cmd rmdir "${OSRM_ADMIN_RUNTIME_PARENT}" >/dev/null 2>&1 || true
 run_cmd rm -f -- /var/log/dis/osrm-status.json
+if [ -d /var/lib/dis-system-metrics ] && [ ! -L /var/lib/dis-system-metrics ]; then
+  secure_path_operation remove-tree /var/lib/dis-system-metrics
+elif [ -e /var/lib/dis-system-metrics ] || [ -L /var/lib/dis-system-metrics ]; then
+  run_cmd rm -f -- /var/lib/dis-system-metrics
+fi
 
 if command -v apt-mark >/dev/null 2>&1; then
   for held_package in podman fuse-overlayfs osrm-backend osmium-tool; do

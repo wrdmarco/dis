@@ -592,6 +592,8 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/admin/system/version', [AdminDeveloperController::class, 'version'])->middleware('permission:system.health.view');
         Route::get('/admin/system/metrics', [HealthController::class, 'metrics'])
             ->middleware(['permission:system.health.view', 'throttle:system-metrics']);
+        Route::get('/admin/system/data-usage', [HealthController::class, 'dataUsage'])
+            ->middleware(['web.client', 'permission:system.health.view', 'throttle:system-metrics']);
         Route::get('/admin/system/logs', [AdminSystemLogController::class, 'index'])
             ->middleware(['web.client', 'permission:system.logs.view', 'throttle:system-logs']);
         Route::get('/admin/system/logs/latest', [AdminSystemLogController::class, 'latest'])

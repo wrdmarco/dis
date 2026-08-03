@@ -146,6 +146,7 @@ Broncode en persistente status zijn bewust gescheiden:
 | sleutelgeneratiemarkering | `/opt/dis-data/secrets/backup-encryption.key.generation-v2` |
 | gegenereerde Nginx-configuratie | `/opt/dis-data/storage/generated/nginx/dis.conf` |
 | OSRM-data | `/opt/dis-data/osrm` |
+| gesaneerde opslagmeting | `/var/lib/dis-system-metrics/storage-usage.json` |
 | update-runnerlog | `/var/log/dis/system-update-runner.log` |
 
 De root-[`.env.example`](.env.example) documenteert de lifecycle- en basisproductieconfiguratie. Aanvullende Laraveldefaults staan in [`webapp/backend/.env.example`](webapp/backend/.env.example); veel daarvan worden in productie database-backed via het beheerpaneel ingesteld. Controleer in ieder geval:
@@ -158,6 +159,12 @@ De root-[`.env.example`](.env.example) documenteert de lifecycle- en basisproduc
 - opslag- en back-upinstellingen.
 
 Veel functionele instellingen worden database-backed vanuit het beheerpaneel beheerd, waaronder rollen, formulieren, pushproviders, storelinks, retentie, wallboards en back-ups. Bewaar secrets nooit in Git, documentatie, issues of onbeveiligde logs.
+
+### Gesaneerd opslagoverzicht
+
+Een afgeschermde root-service meet elk uur de toegewezen schijfblokken van een vaste lijst directe mappen onder `/opt/dis-data`. De eerste meting start kort nadat de timer is geactiveerd. Alleen `backup`, `backup-imports`, `backup-requests`, `backup-request-work`, `legacy-backup-state`, `osrm`, `osrm-admin`, `playwright-browsers`, `storage` en `webapp` kunnen als vaste, veilige identifiers in het versie-1-snapshot verschijnen. Ontbrekende mappen worden overgeslagen.
+
+De collector volgt geen symbolische links, verlaat het filesystem van `/opt/dis-data` niet en publiceert uitsluitend een UTC-meettijd plus byte-aantallen. De map met secrets, onbekende directe mappen, onderliggende namen, paden, eigenaren en foutdetails worden nooit gepubliceerd. Het resultaat wordt atomisch als root aangemaakt en is voor PHP-FPM alleen-lezen. Omdat dit toegewezen blokken binnen `/opt/dis-data` zijn, hoeft de som niet gelijk te zijn aan het totale gebruik van het onderliggende volume.
 
 ## Beveiligingsmodel
 
@@ -187,6 +194,7 @@ Naast Nginx, PHP-FPM, PostgreSQL en Redis installeert D.I.S. deze normale system
 | `dis-media` | media-inspectie en transcodering |
 | `dis-scheduler` | Laravel-scheduler |
 | `dis-deployment-enrichment` | locatieclassificatie van inzetten |
+| `dis-storage-metrics.timer` | ieder uur een gesaneerde, alleen-lezen opslagmeting publiceren |
 | `dis-backup-request.path` en `.timer` | afgeschermde back-up-/restorebroker |
 | `dis-osrm-admin-request.path` en `.timer` | afgeschermde OSRM-beheerbroker |
 | `dis-osrm` | optionele lokale routeringsservice |

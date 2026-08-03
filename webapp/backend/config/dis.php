@@ -80,6 +80,13 @@ return [
     ],
     'system_metrics' => [
         'disk_path' => env('DIS_DATA_PATH', '/opt/dis-data'),
+        'data_usage' => [
+            'snapshot_path' => env(
+                'SYSTEM_DATA_USAGE_SNAPSHOT_PATH',
+                '/var/lib/dis-system-metrics/storage-usage.json',
+            ),
+            'stale_after_seconds' => (int) env('SYSTEM_DATA_USAGE_STALE_AFTER_SECONDS', 10_800),
+        ],
     ],
     'system_logs' => [
         // Keep the browser log viewer on the canonical Laravel log directory.

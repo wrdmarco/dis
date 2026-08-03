@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
 use App\Models\SystemSetting;
+use App\Services\SystemDataUsageService;
 use App\Services\SystemMetricsService;
 use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
@@ -14,7 +15,10 @@ use Illuminate\Support\Facades\Storage;
 
 final class HealthController extends Controller
 {
-    public function __construct(private readonly SystemMetricsService $systemMetrics) {}
+    public function __construct(
+        private readonly SystemMetricsService $systemMetrics,
+        private readonly SystemDataUsageService $systemDataUsage,
+    ) {}
 
     public function public(): JsonResponse
     {
@@ -58,6 +62,12 @@ final class HealthController extends Controller
             'generated_at' => ApiDateTime::now(),
             ...$this->systemMetrics->snapshot(),
         ])->header('Cache-Control', 'no-store, private');
+    }
+
+    public function dataUsage(): JsonResponse
+    {
+        return ApiResponse::success($this->systemDataUsage->snapshot())
+            ->header('Cache-Control', 'no-store, private');
     }
 
     public function websocket(): JsonResponse

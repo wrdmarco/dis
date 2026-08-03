@@ -1,0 +1,145 @@
+.snapshotStatus {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 999px;
+  background: var(--dis-surface-3);
+  padding: 4px 10px;
+  color: var(--dis-muted-strong);
+  font-size: 0.76rem;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.snapshotStatus[data-stale="true"] {
+  border-color: color-mix(in srgb, var(--dis-warning) 38%, var(--dis-border));
+  background: var(--dis-warning-soft);
+  color: var(--dis-warning);
+}
+
+.dataUsage {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.introduction {
+  margin: 0;
+  color: var(--dis-muted-strong);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.securityNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 28%, var(--dis-border));
+  border-radius: 8px;
+  background: var(--dis-blue-soft);
+  padding: 10px 12px;
+  color: var(--dis-muted-strong);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.securityNote svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--dis-blue);
+}
+
+.tableFrame {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-field);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--dis-border);
+  padding: 11px 13px;
+}
+
+.table thead th {
+  background: var(--dis-surface-2);
+  color: var(--dis-muted-strong);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.table thead th:last-child {
+  text-align: right;
+}
+
+.table tbody tr:last-child th,
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.directoryCell {
+  min-width: 0;
+  color: var(--dis-text-strong);
+  font-size: 0.88rem;
+  font-weight: 720;
+  text-align: left;
+}
+
+.directoryCell span,
+.directoryCell small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.directoryCell small {
+  margin-top: 3px;
+  color: var(--dis-muted);
+  font-size: 0.75rem;
+  font-weight: 520;
+  line-height: 1.35;
+}
+
+.sizeColumn {
+  width: 11rem;
+}
+
+.sizeCell {
+  color: var(--dis-text-strong);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .snapshotStatus {
+    white-space: normal;
+  }
+
+  .dataUsage {
+    padding: 12px;
+  }
+
+  .table th,
+  .table td {
+    padding: 10px;
+  }
+
+  .sizeColumn {
+    width: 7.75rem;
+  }
+}

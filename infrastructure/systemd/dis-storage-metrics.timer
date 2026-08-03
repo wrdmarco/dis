@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh DIS sanitized storage usage hourly
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=1h
+AccuracySec=1min
+RandomizedDelaySec=30s
+Unit=dis-storage-metrics.service
+
+[Install]
+WantedBy=timers.target

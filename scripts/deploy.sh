@@ -428,6 +428,7 @@ if id www-data >/dev/null 2>&1; then
 fi
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
 run_cmd install -m 0755 "${APP_ROOT}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
+run_cmd install -m 0755 "${APP_ROOT}/scripts/storage-usage-snapshot.py" /usr/local/bin/dis-storage-usage-snapshot
 install_osrm_admin_runtime_bundle "${APP_ROOT}"
 remove_legacy_backup_entrypoints
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/security.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-security.ini"
@@ -442,6 +443,8 @@ run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-deployment-enric
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service" /etc/systemd/system/dis-frontend.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-storage-metrics.service" /etc/systemd/system/dis-storage-metrics.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-storage-metrics.timer" /etc/systemd/system/dis-storage-metrics.timer
 install_backup_request_systemd_units "${APP_ROOT}"
 install_osrm_admin_layout
 install_osrm_admin_request_systemd_units "${APP_ROOT}"
@@ -464,8 +467,10 @@ run_cmd systemctl daemon-reload
 run_cmd systemctl enable \
   dis-push@1 dis-push@2 dis-push@3 dis-push@4 \
   dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment \
+  dis-storage-metrics.timer \
   dis-backup-request.path dis-backup-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer
+run_cmd systemctl start dis-storage-metrics.timer
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" publish-status
 

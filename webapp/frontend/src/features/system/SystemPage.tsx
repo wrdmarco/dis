@@ -1,11 +1,11 @@
-import { Cpu, HardDrive, MemoryStick, Radio } from 'lucide-react';
+import { Cpu, HardDrive, MemoryStick, Radio, ShieldCheck } from 'lucide-react';
 import { type ReactNode, useEffect, useId, useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { SystemMetrics } from '../../types/api';
+import type { SystemDataUsage, SystemDataUsageDirectory, SystemMetrics } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import {
   appendSystemMetricSample,
@@ -16,6 +16,7 @@ import {
   type SystemMetricHistorySample,
 } from './systemMetricsPresentation';
 import { startSystemMetricsPolling } from './systemMetricsPolling';
+import styles from './SystemPage.module.css';
 
 interface Health {
   status?: string;
@@ -63,6 +64,7 @@ interface LiveSystemMetricsState {
 export function SystemPage() {
   const health = useApiResource<Health>('/admin/health');
   const websocket = useApiResource<Record<string, unknown>>('/admin/websocket-status');
+  const dataUsage = useApiResource<SystemDataUsage>('/admin/system/data-usage');
   const metrics = useLiveSystemMetrics();
   const services = health.data?.services ?? {};
   const uptimeSeconds = metrics.data?.uptime_seconds ?? services.backend?.uptime_seconds;
@@ -139,6 +141,19 @@ export function SystemPage() {
         </ResourceState>
       </Panel>
 
+      <Panel
+        title="Gegevensopslag"
+        action={<DataUsageStatus data={dataUsage.data} />}
+      >
+        <ResourceState
+          loading={dataUsage.loading}
+          error={dataUsage.error}
+          empty={(dataUsage.data?.directories.length ?? 0) === 0}
+        >
+          {dataUsage.data ? <DataUsageTable directories={dataUsage.data.directories} /> : null}
+        </ResourceState>
+      </Panel>
+
       <Panel title="WebSocket">
         <ResourceState loading={websocket.loading} error={websocket.error} empty={!websocket.data}>
           <pre>{JSON.stringify(websocket.data, null, 2)}</pre>
@@ -207,6 +222,66 @@ function LiveMetricStatus({ data, error }: { data: SystemMetrics | null; error: 
       <Radio aria-hidden size={15} />
       {label}
     </span>
+  );
+}
+
+function DataUsageStatus({ data }: { data: SystemDataUsage | null }) {
+  if (data === null) {
+    return null;
+  }
+
+  if (data.generated_at === null) {
+    return <span className={styles.snapshotStatus} role="status">Nog geen momentopname</span>;
+  }
+
+  return (
+    <span className={styles.snapshotStatus} data-stale={data.stale ? 'true' : undefined} role={data.stale ? 'status' : undefined}>
+      {data.stale ? 'Verouderde momentopname' : 'Elk uur vernieuwd'}
+      <span aria-hidden> · </span>
+      <time dateTime={data.generated_at}>{formatDateTime(data.generated_at)}</time>
+    </span>
+  );
+}
+
+function DataUsageTable({ directories }: { directories: SystemDataUsageDirectory[] }) {
+  const securityNoteId = useId();
+
+  return (
+    <div className={styles.dataUsage}>
+      <p className={styles.introduction}>
+        Momentopname van de directe hoofdmappen in de DIS-gegevensopslag. De mapgroottes worden elk uur vernieuwd.
+      </p>
+      <p className={styles.securityNote} id={securityNoteId}>
+        <ShieldCheck aria-hidden size={18} />
+        <span>Alleen veilige maplabels en totalen worden getoond. Paden en bestandsnamen blijven verborgen.</span>
+      </p>
+      <div className={styles.tableFrame}>
+        <table className={styles.table} aria-describedby={securityNoteId}>
+          <caption className="sr-only">Omvang van de hoofdmappen in de gegevensopslag</caption>
+          <colgroup>
+            <col />
+            <col className={styles.sizeColumn} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Map</th>
+              <th scope="col">Omvang</th>
+            </tr>
+          </thead>
+          <tbody>
+            {directories.map((directory) => (
+              <tr key={directory.name}>
+                <th className={styles.directoryCell} scope="row">
+                  <span>{directory.label}</span>
+                  {directory.description ? <small>{directory.description}</small> : null}
+                </th>
+                <td className={styles.sizeCell}>{formatSystemBytes(directory.size_bytes)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

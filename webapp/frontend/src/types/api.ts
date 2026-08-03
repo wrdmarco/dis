@@ -1740,6 +1740,19 @@ export interface SystemMetrics {
   };
 }
 
+export interface SystemDataUsageDirectory {
+  name: string;
+  label: string;
+  description: string;
+  size_bytes: number;
+}
+
+export interface SystemDataUsage {
+  generated_at: string | null;
+  stale: boolean;
+  directories: SystemDataUsageDirectory[];
+}
+
 export type QueueMonitorFilter = 'all' | 'push';
 
 export type QueueMonitorState =

@@ -621,6 +621,7 @@ const helpTopics: readonly HelpTopic[] = [
     permissions: ['system.health.view'],
     actions: [
       { title: 'Zelfcontrole bekijken', description: 'Bekijk de algemene status, de tijd dat de server actief is en het controletijdstip. DIS test de database, cache en lokale opslag.' },
+      { title: 'Gegevensopslag bekijken', description: 'Bekijk de omvang van goedgekeurde gegevensmappen in een momentopname die elk uur wordt vernieuwd. Bestandsnamen en paden blijven verborgen.' },
       { title: 'Instellingen controleren', description: 'Bekijk welke achtergrond- en liveverbinding zijn ingesteld en of de gegevens voor pushmeldingen aanwezig zijn.' },
       { title: 'Grenzen van de controle', description: 'Dit scherm bewijst niet dat achtergrondtaken worden verwerkt of dat een liveverbinding echt werkt. Herlaad de browserpagina voor een nieuwe controle.' },
     ],
