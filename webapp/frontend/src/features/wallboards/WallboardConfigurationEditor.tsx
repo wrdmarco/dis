@@ -1432,7 +1432,7 @@ function WallboardPageEditor({
               aria-pressed={forecastLocationMode === 'netherlands'}
               onClick={() => updateForecastLocationMode('netherlands')}
             >
-              UAV Nederland
+              Nederland
             </button>
             <button
               type="button"
@@ -1498,7 +1498,7 @@ function WallboardPageEditor({
             </div>
           ) : (
             <p className="wallboard-page-editor__note">
-              UAV Nederland combineert het actuele vliegweer voor alle Nederlandse provincies tot één landelijk overzicht.
+              Nederland combineert het actuele vliegweer voor alle Nederlandse provincies tot één landelijk overzicht.
             </p>
           )}
           <fieldset

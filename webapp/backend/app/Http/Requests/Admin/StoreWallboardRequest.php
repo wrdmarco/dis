@@ -264,7 +264,7 @@ final class StoreWallboardRequest extends FormRequest
         $field = "configuration.pages.{$pageIndex}.options";
 
         if (! is_string($mode) || ! in_array($mode, WallboardConfiguration::FORECAST_LOCATION_MODES, true)) {
-            $validator->errors()->add("{$field}.location_mode", 'Kies UAV Nederland of een gezocht adres.');
+            $validator->errors()->add("{$field}.location_mode", 'Kies Nederland of een gezocht adres.');
         } elseif ($hasMode && (array_key_exists('latitude', $options) || array_key_exists('longitude', $options))) {
             $validator->errors()->add($field, 'Coördinaten worden server-side uit de gekozen locatie bepaald.');
         } elseif ($mode === 'address'
@@ -273,7 +273,7 @@ final class StoreWallboardRequest extends FormRequest
         } elseif ($mode === WallboardConfiguration::DEFAULT_FORECAST_LOCATION_MODE
             && $hasMode
             && array_key_exists('location_label', $options)) {
-            $validator->errors()->add("{$field}.location_label", 'UAV Nederland gebruikt automatisch alle Nederlandse provincies.');
+            $validator->errors()->add("{$field}.location_label", 'Nederland gebruikt automatisch alle Nederlandse provincies.');
         }
     }
 

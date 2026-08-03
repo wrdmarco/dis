@@ -1022,8 +1022,9 @@ export function normalizeWallboardForecastPageOptions(page: WallboardPage): Wall
     : page.options.location_mode === 'netherlands'
       ? 'netherlands'
       : null;
+  const isNationalLocationLabel = label === 'Nederland' || label === 'UAV Nederland';
   const locationMode: WallboardForecastLocationMode = explicitMode
-    ?? (label !== '' && label !== 'UAV Nederland' ? 'address' : DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE);
+    ?? (label !== '' && !isNationalLocationLabel ? 'address' : DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE);
   const suppliedBlocks = Array.isArray(page.options.visible_blocks)
     ? page.options.visible_blocks
     : null;

@@ -63,7 +63,7 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
   return {
     location: {
       mode: 'netherlands',
-      label: 'UAV Nederland',
+      label: 'Nederland',
       latitude: 52.2,
       longitude: 5.3,
     },
@@ -808,7 +808,7 @@ test('keeps all twelve forecast blocks in a four-by-three grid at Full HD and Ul
             <section class="wallboard-display__forecast-advice wallboard-display__forecast-advice--unknown">
               <span aria-hidden="true">☁</span>
               <div class="wallboard-display__forecast-advice-copy">
-                <small>Vliegadvies · UAV Nederland</small><h2>Advies onvolledig</h2>
+                <small>Vliegadvies · Nederland</small><h2>Advies onvolledig</h2>
                 <p>Minimaal één noodzakelijke waarde ontbreekt of is verouderd.</p>
                 <span class="wallboard-display__forecast-scope">Gemiddelde van 12/12 provincies</span>
               </div>

@@ -10,7 +10,6 @@ import ImageStatic from 'ol/source/ImageStatic.js';
 import XYZ from 'ol/source/XYZ.js';
 import {
   AlertTriangle,
-  LocateFixed,
   Maximize2,
   Minimize2,
   Minus,
@@ -18,14 +17,22 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { OperationalWeatherRadarBounds, OperationalWeatherRadarKind } from '../../types/api';
+import type {
+  OperationalWeatherRadarBounds,
+  OperationalWeatherRadarKind,
+  WallboardForecastLocationMode,
+} from '../../types/api';
 import styles from './OperationalForecast.module.css';
+import {
+  radarMapViewKey,
+  radarMapViewTarget,
+  type RadarMapViewTarget,
+} from './radarMapView';
 
 const OPENSTREETMAP_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OPENSTREETMAP_ATTRIBUTION = 'Kaart: © OpenStreetMap-bijdragers';
 const OPENSTREETMAP_ATTRIBUTION_URL = 'https://www.openstreetmap.org/copyright';
 const REGIONAL_CENTER: [number, number] = [5.5, 52];
-const REGIONAL_VIEW_BOUNDS: [number, number, number, number] = [1, 49, 10, 55];
 
 interface LiveRadarMapProps {
   ariaLabel: string;
@@ -34,6 +41,7 @@ interface LiveRadarMapProps {
   interactive: boolean;
   kind: OperationalWeatherRadarKind;
   location: {
+    mode: WallboardForecastLocationMode;
     label: string;
     latitude: number | null;
     longitude: number | null;
@@ -53,11 +61,20 @@ export default function LiveRadarMap({
   const mapRef = useRef<Map | null>(null);
   const radarLayerRef = useRef<ImageLayer<ImageStatic> | null>(null);
   const hasRenderedImageRef = useRef(false);
+  const appliedLocationViewRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
   const [imageFailed, setImageFailed] = useState(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
+  const locationMode = location?.mode ?? null;
+  const locationLatitude = location?.latitude ?? null;
+  const locationLongitude = location?.longitude ?? null;
+  const locationViewKey = radarMapViewKey(radarMapViewTarget(
+    locationMode,
+    locationLatitude,
+    locationLongitude,
+  ));
 
   useEffect(() => {
     if (targetRef.current === null) return;
@@ -88,27 +105,46 @@ export default function LiveRadarMap({
     mapRef.current = map;
     radarLayerRef.current = radarLayer;
     hasRenderedImageRef.current = false;
+    appliedLocationViewRef.current = null;
     setImageLoading(true);
     setImageFailed(false);
     setMapReady(true);
 
-    const initialExtent = transformExtent(REGIONAL_VIEW_BOUNDS, 'EPSG:4326', 'EPSG:3857');
-    window.requestAnimationFrame(() => {
+    const initialViewFrame = window.requestAnimationFrame(() => {
       map.updateSize();
-      map.getView().fit(initialExtent, { padding: [24, 24, 24, 24], maxZoom: 8.2 });
     });
 
     const observer = new ResizeObserver(() => map.updateSize());
     observer.observe(target);
     return () => {
+      window.cancelAnimationFrame(initialViewFrame);
       observer.disconnect();
       map.setTarget(undefined);
       map.dispose();
       mapRef.current = null;
       radarLayerRef.current = null;
       hasRenderedImageRef.current = false;
+      appliedLocationViewRef.current = null;
     };
   }, [interactive, kind]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || appliedLocationViewRef.current === locationViewKey) return;
+    const animated = appliedLocationViewRef.current !== null;
+    appliedLocationViewRef.current = locationViewKey;
+    const viewFrame = window.requestAnimationFrame(() => {
+      if (mapRef.current !== map) return;
+      map.updateSize();
+      applyLocationView(
+        map.getView(),
+        radarMapViewTarget(locationMode, locationLatitude, locationLongitude),
+        animated,
+      );
+    });
+
+    return () => window.cancelAnimationFrame(viewFrame);
+  }, [kind, locationLatitude, locationLongitude, locationMode, locationViewKey]);
 
   useEffect(() => {
     const radarLayer = radarLayerRef.current;
@@ -161,24 +197,6 @@ export default function LiveRadarMap({
     view.animate({ zoom: zoom + delta, duration: motionDuration() });
   }, []);
 
-  const centerMap = useCallback(() => {
-    const map = mapRef.current;
-    if (map === null) return;
-    const view = map.getView();
-    if (location?.latitude !== null && location?.longitude !== null && location !== null) {
-      view.animate({
-        center: fromLonLat([location.longitude, location.latitude]),
-        zoom: Math.max(view.getZoom() ?? 7, 10),
-        duration: motionDuration(),
-      });
-      return;
-    }
-    view.fit(
-      transformExtent(REGIONAL_VIEW_BOUNDS, 'EPSG:4326', 'EPSG:3857'),
-      { padding: [28, 28, 28, 28], duration: motionDuration(), maxZoom: 8.2 },
-    );
-  }, [location]);
-
   const toggleFullscreen = useCallback(async () => {
     const wrapper = wrapperRef.current;
     if (wrapper === null) return;
@@ -213,16 +231,6 @@ export default function LiveRadarMap({
           </button>
           <button type="button" aria-label="Uitzoomen" disabled={!mapReady} onClick={() => zoomBy(-1)}>
             <Minus aria-hidden size={19} />
-          </button>
-          <button
-            type="button"
-            aria-label={location?.latitude !== null && location?.longitude !== null && location !== null
-              ? `Centreren op ${location.label}`
-              : 'Nederland en omliggende landen tonen'}
-            disabled={!mapReady}
-            onClick={centerMap}
-          >
-            <LocateFixed aria-hidden size={19} />
           </button>
           <button
             type="button"
@@ -261,6 +269,32 @@ export default function LiveRadarMap({
         {OPENSTREETMAP_ATTRIBUTION}
       </a>
     </div>
+  );
+}
+
+function applyLocationView(
+  view: View,
+  target: RadarMapViewTarget,
+  animated: boolean,
+): void {
+  if (target.kind === 'address') {
+    const center = fromLonLat([...target.center]);
+    if (animated) {
+      view.animate({ center, zoom: target.zoom, duration: motionDuration() });
+    } else {
+      view.setCenter(center);
+      view.setZoom(target.zoom);
+    }
+    return;
+  }
+
+  view.fit(
+    transformExtent([...target.bounds], 'EPSG:4326', 'EPSG:3857'),
+    {
+      padding: animated ? [28, 28, 28, 28] : [24, 24, 24, 24],
+      duration: animated ? motionDuration() : undefined,
+      maxZoom: 8.2,
+    },
   );
 }
 

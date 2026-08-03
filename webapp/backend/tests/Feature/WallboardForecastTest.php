@@ -617,7 +617,7 @@ final class WallboardForecastTest extends TestCase
         ])['forecast-netherlands'];
         $metrics = collect($forecast['metrics'])->keyBy('key');
 
-        $this->assertSame('UAV Nederland', $forecast['location']['label']);
+        $this->assertSame('Nederland', $forecast['location']['label']);
         $this->assertSame('province_average', $forecast['aggregation']['type']);
         $this->assertSame(12, $forecast['aggregation']['sample_count']);
         $this->assertSame(12, $forecast['aggregation']['expected_sample_count']);
@@ -940,7 +940,7 @@ final class WallboardForecastTest extends TestCase
     {
         return [
             'id' => 'forecast-netherlands',
-            'name' => 'UAV Nederland',
+            'name' => 'Nederland',
             'type' => 'uav_forecast',
             'duration_seconds' => 30,
             'options' => [

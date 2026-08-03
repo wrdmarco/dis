@@ -290,8 +290,8 @@ export const operationManualGuides = {
       permissions: ['operational-weather.view'],
       steps: [
         { label: 'Open Weer', description: 'Kies Weer in het menu onder Operatie.' },
-        { label: 'Kies het gebied', description: 'Laat UAV Nederland staan of kies Adres, vul een adres of plaatsnaam in en kies Toepassen.' },
-        { label: 'Gebruik de kaart', description: 'Sleep of zoom op de OpenStreetMap-achtergrondkaart van Nederland en de omliggende landen. Gebruik de locatieknop om op het gekozen adres te centreren.' },
+        { label: 'Kies het gebied', description: 'Laat Nederland staan of kies Adres, vul een adres of plaatsnaam in en kies Toepassen.' },
+        { label: 'Gebruik de kaart', description: 'De OpenStreetMap-achtergrondkaart toont automatisch heel Nederland of de gevonden plaats. Daarna kun je vrij slepen en zoomen.' },
         { label: 'Lees de tijdlijn', description: 'De verticale NU-markering scheidt gemeten beelden van de verwachting. Gebruik de schuifregelaar, Vorige, Volgende of Afspelen.' },
         { label: 'Bekijk de bliksemradar', description: 'Kies Bliksem. EUMETSAT LI toont total lightning als geaccumuleerd bliksemflitsgebied en onderscheidt wolk-grond en wolk-wolk niet.' },
         { label: 'Controleer bron en tijd', description: 'Lees per laag de bronnaam, geldige of gemeten tijd en eventuele beschikbaarheidsmelding.' },
@@ -309,7 +309,7 @@ export const operationManualGuides = {
       permissions: ['uav-forecast.view'],
       steps: [
         { label: 'Open UAV Forecast', description: 'Kies UAV Forecast in het menu onder Operatie.' },
-        { label: 'Kies het gebied', description: 'Gebruik UAV Nederland of kies Adres en laat de server het ingevoerde adres of de plaatsnaam vinden.' },
+        { label: 'Kies het gebied', description: 'Gebruik Nederland of kies Adres en laat de server het ingevoerde adres of de plaatsnaam vinden.' },
         { label: 'Lees het vliegadvies', description: 'Binnen standaarddrempels, Extra beoordeling vereist, Niet vliegen of Advies onvolledig is door de server bepaald.' },
         { label: 'Controleer iedere waarde', description: 'Lees status, waarde, toelichting, bron en meet- of modeltijd. Baseer een vluchtbesluit nooit alleen op de hoofdkleur.' },
         { label: 'Controleer reikwijdte en disclaimer', description: 'Lees welke gegevens wel en niet in de forecast zitten en betrek de actuele lokale omstandigheden.' },

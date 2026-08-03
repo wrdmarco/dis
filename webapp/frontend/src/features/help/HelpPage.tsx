@@ -309,8 +309,8 @@ const helpTopics: readonly HelpTopic[] = [
     href: '/weather',
     permissions: ['operational-weather.view'],
     actions: [
-      { title: 'Gebied kiezen', description: 'Gebruik UAV Nederland of vul een adres of plaatsnaam in. De server zoekt de locatie; je hoeft geen coördinaten in te voeren.' },
-      { title: 'Kaart bedienen', description: 'Bekijk Nederland en de omliggende landen op OpenStreetMap, zoek een locatie, sleep of zoom en centreer met de locatieknop.' },
+      { title: 'Gebied kiezen', description: 'Gebruik Nederland of vul een adres of plaatsnaam in. De server zoekt de locatie; je hoeft geen coördinaten in te voeren.' },
+      { title: 'Kaart bedienen', description: 'De kaart toont automatisch heel Nederland of de gekozen plaats. Daarna kun je vrij slepen en zoomen op OpenStreetMap.' },
       { title: 'Tijdlijn lezen', description: 'Gemeten en verwachte beelden staan aan weerszijden van de verticale NU-markering. Kies een tijdstap of gebruik Afspelen.' },
       { title: 'Bliksembeeld duiden', description: 'EUMETSAT LI toont total lightning als geaccumuleerd bliksemflitsgebied en maakt geen onderscheid tussen wolk-grond en wolk-wolk.' },
       { title: 'Actualiteit controleren', description: 'De pagina controleert iedere vijf minuten op nieuwe data. Controleer altijd de laagtijd, bronnaam en eventuele beschikbaarheidsmelding.' },
@@ -327,7 +327,7 @@ const helpTopics: readonly HelpTopic[] = [
     actions: [
       { title: 'Serveradvies eerst lezen', description: 'Lees het vliegadvies bovenaan. Ontbrekende of verouderde noodzakelijke data wordt nooit als groen getoond.' },
       { title: 'Waarden controleren', description: 'Bekijk daarna iedere standaardwaarde, de centrale status, uitleg, bron en meet- of modeltijd.' },
-      { title: 'Gebied wisselen', description: 'Kies UAV Nederland voor het landelijke beeld of zoek één adres voor een lokale berekening.' },
+      { title: 'Gebied wisselen', description: 'Kies Nederland voor het landelijke beeld of zoek één adres voor een lokale berekening.' },
       { title: 'Operationele afweging maken', description: 'Gebruik de forecast als beslisondersteuning en betrek de getoonde reikwijdte, disclaimer en actuele omstandigheden.' },
     ],
   },

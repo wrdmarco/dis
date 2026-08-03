@@ -66,7 +66,7 @@ export function ForecastLocationControl({
             type="radio"
             value="netherlands"
           />
-          UAV Nederland
+          Nederland
         </label>
         <label className={mode === 'address' ? styles.locationModeActive : undefined}>
           <input

@@ -27,6 +27,7 @@ import type {
   OperationalWeatherRadarKind,
   OperationalWeatherRadarState,
   OperationalWeatherRadarSource,
+  WallboardForecastLocationMode,
 } from '../../types/api';
 import styles from './OperationalForecast.module.css';
 import { useWeatherRadarPlayback, type WeatherRadarPlayback } from './useWeatherRadarPlayback';
@@ -49,6 +50,7 @@ export interface WeatherRadarSectionProps {
   active?: boolean;
   wallboard?: boolean;
   location?: {
+    mode: WallboardForecastLocationMode;
     label: string;
     latitude: number | null;
     longitude: number | null;

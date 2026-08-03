@@ -11,7 +11,7 @@ final class WallboardForecastLocationService
 
     public const MODE_ADDRESS = 'address';
 
-    public const NETHERLANDS_LABEL = 'UAV Nederland';
+    public const NETHERLANDS_LABEL = 'Nederland';
 
     public const NETHERLANDS_PROVINCE_COUNT = 12;
 

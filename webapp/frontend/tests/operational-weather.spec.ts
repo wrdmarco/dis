@@ -14,6 +14,11 @@ import {
   normalizeOperationalWeatherRadarState,
   normalizeUavForecastPage,
 } from '../src/features/weather/forecastNormalization';
+import {
+  NETHERLANDS_RADAR_VIEW_BOUNDS,
+  RADAR_ADDRESS_ZOOM,
+  radarMapViewTarget,
+} from '../src/features/weather/radarMapView';
 
 const navigation = readFileSync(new URL('../src/app/CommandLayout.tsx', import.meta.url), 'utf8');
 const weatherRoute = readFileSync(new URL('../app/weather/page.tsx', import.meta.url), 'utf8');
@@ -68,6 +73,22 @@ test('forecast queries use only a national scope or a normalized server-side add
   expect(resourceHook).not.toContain("parameters.set('longitude'");
 });
 
+test('radar view follows the selected scope instead of treating the Netherlands centroid as a place', () => {
+  expect(radarMapViewTarget('netherlands', 52.2, 5.3)).toEqual({
+    kind: 'netherlands',
+    bounds: NETHERLANDS_RADAR_VIEW_BOUNDS,
+  });
+  expect(radarMapViewTarget('address', 52.0894, 5.1101)).toEqual({
+    kind: 'address',
+    center: [5.1101, 52.0894],
+    zoom: RADAR_ADDRESS_ZOOM,
+  });
+  expect(radarMapViewTarget('address', null, 5.1101)).toEqual({
+    kind: 'netherlands',
+    bounds: NETHERLANDS_RADAR_VIEW_BOUNDS,
+  });
+});
+
 test('weather uses the fast live-radar endpoint without loading UAV forecast models', () => {
   expect(weatherPage).toContain('useForecastResource<OperationalWeatherRadarPageState>(');
   expect(weatherPage).toContain("'/operational-weather/radar'");
@@ -84,8 +105,7 @@ test('weather uses the fast live-radar endpoint without loading UAV forecast mod
   expect(radarSection).toContain('Buien- en bliksemradar');
   expect(radarSection).toContain("dynamic(() => import('./LiveRadarMap')");
   expect(liveRadarMap).toContain('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
-  expect(liveRadarMap).toContain('const REGIONAL_VIEW_BOUNDS: [number, number, number, number] = [1, 49, 10, 55];');
-  expect(liveRadarMap).toContain("transformExtent(REGIONAL_VIEW_BOUNDS, 'EPSG:4326', 'EPSG:3857')");
+  expect(liveRadarMap).toContain("transformExtent([...target.bounds], 'EPSG:4326', 'EPSG:3857')");
   expect(liveRadarMap).toContain('maxZoom: 11');
   expect(liveRadarMap).toContain('projection: bounds.crs');
   expect(liveRadarMap).toContain('bounds.west,');
@@ -94,7 +114,8 @@ test('weather uses the fast live-radar endpoint without loading UAV forecast mod
   expect(liveRadarMap).toContain('if (!hasRenderedImageRef.current) setImageLoading(true);');
   expect(liveRadarMap).not.toContain('VectorLayer');
   expect(liveRadarMap).not.toContain('markerFeature');
-  expect(liveRadarMap).toContain('center: fromLonLat([location.longitude, location.latitude])');
+  expect(liveRadarMap).toContain('const center = fromLonLat([...target.center]);');
+  expect(liveRadarMap).not.toContain('LocateFixed');
   expect(liveRadarMap).toContain("const OPENSTREETMAP_ATTRIBUTION = 'Kaart: © OpenStreetMap-bijdragers';");
   expect(liveRadarMap).toContain('https://www.openstreetmap.org/copyright');
   expect(styles).toContain(':global(.ol-viewport canvas)');
@@ -641,6 +662,10 @@ test('live radar starts progressively while its background queue remains sequent
   const radar = page.locator('[data-radar-kind="precipitation"]');
   const map = radar.getByRole('application');
   await expect(map).toBeVisible();
+  await expect(radar.getByRole('button', { name: 'Inzoomen' })).toBeVisible();
+  await expect(radar.getByRole('button', { name: 'Uitzoomen' })).toBeVisible();
+  await expect(radar.getByRole('button', { name: /Centreren op|Nederland en omliggende landen tonen/ })).toHaveCount(0);
+  await expect(radar.getByRole('button', { name: 'Kaart op volledig scherm tonen' })).toBeVisible();
   await expect(radar.getByText('Animatie voorbereiden · 1 van 3 beelden')).toBeVisible();
   await expect(radar.getByRole('slider')).toBeDisabled();
   await expect.poll(() => backgroundStarts.length).toBe(1);
@@ -1081,7 +1106,7 @@ function currentWeather(): Record<string, unknown> {
     processed_by: 'DIS',
   };
   return {
-    location: { mode: 'netherlands', label: 'UAV Nederland', latitude: 52.2, longitude: 5.3 },
+    location: { mode: 'netherlands', label: 'Nederland', latitude: 52.2, longitude: 5.3 },
     aggregation: {
       type: 'province_average',
       sample_count: 12,
@@ -1294,7 +1319,7 @@ function greenUavForecast(): Record<string, unknown> {
   });
 
   return {
-    location: { mode: 'netherlands', label: 'UAV Nederland', latitude: 52.2, longitude: 5.3 },
+    location: { mode: 'netherlands', label: 'Nederland', latitude: 52.2, longitude: 5.3 },
     aggregation: {
       type: 'province_average',
       sample_count: 12,

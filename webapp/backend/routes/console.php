@@ -12,6 +12,11 @@ Schedule::command('dis:refresh-wallboard-content')
     ->everyFiveMinutes()
     ->onOneServer()
     ->withoutOverlapping(10);
+Schedule::command('dis:warm-operational-radar-cache')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(10)
+    ->runInBackground();
 Schedule::command('dis:backfill-deployment-locations')
     ->everyFiveMinutes()
     ->onOneServer()

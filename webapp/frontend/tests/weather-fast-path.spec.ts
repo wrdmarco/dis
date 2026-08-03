@@ -35,7 +35,7 @@ test('radar-only responses keep strict location and timestamp validation', () =>
   const normalized = normalizeOperationalWeatherRadarPage({
     location: {
       mode: 'netherlands',
-      label: 'UAV Nederland',
+      label: 'Nederland',
       latitude: 52.2,
       longitude: 5.4,
     },
@@ -55,7 +55,7 @@ test('radar-only responses keep strict location and timestamp validation', () =>
   expect(normalized).toMatchObject({
     location: {
       mode: 'netherlands',
-      label: 'UAV Nederland',
+      label: 'Nederland',
       latitude: 52.2,
       longitude: 5.4,
     },
@@ -65,7 +65,7 @@ test('radar-only responses keep strict location and timestamp validation', () =>
     },
   });
   expect(normalizeOperationalWeatherRadarPage({
-    location: { mode: 'netherlands', label: 'UAV Nederland', latitude: null, longitude: 5.4 },
+    location: { mode: 'netherlands', label: 'Nederland', latitude: null, longitude: 5.4 },
     generated_at: '2026-07-29T12:05:00Z',
     radar: {},
   })).toBeNull();

@@ -494,7 +494,7 @@ final class WallboardConfiguration
                     : (array_key_exists('location_label', $options) ? 'address' : self::DEFAULT_FORECAST_LOCATION_MODE);
                 if (! in_array($locationMode, self::FORECAST_LOCATION_MODES, true)) {
                     throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.location_mode" => ['Kies UAV Nederland of een gezocht adres.'],
+                        "configuration.pages.{$index}.options.location_mode" => ['Kies Nederland of een gezocht adres.'],
                     ]);
                 }
 
@@ -508,7 +508,7 @@ final class WallboardConfiguration
                 if ($locationMode === self::DEFAULT_FORECAST_LOCATION_MODE) {
                     if ($hasExplicitMode && array_key_exists('location_label', $options)) {
                         throw ValidationException::withMessages([
-                            "configuration.pages.{$index}.options.location_label" => ['UAV Nederland gebruikt automatisch alle Nederlandse provincies.'],
+                            "configuration.pages.{$index}.options.location_label" => ['Nederland gebruikt automatisch alle Nederlandse provincies.'],
                         ]);
                     }
                     $options = [

@@ -18,7 +18,7 @@ function forecastPage(options: WallboardPage['options']): WallboardPage {
   };
 }
 
-test('creates a forecast page with UAV Nederland as the canonical default', () => {
+test('creates a forecast page with Nederland as the canonical default', () => {
   expect(createWallboardPage('uav_forecast', 1).options).toEqual({
     location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
     visible_blocks: [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS],
@@ -63,6 +63,15 @@ test('migrates legacy locations and strips stale location data from the Netherla
     location_mode: 'netherlands',
     visible_blocks: [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS],
   });
+
+  for (const legacyNationalLabel of ['UAV Nederland', 'Nederland']) {
+    expect(normalizeWallboardForecastPageOptions(forecastPage({
+      location_label: legacyNationalLabel,
+    }))).toEqual({
+      location_mode: 'netherlands',
+      visible_blocks: [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS],
+    });
+  }
 });
 
 test('reuses the DIS address search and exposes no manual coordinate fields', () => {
@@ -74,7 +83,7 @@ test('reuses the DIS address search and exposes no manual coordinate fields', ()
   expect(editor).toContain('fetchLocationSuggestions');
   expect(editor).toContain('lookupLocationSuggestion');
   expect(editor).toContain('geocodeAddressLabel');
-  expect(editor).toContain('UAV Nederland');
+  expect(editor).toContain('Nederland');
   expect(editor).toContain('Andere locatie');
   expect(editor).toContain('Locatie zoeken');
   expect(editor).toContain('De server controleert de locatie bij het opslaan.');

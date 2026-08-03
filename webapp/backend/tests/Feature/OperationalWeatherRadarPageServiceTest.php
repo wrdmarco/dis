@@ -29,7 +29,7 @@ final class OperationalWeatherRadarPageServiceTest extends TestCase
             ->stateForOptions(['location_mode' => 'netherlands']);
 
         self::assertSame('netherlands', $state['location']['mode']);
-        self::assertSame('UAV Nederland', $state['location']['label']);
+        self::assertSame('Nederland', $state['location']['label']);
         self::assertIsFloat($state['location']['latitude']);
         self::assertIsFloat($state['location']['longitude']);
         self::assertGreaterThanOrEqual(50.7, $state['location']['latitude']);
