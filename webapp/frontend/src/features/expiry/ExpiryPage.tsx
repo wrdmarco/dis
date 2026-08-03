@@ -3,10 +3,13 @@ import type { ReactNode } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
-import { formatDateOnly } from '../../lib/dateTime';
+import { assetTypeLabel } from '../../lib/assetLabels';
+import { assetStatusPresentation } from '../../lib/assetStatus';
+import { daysUntilAmsterdamDate, formatDateOnly } from '../../lib/dateTime';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import type { ExpiryOverview } from '../../types/api';
+import styles from './ExpiryPage.module.css';
 
 export function ExpiryPage() {
   const [days, setDays] = useState(60);
@@ -48,13 +51,13 @@ export function ExpiryPage() {
       <Panel title="Assets met onderhoudsdatum">
         <ResourceState loading={overview.loading} error={overview.error} empty={(overview.data?.assets.length ?? 0) === 0}>
           <ExpiryGroup title="Kritiek" count={assets.critical.length}>
-            <AssetTable assets={assets.critical} />
+            <AssetTable assets={assets.critical} label="Kritieke assets" />
           </ExpiryGroup>
           <ExpiryGroup title="Binnen 30 dagen" count={assets.soon.length}>
-            <AssetTable assets={assets.soon} />
+            <AssetTable assets={assets.soon} label="Assets met onderhoud binnen 30 dagen" />
           </ExpiryGroup>
           <ExpiryGroup title="Later" count={assets.later.length}>
-            <AssetTable assets={assets.later} />
+            <AssetTable assets={assets.later} label="Assets met later gepland onderhoud" />
           </ExpiryGroup>
         </ResourceState>
       </Panel>
@@ -62,13 +65,13 @@ export function ExpiryPage() {
       <Panel title="Certificaten die verlopen">
         <ResourceState loading={overview.loading} error={overview.error} empty={(overview.data?.certifications.length ?? 0) === 0}>
           <ExpiryGroup title="Kritiek" count={certifications.critical.length}>
-            <CertificationTable certifications={certifications.critical} />
+            <CertificationTable certifications={certifications.critical} label="Kritieke certificaten" />
           </ExpiryGroup>
           <ExpiryGroup title="Binnen 30 dagen" count={certifications.soon.length}>
-            <CertificationTable certifications={certifications.soon} />
+            <CertificationTable certifications={certifications.soon} label="Certificaten die binnen 30 dagen verlopen" />
           </ExpiryGroup>
           <ExpiryGroup title="Later" count={certifications.later.length}>
-            <CertificationTable certifications={certifications.later} />
+            <CertificationTable certifications={certifications.later} label="Certificaten die later verlopen" />
           </ExpiryGroup>
         </ResourceState>
       </Panel>
@@ -98,39 +101,43 @@ function ExpiryGroup({ title, count, children }: ExpiryGroupProps) {
   );
 }
 
-function AssetTable({ assets }: { assets: ExpiryOverview['assets'] }) {
+function AssetTable({ assets, label }: { assets: ExpiryOverview['assets']; label: string }) {
   return (
-    <table className="data-table">
+    <table className={`data-table ${styles.table} ${styles.assetTable}`} aria-label={label}>
       <thead><tr><th scope="col">Asset</th><th scope="col">Tag</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Onderhoud</th><th scope="col">Termijn</th></tr></thead>
       <tbody>
-        {assets.map((asset) => (
-          <tr key={asset.id}>
-            <td>{asset.name}</td>
-            <td className="mono">{asset.asset_tag}</td>
-            <td>{asset.drone_type ? droneTypeLabel(asset.drone_type) : asset.type}</td>
-            <td><StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
-            <td>{formatDate(asset.maintenance_due_at)}</td>
-            <td>{deadlineLabel(asset.maintenance_due_at)}</td>
-          </tr>
-        ))}
+        {assets.map((asset) => {
+          const status = assetStatusPresentation(asset);
+
+          return (
+            <tr className={status.maintenanceOverdue ? styles.overdueRow : undefined} key={asset.id}>
+              <td className={styles.primaryCell} data-label="Asset">{asset.name}</td>
+              <td className="mono" data-label="Tag">{asset.asset_tag}</td>
+              <td data-label="Type">{asset.drone_type ? droneTypeLabel(asset.drone_type) : assetTypeLabel(asset.type)}</td>
+              <td className={styles.statusCell} data-label="Status"><StatusPill value={status.label} tone={status.tone} /></td>
+              <td data-label="Onderhoud">{formatDate(asset.maintenance_due_at)}</td>
+              <td data-label="Termijn">{deadlineLabel(asset.maintenance_due_at)}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
 }
 
-function CertificationTable({ certifications }: { certifications: ExpiryOverview['certifications'] }) {
+function CertificationTable({ certifications, label }: { certifications: ExpiryOverview['certifications']; label: string }) {
   return (
-    <table className="data-table">
+    <table className={`data-table ${styles.table} ${styles.certificationTable}`} aria-label={label}>
       <thead><tr><th scope="col">Gebruiker</th><th scope="col">Certificaat</th><th scope="col">Status</th><th scope="col">Nummer</th><th scope="col">Verloopt</th><th scope="col">Termijn</th></tr></thead>
       <tbody>
         {certifications.map((certification) => (
           <tr key={certification.id}>
-            <td><strong>{certification.user_name ?? '-'}</strong><br /><span>{certification.user_email ?? '-'}</span></td>
-            <td>{certification.certification_name ?? certification.certification_code ?? '-'}</td>
-            <td><StatusPill value={certification.status} tone={certification.status === 'active' ? 'good' : certification.status === 'expired' ? 'bad' : 'warn'} /></td>
-            <td>{certification.certificate_number ?? '-'}</td>
-            <td>{formatDate(certification.expires_at)}</td>
-            <td>{deadlineLabel(certification.expires_at)}</td>
+            <td className={styles.primaryCell} data-label="Gebruiker"><strong>{certification.user_name ?? '-'}</strong><br /><span>{certification.user_email ?? '-'}</span></td>
+            <td data-label="Certificaat">{certification.certification_name ?? certification.certification_code ?? '-'}</td>
+            <td className={styles.statusCell} data-label="Status"><StatusPill value={certification.status} tone={certification.status === 'active' ? 'good' : certification.status === 'expired' ? 'bad' : 'warn'} /></td>
+            <td className="mono" data-label="Nummer">{certification.certificate_number ?? '-'}</td>
+            <td data-label="Verloopt">{formatDate(certification.expires_at)}</td>
+            <td data-label="Termijn">{deadlineLabel(certification.expires_at)}</td>
           </tr>
         ))}
       </tbody>
@@ -172,14 +179,5 @@ function deadlineLabel(value?: string | null): string {
 }
 
 function daysUntil(value?: string | null): number {
-  if (value === undefined || value === null || value === '') {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const deadline = new Date(value);
-  deadline.setHours(0, 0, 0, 0);
-
-  return Math.round((deadline.getTime() - today.getTime()) / 86_400_000);
+  return daysUntilAmsterdamDate(value) ?? Number.POSITIVE_INFINITY;
 }

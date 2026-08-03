@@ -4,6 +4,7 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { assetDisplayLabel } from '../../lib/assetLabels';
+import { assetIsEffectivelyReady, assetStatusPresentation } from '../../lib/assetStatus';
 import { useApiResource } from '../../lib/useApiResource';
 import type { Asset, AvailabilityStatus, Deployment, DispatchRequest } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
@@ -17,7 +18,7 @@ export function DashboardPage() {
   const available = statuses.data?.filter((status) => status.is_available).length ?? 0;
   const statusTotal = statuses.data?.length ?? 0;
   const unavailable = statusTotal - available;
-  const readyAssets = assets.data?.filter((asset) => asset.status === 'ready').length ?? 0;
+  const readyAssets = assets.data?.filter((asset) => assetIsEffectivelyReady(asset)).length ?? 0;
   const assetIssues = (assets.data?.length ?? 0) - readyAssets;
   const activeDeployments = deployments.data ?? [];
   const activeDispatches = dispatches.data ?? [];
@@ -149,18 +150,23 @@ export function DashboardPage() {
         <Panel title="Middelenstatus">
           <ResourceState loading={assets.loading} error={assets.error} empty={(assets.data?.length ?? 0) === 0}>
             <div className="dashboard-asset-list">
-              {assets.data?.slice(0, 6).map((asset) => (
-                <div className="dashboard-asset" key={asset.id}>
-                  <span className={`dashboard-asset__icon dashboard-asset__icon--${asset.status}`}>
-                    {asset.status === 'ready' ? <CheckCircle2 aria-hidden size={17} /> : <Wrench aria-hidden size={17} />}
-                  </span>
-                  <div className="dashboard-asset__body">
-                    <strong>{asset.name}</strong>
-                    <span>{assetDisplayLabel(asset)}</span>
+              {assets.data?.slice(0, 6).map((asset) => {
+                const status = assetStatusPresentation(asset);
+                const isReady = assetIsEffectivelyReady(asset);
+
+                return (
+                  <div className="dashboard-asset" key={asset.id}>
+                    <span className={`dashboard-asset__icon dashboard-asset__icon--${isReady ? 'ready' : status.effectiveStatus}`}>
+                      {isReady ? <CheckCircle2 aria-hidden size={17} /> : <Wrench aria-hidden size={17} />}
+                    </span>
+                    <div className="dashboard-asset__body">
+                      <strong>{asset.name}</strong>
+                      <span>{assetDisplayLabel(asset)}</span>
+                    </div>
+                    <StatusPill value={status.label} tone={status.tone} />
                   </div>
-                  <StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' || asset.status === 'unavailable' ? 'warn' : 'neutral'} />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </ResourceState>
         </Panel>

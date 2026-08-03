@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Responses\ApiResponse;
 use App\Models\Asset;
 use App\Models\UserCertification;
+use App\Support\AssetReadiness;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -35,6 +36,7 @@ final class ExpiryOverviewController extends Controller
                     'asset_tag' => $asset->asset_tag,
                     'type' => $asset->type,
                     'status' => $asset->status,
+                    ...AssetReadiness::fields($asset),
                     'maintenance_due_at' => $asset->maintenance_due_at?->toDateString(),
                     'drone_type' => $asset->droneType === null ? null : [
                         'manufacturer' => $asset->droneType->manufacturer,

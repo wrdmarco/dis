@@ -1,0 +1,88 @@
+@media (max-width: 820px) {
+  .table.table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: visible;
+    border-radius: 0;
+    background: transparent;
+    white-space: normal;
+  }
+
+  .table.table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-width: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .table.table tbody {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .table.table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--dis-border);
+    border-left: 3px solid var(--dis-blue);
+    border-radius: 8px;
+    background: var(--dis-surface);
+  }
+
+  .table.table td {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: 4px;
+    overflow: visible;
+    border: 0;
+    border-top: 1px solid var(--dis-border);
+    padding: 10px 12px;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .table.table td::before {
+    content: attr(data-label);
+    color: var(--dis-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.045em;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+
+  .table.table .primaryCell {
+    grid-column: 1 / -1;
+    border-top: 0;
+    background: color-mix(in srgb, var(--dis-blue-soft) 24%, transparent);
+  }
+
+  .assetTable.assetTable .statusCell,
+  .certificationTable.certificationTable td:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+
+  .table.table .statusCell {
+    align-items: start;
+  }
+
+  .table.table .statusCell :global(.status-pill) {
+    width: fit-content;
+  }
+
+  .table.table .overdueRow {
+    border-left-color: var(--dis-critical);
+  }
+}

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Asset;
 use App\Models\AssetAssignment;
+use App\Models\Deployment;
 use App\Models\DroneType;
 use App\Models\Permission;
 use App\Models\Role;
@@ -160,6 +161,105 @@ final class AssetTypeUpdateTest extends TestCase
             ->assertJsonPath('data.drone_type_id', $basicType->id)
             ->assertJsonPath('data.has_spotlight', false)
             ->assertJsonPath('data.has_speaker', false);
+    }
+
+    public function test_assignment_fails_closed_for_overdue_unready_and_already_assigned_assets(): void
+    {
+        $manager = $this->user('asset-safety-manager@example.test');
+        $owner = $this->user('asset-safety-owner@example.test');
+        $this->grantPermission($manager, 'assets.manage');
+
+        $overdue = $this->asset('OVERDUE-001', 'support_equipment');
+        $overdue->update(['maintenance_due_at' => today()->subDay()]);
+        $this->asWebClient($manager)
+            ->postJson('/api/assets/'.$overdue->id.'/assign', ['user_id' => $owner->id])
+            ->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_failed')
+            ->assertJsonStructure(['error' => ['details' => ['asset']]]);
+        $this->assertFalse($overdue->assignments()->exists());
+
+        $unavailable = $this->asset('UNAVAILABLE-001', 'support_equipment');
+        $unavailable->update(['status' => 'unavailable', 'maintenance_due_at' => today()->addDay()]);
+        $this->asWebClient($manager)
+            ->postJson('/api/assets/'.$unavailable->id.'/assign', ['user_id' => $owner->id])
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['asset']]]);
+
+        $assigned = $this->asset('ASSIGNED-GUARD-001', 'support_equipment');
+        $assigned->update(['status' => 'assigned', 'maintenance_due_at' => today()->addDay()]);
+        $this->assign($assigned, $owner, $manager);
+        $this->asWebClient($manager)
+            ->postJson('/api/assets/'.$assigned->id.'/assign', ['user_id' => $manager->id])
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['asset']]]);
+        $this->assertSame(1, $assigned->assignments()->whereNull('released_at')->count());
+    }
+
+    public function test_assignment_requires_exactly_one_user_or_deployment_target(): void
+    {
+        $manager = $this->user('asset-target-manager@example.test');
+        $owner = $this->user('asset-target-owner@example.test');
+        $this->grantPermission($manager, 'assets.manage');
+        $deployment = Deployment::query()->create([
+            'reference' => 'ASSET-TARGET-001',
+            'title' => 'Asset target validation',
+            'priority' => 'normal',
+            'status' => 'draft',
+            'is_test' => false,
+            'created_by' => $manager->id,
+            'created_by_name' => $manager->name,
+            'created_by_email' => $manager->email,
+            'opened_at' => now(),
+        ]);
+        $missingTarget = $this->asset('TARGET-MISSING-001', 'support_equipment');
+        $bothTargets = $this->asset('TARGET-BOTH-001', 'support_equipment');
+        $validTarget = $this->asset('TARGET-VALID-001', 'support_equipment');
+        $validTarget->update(['maintenance_due_at' => today()]);
+
+        $this->asWebClient($manager)
+            ->postJson('/api/assets/'.$missingTarget->id.'/assign', [])
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['deployment_id', 'user_id']]]);
+        $this->asWebClient($manager)
+            ->postJson('/api/assets/'.$bothTargets->id.'/assign', [
+                'deployment_id' => $deployment->id,
+                'user_id' => $owner->id,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['deployment_id', 'user_id']]]);
+        $this->asWebClient($manager)
+            ->postJson('/api/assets/'.$validTarget->id.'/assign', ['user_id' => $owner->id])
+            ->assertCreated()
+            ->assertJsonPath('data.user_id', $owner->id);
+        $this->assertSame('assigned', $validTarget->refresh()->status);
+    }
+
+    public function test_release_never_promotes_an_overdue_assignment_back_to_ready(): void
+    {
+        $manager = $this->user('asset-release-manager@example.test');
+        $owner = $this->user('asset-release-owner@example.test');
+        $this->grantPermission($manager, 'assets.manage');
+        $asset = $this->asset('RELEASE-OVERDUE-001', 'support_equipment');
+        $asset->update([
+            'status' => 'assigned',
+            'maintenance_due_at' => today()->subDay(),
+        ]);
+        $this->assign($asset, $owner, $manager);
+
+        $this->asWebClient($manager)
+            ->postJson('/api/assets/'.$asset->id.'/release')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'maintenance')
+            ->assertJsonPath('data.effective_status', 'maintenance')
+            ->assertJsonPath('data.is_effectively_ready', false)
+            ->assertJsonPath('data.maintenance_overdue', true);
+
+        $this->assertSame('maintenance', $asset->refresh()->status);
+        $this->assertNotNull($asset->assignments()->sole()->released_at);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'assets.released',
+            'target_id' => $asset->id,
+        ]);
     }
 
     private function user(string $email): User

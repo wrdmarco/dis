@@ -1964,7 +1964,7 @@ a:hover {
   background: #1b2736;
   color: #cbd8e6;
   font-size: 0.78rem;
-  text-transform: capitalize;
+  text-transform: none;
 }
 
 .status-pill--good {

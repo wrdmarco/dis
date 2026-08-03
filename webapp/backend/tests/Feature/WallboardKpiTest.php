@@ -166,6 +166,8 @@ final class WallboardKpiTest extends TestCase
 
         $this->asset('DRONE-READY', 'drone', 'ready');
         $this->asset('DRONE-MAINTENANCE', 'drone', 'maintenance');
+        $this->asset('DRONE-OVERDUE', 'drone', 'ready')
+            ->update(['maintenance_due_at' => today()->subDay()]);
         $this->asset('VEHICLE-UNAVAILABLE', 'vehicle', 'unavailable');
         $this->asset('BATTERY-ASSIGNED', 'battery', 'assigned');
         $this->asset('VEHICLE-RETIRED', 'vehicle', 'retired');
@@ -202,12 +204,12 @@ final class WallboardKpiTest extends TestCase
             'deployments_cancelled_today' => 1,
             'deployments_resolved_total' => 2,
             'deployments_cancelled_total' => 2,
-            'assets_total' => 5,
-            'assets_ready' => 1,
-            'assets_maintenance' => 1,
+            'assets_total' => 6,
+            'assets_ready' => 2,
+            'assets_maintenance' => 2,
             'assets_unavailable' => 2,
-            'assets_issues' => 2,
-            'drones_total' => 2,
+            'assets_issues' => 3,
+            'drones_total' => 3,
             'drones_ready' => 1,
             'responses_targeted' => 4,
             'responses_contacted' => 3,

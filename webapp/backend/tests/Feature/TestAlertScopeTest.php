@@ -72,6 +72,42 @@ final class TestAlertScopeTest extends TestCase
             ->assertJsonPath('data.id', $response->json('data.id'));
     }
 
+    public function test_targetless_test_alert_can_be_realerted_without_an_asset_assignment(): void
+    {
+        Queue::fake();
+        $actor = $this->user('targetless-realert@example.test', pushEnabled: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
+        $token = $this->token($actor, 'targetless-realert-device', lastSeenAt: now());
+
+        $created = $this->asWebClient($actor)
+            ->postJson('/api/test-alert', ['scope' => 'self'])
+            ->assertCreated();
+        $dispatch = DispatchRequest::query()->findOrFail($created->json('data.id'));
+        $recipient = $dispatch->recipients()->sole();
+        $this->assertNull($dispatch->target_team_id);
+        $this->assertTrue((bool) $dispatch->deployment()->firstOrFail()->is_test);
+        $this->assertDatabaseMissing('asset_assignments', ['user_id' => $actor->id]);
+        $recipient->forceFill(['notified_at' => null])->save();
+
+        $this->asWebClient($actor)
+            ->postJson('/api/dispatches/'.$dispatch->id.'/re-alert')
+            ->assertOk()
+            ->assertJsonPath('data.id', $dispatch->id);
+
+        $this->assertNotNull($recipient->refresh()->notified_at);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'dispatch.realerted',
+            'target_id' => $dispatch->id,
+        ]);
+        Queue::assertPushed(SendFcmNotification::class, 2);
+        Queue::assertPushed(
+            SendFcmNotification::class,
+            fn (SendFcmNotification $job): bool => $job->fcmTokenId === $token->id
+                && $job->title === 'NDT Heralarmering'
+                && ($job->data['is_test'] ?? null) === 'true',
+        );
+    }
+
     public function test_manual_test_alert_normalizes_its_message_and_queues_push_immediately(): void
     {
         Queue::fake();

@@ -181,6 +181,12 @@ De collector volgt geen symbolische links, verlaat het filesystem van `/opt/dis-
 
 Timestamps worden als UTC opgeslagen. Nederlandse operationele weergaven converteren expliciet naar `Europe/Amsterdam`.
 
+### Effectieve inzetbaarheid van middelen
+
+De opgeslagen middelstatus blijft beschikbaar voor beheer en backwards compatibility. API-responses voegen daar `effective_status`, `is_effectively_ready` en `maintenance_overdue` aan toe. Een middel met status `ready` of `assigned` is alleen effectief inzetbaar wanneer de onderhoudsdatum ontbreekt, vandaag is of in de toekomst ligt volgens `Europe/Amsterdam`; een eerdere datum geldt direct als verlopen onderhoud.
+
+Een ontvanger komt alleen in aanmerking voor een nieuwe vooraankondiging of inzet wanneer die een actieve, eenduidige gebruikerstoewijzing aan ten minste één effectief inzetbaar middel heeft. Een middel met meerdere open toewijzingen maakt uit veiligheidsoverwegingen niemand inzetgerechtigd. Deze fail-safe regel geldt ook voor opnieuw alarmeren en het verzenden van bestaande conceptvooraankondigingen; een gewijzigde conceptselectie wordt opnieuw gevuld binnen de ingestelde ontvangerslimiet. Annuleringen, uitsluitend informatieve meldingen en proefalarmen behouden hun bestaande bereik. Controleer daarom vóór uitrol de actuele middeltoewijzingen en onderhoudsdata; er vindt bewust geen automatische backfill plaats.
+
 ## Runtime en services
 
 Naast Nginx, PHP-FPM, PostgreSQL en Redis installeert D.I.S. deze normale systemd-units:

@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\PushProvider;
 use App\Jobs\SendFcmNotification;
+use App\Models\Asset;
+use App\Models\AssetAssignment;
 use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
@@ -215,6 +217,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'is_operational' => true,
         ]);
         $team->users()->attach($pilot->id, ['created_at' => now()]);
+        $this->assignReadyAsset($pilot, 'PREALARM-TRANSITION-ASSET');
         $pilot->forceFill([
             'home_city' => 'Teststad',
             'home_latitude' => 52.100000,
@@ -390,6 +393,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'is_operational' => true,
         ]);
         $team->users()->attach($pilot->id, ['created_at' => now()]);
+        $this->assignReadyAsset($pilot, 'PREALARM-OUTER-ASSET');
         $pilot->forceFill([
             'home_city' => 'Teststad',
             'home_latitude' => 52.100000,
@@ -610,5 +614,22 @@ PHP,
             ['*', 'client:operator'],
             now()->addHour(),
         )->accessToken->getKey();
+    }
+
+    private function assignReadyAsset(User $user, string $tag): void
+    {
+        $asset = Asset::query()->create([
+            'asset_tag' => $tag,
+            'name' => $tag,
+            'type' => 'support_equipment',
+            'status' => 'assigned',
+            'maintenance_due_at' => today()->addYear(),
+        ]);
+        AssetAssignment::query()->create([
+            'asset_id' => $asset->id,
+            'user_id' => $user->id,
+            'assigned_by' => $user->id,
+            'assigned_at' => now(),
+        ]);
     }
 }

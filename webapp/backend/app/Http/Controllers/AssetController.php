@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\AssetChanged;
 use App\Http\Requests\Assets\AssignAssetRequest;
 use App\Http\Requests\Assets\StoreAssetRequest;
 use App\Http\Requests\Assets\UpdateAssetRequest;
@@ -100,11 +99,9 @@ final class AssetController extends Controller
 
     public function release(Request $request, Asset $asset): JsonResponse
     {
-        $asset->assignments()->whereNull('released_at')->update(['released_at' => now()]);
-        $asset->update(['status' => 'ready']);
-        AssetChanged::dispatch($asset->refresh(), 'released');
+        $releasedAsset = $this->service->release($asset, $request->user());
 
-        return ApiResponse::success(MobileApiPayload::asset($asset->refresh()->load(['droneType', 'activeAssignment.user'])));
+        return ApiResponse::success(MobileApiPayload::asset($releasedAsset->load(['droneType', 'activeAssignment.user'])));
     }
 
     public function history(Asset $asset): JsonResponse

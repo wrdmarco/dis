@@ -6,6 +6,8 @@ use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
 use App\Jobs\SendFcmNotification;
+use App\Models\Asset;
+use App\Models\AssetAssignment;
 use App\Models\AvailabilityStatus;
 use App\Models\Certification;
 use App\Models\Deployment;
@@ -21,6 +23,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\UserCertification;
 use App\Services\DispatchPushOutboxService;
+use App\Services\DispatchService;
 use App\Services\LocationService;
 use App\Services\Routing\RouteGeometryService;
 use App\Services\Routing\RoutingService;
@@ -34,6 +37,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 final class RoutingEndpointIntegrationTest extends TestCase
@@ -111,6 +115,350 @@ final class RoutingEndpointIntegrationTest extends TestCase
             ->assertJsonPath('data.recipients.0.eta_source', 'navigation')
             ->assertJsonPath('data.recipients.1.eta_minutes', 45)
             ->assertJsonPath('data.recipients.1.eta_source', 'navigation');
+    }
+
+    public function test_dispatch_preview_excludes_users_without_an_active_effectively_ready_asset(): void
+    {
+        $viewer = $this->user('asset-readiness-viewer@example.test', 'Asset Readiness Viewer');
+        $this->grant($viewer, ['deployments.dispatch.view']);
+        $team = $this->team('ASSET-READINESS-PREVIEW');
+        $this->eligiblePilot(
+            $team,
+            'asset-overdue@example.test',
+            'Asset Overdue',
+            52.100000,
+            5.100000,
+            maintenanceDueAt: today()->subDay()->toDateString(),
+        );
+        $this->eligiblePilot(
+            $team,
+            'asset-missing@example.test',
+            'Asset Missing',
+            52.200000,
+            5.200000,
+            withAsset: false,
+        );
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'ASSET-READINESS-PREVIEW-001');
+        Http::preventStrayRequests();
+
+        $this->asWebClient($viewer)
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview')
+            ->assertOk()
+            ->assertJsonPath('data.recipients', [])
+            ->assertJsonPath(
+                'data.blocked_reason',
+                'Geen alarmeerbare gebruikers gevonden voor team ASSET-READINESS-PREVIEW. Beschikbare gecertificeerde teamleden hebben geen actief toegewezen inzetgereed middel.',
+            );
+        Http::assertNothingSent();
+    }
+
+    public function test_dispatch_preview_fails_closed_when_one_ready_asset_has_multiple_open_user_assignments(): void
+    {
+        $viewer = $this->user('duplicate-asset-viewer@example.test', 'Duplicate Asset Viewer');
+        $this->grant($viewer, ['deployments.dispatch.view']);
+        $team = $this->team('ASSET-DUPLICATE-ASSIGNMENTS');
+        $firstPilot = $this->eligiblePilot(
+            $team,
+            'duplicate-asset-first@example.test',
+            'Duplicate Asset First',
+            52.100000,
+            5.100000,
+            withAsset: false,
+        );
+        $secondPilot = $this->eligiblePilot(
+            $team,
+            'duplicate-asset-second@example.test',
+            'Duplicate Asset Second',
+            52.200000,
+            5.200000,
+            withAsset: false,
+        );
+        $sharedAsset = Asset::query()->create([
+            'asset_tag' => 'AST-DUPLICATE-ASSIGNMENTS',
+            'name' => 'Gedeeld inzetgereed middel',
+            'type' => 'support_equipment',
+            'status' => 'assigned',
+            'maintenance_due_at' => today()->addYear(),
+        ]);
+        foreach ([$firstPilot, $secondPilot] as $pilot) {
+            AssetAssignment::query()->create([
+                'asset_id' => $sharedAsset->id,
+                'user_id' => $pilot->id,
+                'assigned_by' => $viewer->id,
+                'assigned_at' => now(),
+            ]);
+        }
+        $this->assertSame(2, $sharedAsset->assignments()->whereNull('released_at')->count());
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'ASSET-DUPLICATE-ASSIGNMENTS-001');
+        Http::preventStrayRequests();
+
+        $this->asWebClient($viewer)
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview')
+            ->assertOk()
+            ->assertJsonPath('data.recipients', [])
+            ->assertJsonPath(
+                'data.blocked_reason',
+                'Geen alarmeerbare gebruikers gevonden voor team ASSET-DUPLICATE-ASSIGNMENTS. Beschikbare gecertificeerde teamleden hebben geen actief toegewezen inzetgereed middel.',
+            );
+        Http::assertNothingSent();
+    }
+
+    public function test_existing_draft_preannouncement_revalidates_asset_readiness_before_queueing(): void
+    {
+        Queue::fake();
+        $actor = $this->user('asset-preannouncement-actor@example.test', 'Asset Preannouncement Actor');
+        $team = $this->team('ASSET-PREANNOUNCEMENT');
+        $pilot = $this->eligiblePilot(
+            $team,
+            'asset-preannouncement-pilot@example.test',
+            'Asset Preannouncement Pilot',
+            52.100000,
+            5.100000,
+        );
+        $deployment = $this->deployment($actor, $team, 52.300000, 5.300000, 'ASSET-PREANNOUNCEMENT-001');
+        $dispatch = DispatchRequest::query()->create([
+            'deployment_id' => $deployment->id,
+            'requested_by' => $actor->id,
+            'requested_by_name' => $actor->name,
+            'requested_by_email' => $actor->email,
+            'target_team_id' => $team->id,
+            'status' => 'draft',
+            'priority' => 'normal',
+            'message' => 'Bestaande vooraankondiging',
+        ]);
+        $recipient = DispatchRecipient::query()->create([
+            'dispatch_request_id' => $dispatch->id,
+            'user_id' => $pilot->id,
+            'user_name' => $pilot->name,
+            'user_email' => $pilot->email,
+            'response_status' => 'pending',
+        ]);
+        $pilot->assetAssignments()->whereNull('released_at')->firstOrFail()->asset()
+            ->update(['maintenance_due_at' => today()->subDay()]);
+
+        try {
+            app(DispatchService::class)->sendPreannouncementForDeploymentActivation($deployment, $actor);
+            $this->fail('Een vooraankondiging mag niet naar een ontvanger zonder inzetgereed middel worden verstuurd.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('geen actief toegewezen inzetgereed middel', implode(' ', $exception->errors()['dispatch']));
+        }
+
+        $this->assertDatabaseCount('dispatch_push_outbox', 0);
+        $this->assertNull($recipient->refresh()->notified_at);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_existing_draft_preannouncement_replaces_a_fully_ineligible_recipient(): void
+    {
+        Queue::fake();
+        config()->set('dis.routing.enabled', false);
+        $this->forgetRoutingSingletons();
+        $actor = $this->user('asset-preannouncement-replacement-actor@example.test', 'Asset Replacement Actor');
+        $team = $this->team('ASSET-PREANNOUNCEMENT-REPLACEMENT');
+        $stalePilot = $this->eligiblePilot(
+            $team,
+            'asset-preannouncement-stale@example.test',
+            'Asset Stale Pilot',
+            52.100000,
+            5.100000,
+        );
+        $replacementPilot = $this->eligiblePilot(
+            $team,
+            'asset-preannouncement-replacement@example.test',
+            'Asset Replacement Pilot',
+            52.200000,
+            5.200000,
+        );
+        $deployment = $this->deployment($actor, $team, 52.300000, 5.300000, 'ASSET-PREANNOUNCEMENT-REPLACEMENT-001');
+        $dispatch = DispatchRequest::query()->create([
+            'deployment_id' => $deployment->id,
+            'requested_by' => $actor->id,
+            'requested_by_name' => $actor->name,
+            'requested_by_email' => $actor->email,
+            'target_team_id' => $team->id,
+            'status' => 'draft',
+            'priority' => 'normal',
+            'message' => 'Bestaande vooraankondiging met vervanger',
+        ]);
+        DispatchRecipient::query()->create([
+            'dispatch_request_id' => $dispatch->id,
+            'user_id' => $stalePilot->id,
+            'user_name' => $stalePilot->name,
+            'user_email' => $stalePilot->email,
+            'response_status' => 'pending',
+        ]);
+        $stalePilot->assetAssignments()->whereNull('released_at')->firstOrFail()->asset()
+            ->update(['maintenance_due_at' => today()->subDay()]);
+
+        $result = app(DispatchService::class)->sendPreannouncementForDeploymentActivation(
+            $deployment,
+            $actor,
+            options: ['dispatch_recipient_count' => 1],
+        );
+
+        $this->assertSame(1, $result['recipient_users']);
+        $this->assertSame(1, $result['queued_tokens']);
+        $recipient = $dispatch->recipients()->sole();
+        $this->assertSame($replacementPilot->id, $recipient->user_id);
+        $this->assertNotNull($recipient->notified_at);
+        $this->assertDatabaseMissing('dispatch_recipients', [
+            'dispatch_request_id' => $dispatch->id,
+            'user_id' => $stalePilot->id,
+        ]);
+        $outbox = DispatchPushOutbox::query()
+            ->where('dispatch_request_id', $dispatch->id)
+            ->where('message_type', 'deployment_preannouncement')
+            ->sole();
+        $this->assertSame($replacementPilot->fcmTokens()->sole()->id, $outbox->fcm_token_id);
+        Queue::assertPushed(SendFcmNotification::class, 1);
+    }
+
+    public function test_existing_draft_preannouncement_reconciles_partial_ineligibility_without_exceeding_the_multiteam_limit(): void
+    {
+        Queue::fake();
+        config()->set('dis.routing.enabled', false);
+        $this->forgetRoutingSingletons();
+        $actor = $this->user('asset-preannouncement-multiteam-actor@example.test', 'Asset Multiteam Actor');
+        $firstTeam = $this->team('ASSET-PREANNOUNCEMENT-MULTI-A');
+        $secondTeam = $this->team('ASSET-PREANNOUNCEMENT-MULTI-B');
+        $retainedPilot = $this->eligiblePilot(
+            $firstTeam,
+            'asset-preannouncement-retained@example.test',
+            'Asset Retained Pilot',
+            52.100000,
+            5.100000,
+        );
+        $stalePilot = $this->eligiblePilot(
+            $firstTeam,
+            'asset-preannouncement-partial-stale@example.test',
+            'Asset Partial Stale Pilot',
+            52.150000,
+            5.150000,
+        );
+        $replacementPilot = $this->eligiblePilot(
+            $firstTeam,
+            'asset-preannouncement-partial-replacement@example.test',
+            'Asset Partial Replacement Pilot',
+            52.200000,
+            5.200000,
+        );
+        $secondTeamPilot = $this->eligiblePilot(
+            $secondTeam,
+            'asset-preannouncement-second-team@example.test',
+            'Asset Second Team Pilot',
+            52.250000,
+            5.250000,
+        );
+        $deployment = $this->deployment($actor, $firstTeam, 52.300000, 5.300000, 'ASSET-PREANNOUNCEMENT-MULTI-001');
+        $deployment->teams()->attach($secondTeam->id, ['created_at' => now()]);
+        $firstDispatch = DispatchRequest::query()->create([
+            'deployment_id' => $deployment->id,
+            'requested_by' => $actor->id,
+            'requested_by_name' => $actor->name,
+            'requested_by_email' => $actor->email,
+            'target_team_id' => $firstTeam->id,
+            'status' => 'draft',
+            'priority' => 'normal',
+            'message' => 'Bestaande gedeeltelijke vooraankondiging',
+        ]);
+        foreach ([$retainedPilot, $stalePilot] as $pilot) {
+            DispatchRecipient::query()->create([
+                'dispatch_request_id' => $firstDispatch->id,
+                'user_id' => $pilot->id,
+                'user_name' => $pilot->name,
+                'user_email' => $pilot->email,
+                'response_status' => 'pending',
+            ]);
+        }
+        $stalePilot->assetAssignments()->whereNull('released_at')->firstOrFail()->asset()
+            ->update(['maintenance_due_at' => today()->subDay()]);
+
+        $preannouncement = app(DispatchService::class)->sendPreannouncementForDeploymentActivation(
+            $deployment,
+            $actor,
+            options: ['dispatch_recipient_count' => 3],
+        );
+
+        $this->assertSame(3, $preannouncement['recipient_users']);
+        $this->assertSame(3, $preannouncement['queued_tokens']);
+        $this->assertEqualsCanonicalizing(
+            [$retainedPilot->id, $replacementPilot->id],
+            $firstDispatch->recipients()->pluck('user_id')->all(),
+        );
+        $this->assertDatabaseMissing('dispatch_recipients', [
+            'dispatch_request_id' => $firstDispatch->id,
+            'user_id' => $stalePilot->id,
+        ]);
+        $secondDispatch = $deployment->dispatchRequests()
+            ->where('target_team_id', $secondTeam->id)
+            ->sole();
+        $this->assertSame([$secondTeamPilot->id], $secondDispatch->recipients()->pluck('user_id')->all());
+        $draftIds = $deployment->dispatchRequests()->where('status', 'draft')->pluck('id');
+        $this->assertCount(2, $draftIds);
+        $this->assertSame(3, DispatchRecipient::query()->whereIn('dispatch_request_id', $draftIds)->count());
+        $this->assertSame(3, DispatchPushOutbox::query()
+            ->whereIn('dispatch_request_id', $draftIds)
+            ->where('message_type', 'deployment_preannouncement')
+            ->count());
+
+        app(DispatchService::class)->createAndSendForDeploymentActivation(
+            $deployment,
+            $actor,
+            options: ['dispatch_recipient_count' => 3],
+        );
+
+        $sentIds = $deployment->dispatchRequests()->where('status', 'sent')->pluck('id');
+        $this->assertCount(2, $sentIds);
+        $this->assertSame(3, DispatchRecipient::query()->whereIn('dispatch_request_id', $sentIds)->count());
+        $this->assertSame(3, DispatchPushOutbox::query()
+            ->whereIn('dispatch_request_id', $sentIds)
+            ->where('message_type', 'dispatch_request')
+            ->count());
+    }
+
+    public function test_realert_revalidates_asset_readiness_before_queueing(): void
+    {
+        Queue::fake();
+        $actor = $this->user('asset-realert-actor@example.test', 'Asset Realert Actor');
+        $team = $this->team('ASSET-REALERT');
+        $pilot = $this->eligiblePilot(
+            $team,
+            'asset-realert-pilot@example.test',
+            'Asset Realert Pilot',
+            52.100000,
+            5.100000,
+        );
+        $deployment = $this->deployment($actor, $team, 52.300000, 5.300000, 'ASSET-REALERT-001');
+        $dispatch = DispatchRequest::query()->create([
+            'deployment_id' => $deployment->id,
+            'requested_by' => $actor->id,
+            'requested_by_name' => $actor->name,
+            'requested_by_email' => $actor->email,
+            'target_team_id' => $team->id,
+            'status' => 'sent',
+            'priority' => 'normal',
+            'message' => 'Bestaande definitieve alarmering',
+            'sent_at' => now(),
+        ]);
+        $recipient = DispatchRecipient::query()->create([
+            'dispatch_request_id' => $dispatch->id,
+            'user_id' => $pilot->id,
+            'user_name' => $pilot->name,
+            'user_email' => $pilot->email,
+            'response_status' => 'pending',
+        ]);
+        $pilot->assetAssignments()->whereNull('released_at')->firstOrFail()->asset()
+            ->update(['maintenance_due_at' => today()->subDay()]);
+
+        try {
+            app(DispatchService::class)->reAlert($dispatch, $actor);
+            $this->fail('Een heralarmering mag niet naar een ontvanger zonder inzetgereed middel worden verstuurd.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('geen actief toegewezen inzetgereed middel', implode(' ', $exception->errors()['dispatch']));
+        }
+
+        $this->assertNull($recipient->refresh()->notified_at);
+        Queue::assertNothingPushed();
     }
 
     public function test_dispatch_preview_remains_available_with_explicit_fallback_after_osrm_failure(): void
@@ -1464,6 +1812,8 @@ final class RoutingEndpointIntegrationTest extends TestCase
         string $name,
         float $latitude,
         float $longitude,
+        ?string $maintenanceDueAt = null,
+        bool $withAsset = true,
     ): User {
         $pilot = $this->user($email, $name);
         $pilot->forceFill([
@@ -1490,6 +1840,21 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'is_active' => true,
             'last_seen_at' => now(),
         ]);
+        if ($withAsset) {
+            $asset = Asset::query()->create([
+                'asset_tag' => 'AST-ROUTING-'.str()->upper((string) str()->ulid()),
+                'name' => 'Inzetmiddel '.$name,
+                'type' => 'support_equipment',
+                'status' => 'assigned',
+                'maintenance_due_at' => $maintenanceDueAt ?? today()->addYear()->toDateString(),
+            ]);
+            AssetAssignment::query()->create([
+                'asset_id' => $asset->id,
+                'user_id' => $pilot->id,
+                'assigned_by' => $pilot->id,
+                'assigned_at' => now(),
+            ]);
+        }
 
         return $pilot;
     }

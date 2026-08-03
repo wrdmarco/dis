@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendFcmNotification;
+use App\Models\Asset;
+use App\Models\AssetAssignment;
 use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
@@ -32,6 +34,20 @@ final class PreannouncementLocationPushTest extends TestCase
             'name' => 'Locatietest',
             'type' => 'base',
             'is_operational' => true,
+        ]);
+        $team->users()->attach($recipient->id, ['created_at' => now()]);
+        $asset = Asset::query()->create([
+            'asset_tag' => 'PRE-LOCATION-ASSET',
+            'name' => 'Vooraankondiging inzetmiddel',
+            'type' => 'support_equipment',
+            'status' => 'assigned',
+            'maintenance_due_at' => today()->addYear(),
+        ]);
+        AssetAssignment::query()->create([
+            'asset_id' => $asset->id,
+            'user_id' => $recipient->id,
+            'assigned_by' => $recipient->id,
+            'assigned_at' => now(),
         ]);
         $deployment = Deployment::query()->create([
             'reference' => 'PRE-LOCATION-001',

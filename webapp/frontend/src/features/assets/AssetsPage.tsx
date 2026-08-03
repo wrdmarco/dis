@@ -8,6 +8,8 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
+import { assetTypeLabel } from '../../lib/assetLabels';
+import { assetEffectiveStatus, assetStatusPresentation } from '../../lib/assetStatus';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import type { Asset, DroneType } from '../../types/api';
@@ -25,8 +27,11 @@ export function AssetsPage() {
   const linkedAssets = assetList.filter((asset) => asset.active_assignment?.user !== undefined && asset.active_assignment?.user !== null);
   const unlinkedAssets = assetList.filter((asset) => asset.active_assignment?.user === undefined || asset.active_assignment?.user === null);
   const linkedDrones = linkedAssets.filter((asset) => asset.type === 'drone');
-  const maintenanceAssets = assetList.filter((asset) => asset.status === 'maintenance');
-  const unavailableAssets = assetList.filter((asset) => asset.status === 'unavailable' || asset.status === 'retired');
+  const maintenanceAssets = assetList.filter((asset) => assetEffectiveStatus(asset) === 'maintenance');
+  const unavailableAssets = assetList.filter((asset) => {
+    const status = assetEffectiveStatus(asset);
+    return status === 'unavailable' || status === 'retired';
+  });
   const canManageAssets = hasPermission('assets.manage');
 
   async function deleteDroneType(droneType: DroneType) {
@@ -80,23 +85,27 @@ export function AssetsPage() {
           <table className="data-table">
             <thead><tr><th scope="col">Gebruiker</th><th scope="col">Asset</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Serienummer</th><th scope="col">Onderhoud</th><th scope="col">Actie</th></tr></thead>
             <tbody>
-              {assets.data?.map((asset) => (
-                <tr key={asset.id}>
-                  <td>{asset.active_assignment?.user?.name ?? asset.active_assignment?.user?.email ?? 'Nog niet gekoppeld'}</td>
-                  <td>{asset.name}</td>
-                  <td>{asset.drone_type ? droneTypeLabel(asset.drone_type) : asset.type}</td>
-                  <td><StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
-                  <td>{asset.serial_number ?? '-'}</td>
-                  <td>{asset.maintenance_due_at ?? '-'}</td>
-                  <td>
-                    {canManageAssets ? (
-                      <Link className="secondary-button" href={`/assets/${asset.id}/edit`}>
-                        <Pencil size={16} /> Aanpassen
-                      </Link>
-                    ) : '-'}
-                  </td>
-                </tr>
-              ))}
+              {assets.data?.map((asset) => {
+                const status = assetStatusPresentation(asset);
+
+                return (
+                  <tr key={asset.id}>
+                    <td>{asset.active_assignment?.user?.name ?? asset.active_assignment?.user?.email ?? 'Nog niet gekoppeld'}</td>
+                    <td>{asset.name}</td>
+                    <td>{asset.drone_type ? droneTypeLabel(asset.drone_type) : assetTypeLabel(asset.type)}</td>
+                    <td><StatusPill value={status.label} tone={status.tone} /></td>
+                    <td>{asset.serial_number ?? '-'}</td>
+                    <td>{asset.maintenance_due_at ?? '-'}</td>
+                    <td>
+                      {canManageAssets ? (
+                        <Link className="secondary-button" href={`/assets/${asset.id}/edit`}>
+                          <Pencil size={16} /> Aanpassen
+                        </Link>
+                      ) : '-'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </ResourceState>

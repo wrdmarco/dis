@@ -443,6 +443,7 @@ final class MobileApiPayload
     {
         $asset->loadMissing(['droneType', 'activeAssignment.user']);
         $activeAssignment = $asset->activeAssignment;
+        $readiness = AssetReadiness::fields($asset);
 
         return [
             'id' => $asset->id,
@@ -454,6 +455,7 @@ final class MobileApiPayload
             'has_spotlight' => (bool) $asset->has_spotlight,
             'has_speaker' => (bool) $asset->has_speaker,
             'status' => $asset->status,
+            ...$readiness,
             'serial_number' => $asset->serial_number,
             'maintenance_due_at' => $asset->maintenance_due_at?->toDateString(),
             'notes' => $asset->notes,

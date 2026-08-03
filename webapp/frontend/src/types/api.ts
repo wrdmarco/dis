@@ -1535,7 +1535,15 @@ export interface AuditLogEntry {
   created_at?: string | null;
 }
 
-export interface Asset {
+export type AssetStatus = 'ready' | 'assigned' | 'maintenance' | 'unavailable' | 'retired';
+
+export interface AssetReadiness {
+  effective_status?: AssetStatus;
+  is_effectively_ready?: boolean;
+  maintenance_overdue?: boolean;
+}
+
+export interface Asset extends AssetReadiness {
   id: string;
   asset_tag: string;
   name: string;
@@ -1544,7 +1552,7 @@ export interface Asset {
   drone_type?: DroneType | null;
   has_spotlight: boolean;
   has_speaker: boolean;
-  status: 'ready' | 'assigned' | 'maintenance' | 'unavailable' | 'retired';
+  status: AssetStatus;
   serial_number?: string | null;
   maintenance_due_at?: string | null;
   notes?: string | null;
@@ -1675,12 +1683,12 @@ export interface ExpiryOverview {
   certifications: ExpiringCertification[];
 }
 
-export interface ExpiringAsset {
+export interface ExpiringAsset extends AssetReadiness {
   id: string;
   name: string;
   asset_tag: string;
   type: string;
-  status: Asset['status'];
+  status: AssetStatus;
   maintenance_due_at?: string | null;
   drone_type?: {
     manufacturer: string;

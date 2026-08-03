@@ -389,7 +389,7 @@ final class WebNavigationPermissionTest extends TestCase
             'name' => 'Expiry RBAC asset',
             'type' => 'support_equipment',
             'status' => 'ready',
-            'maintenance_due_at' => now()->addDays(10)->toDateString(),
+            'maintenance_due_at' => now()->subDay()->toDateString(),
         ]);
         $certificationOwner = $this->user('expiry-certification-owner@example.test');
         $certification = Certification::query()->create([
@@ -413,6 +413,10 @@ final class WebNavigationPermissionTest extends TestCase
             ->getJson('/api/expiry-overview')
             ->assertOk()
             ->assertJsonPath('data.assets.0.asset_tag', 'EXPIRY-RBAC-ASSET')
+            ->assertJsonPath('data.assets.0.status', 'ready')
+            ->assertJsonPath('data.assets.0.effective_status', 'maintenance')
+            ->assertJsonPath('data.assets.0.is_effectively_ready', false)
+            ->assertJsonPath('data.assets.0.maintenance_overdue', true)
             ->assertJsonPath('data.certifications', []);
         $this->assertStringNotContainsString('EXPIRY-RBAC-PRIVATE', $assetResponse->getContent());
 

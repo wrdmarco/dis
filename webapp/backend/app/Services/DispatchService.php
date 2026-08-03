@@ -8,6 +8,8 @@ use App\DTO\Routing\RouteSource;
 use App\Events\DeploymentChanged;
 use App\Events\DispatchChanged;
 use App\Jobs\SendFcmNotification;
+use App\Models\Asset;
+use App\Models\AssetAssignment;
 use App\Models\AvailabilityStatus;
 use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
@@ -17,6 +19,8 @@ use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Routing\RoutingService;
+use App\Support\AssetReadiness;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -265,14 +269,33 @@ final class DispatchService
                 }
             }
 
-            $dispatch->load(['recipients.user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens)]);
+            try {
+                $reconciled = $this->reconcileDraftPreannouncementRecipients(
+                    $deployment,
+                    $targetTeam,
+                    $dispatch,
+                    $remaining,
+                );
+            } catch (ValidationException $exception) {
+                $warnings = array_merge($warnings, $this->validationMessages($exception));
+
+                continue;
+            }
+            $dispatch = $reconciled['dispatch'];
+            $recipients = $reconciled['recipients'];
+            if ($reconciled['selection_changed']) {
+                $warnings[] = "De ontvangerselectie voor team {$targetTeam->code} is bijgewerkt op basis van actuele geschiktheid en de ontvangerslimiet.";
+            }
+            if ($reconciled['selection_shortfall']) {
+                $warnings[] = $reconciled['message'];
+            }
             $dispatches->push($dispatch);
-            $recipientCount += $dispatch->recipients->count();
+            $recipientCount += $recipients->count();
             if ($remaining !== null) {
-                $remaining -= $dispatch->recipients->count();
+                $remaining -= $recipients->count();
             }
 
-            foreach ($dispatch->recipients as $recipient) {
+            foreach ($recipients as $recipient) {
                 foreach ($recipient->user?->fcmTokens ?? [] as $token) {
                     $this->dispatchPushOutboxService->store(
                         dispatchRequestId: (string) $dispatch->id,
@@ -296,7 +319,10 @@ final class DispatchService
             // preannouncement window. Advance it for every explicit resend;
             // recipient notified_at remains the per-recipient delivery phase.
             $dispatch->forceFill(['preannounced_at' => $preannouncedAt])->save();
-            $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => $preannouncedAt]);
+            $dispatch->recipients()
+                ->whereKey($recipients->modelKeys())
+                ->whereNull('notified_at')
+                ->update(['notified_at' => $preannouncedAt]);
             $this->broadcastDispatchChange($dispatch->refresh(), 'preannouncement_sent');
             $this->flushDispatchPushOutboxAfterCommit((string) $dispatch->id);
         }
@@ -339,7 +365,7 @@ final class DispatchService
         if ($recipients->isEmpty()) {
             foreach ($this->targetTeams($deployment, []) as $targetTeam) {
                 $recipients = $recipients->merge(
-                    $this->eligibleUsers($targetTeam)['users']
+                    $this->eligibleUsers($targetTeam, false, false)['users']
                         ->map(fn (User $user): object => (object) ['user' => $user, 'user_id' => $user->id]),
                 );
             }
@@ -1195,21 +1221,52 @@ final class DispatchService
                 throw ValidationException::withMessages(['dispatch' => ['Voor een afgesloten inzet kan geen heralarmering worden verstuurd.']]);
             }
             $this->assertDeploymentRequestDecisionReady($deployment);
-            if ($currentDispatch->target_team_id !== null
-                && ! Team::query()
+            $targetTeam = null;
+            $eligibility = null;
+            if ($currentDispatch->target_team_id !== null) {
+                $targetTeam = Team::query()
                     ->whereKey($currentDispatch->target_team_id)
                     ->where('is_operational', true)
-                    ->exists()) {
-                throw ValidationException::withMessages(['dispatch' => ['Het team van deze alarmering is niet operationeel.']]);
+                    ->first();
+                if ($targetTeam === null) {
+                    throw ValidationException::withMessages(['dispatch' => ['Het team van deze alarmering is niet operationeel.']]);
+                }
+                $eligibility = $this->eligibleUsers(
+                    $targetTeam,
+                    (bool) $currentDispatch->includes_unavailable_recipients,
+                );
             }
 
             $pendingRecipients = $currentDispatch->recipients()
                 ->where('response_status', 'pending')
                 ->lockForUpdate()
                 ->get();
-            $pendingRecipients->load([
-                'user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
-            ]);
+            if ($pendingRecipients->isNotEmpty()) {
+                $pendingRecipients->load([
+                    'user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
+                ]);
+                $eligibleUserIds = $eligibility !== null
+                    ? array_fill_keys(
+                        $eligibility['users']->pluck('id')->map(fn (mixed $id): string => (string) $id)->all(),
+                        true,
+                    )
+                    : ($deployment->is_test
+                        ? array_fill_keys(
+                            $pendingRecipients->pluck('user_id')->map(fn (mixed $id): string => (string) $id)->all(),
+                            true,
+                        )
+                        : $this->effectivelyAssetReadyUserIdMap($pendingRecipients->pluck('user_id')));
+                $pendingRecipients = $pendingRecipients
+                    ->filter(fn (DispatchRecipient $recipient): bool => isset($eligibleUserIds[(string) $recipient->user_id])
+                        && $recipient->user?->fcmTokens->isNotEmpty())
+                    ->values();
+                if ($pendingRecipients->isEmpty()) {
+                    $message = $eligibility['message'] ?? ($deployment->is_test
+                        ? 'Geen openstaande proefalarmontvanger heeft nog een bereikbaar operator-device.'
+                        : 'Geen openstaande ontvanger heeft nog een bereikbaar operator-device en een actief toegewezen inzetgereed middel.');
+                    throw ValidationException::withMessages(['dispatch' => [$message]]);
+                }
+            }
             $currentDispatch->setRelation('deployment', $deployment);
             $queuedTokens = 0;
 
@@ -1356,6 +1413,160 @@ final class DispatchService
     }
 
     /**
+     * Replace stale draft recipients with current eligible candidates while
+     * preserving accepted/pending preannouncement responses where possible.
+     *
+     * @return array{
+     *     dispatch: DispatchRequest,
+     *     recipients: Collection<int, DispatchRecipient>,
+     *     selection_changed: bool,
+     *     selection_shortfall: bool,
+     *     message: string
+     * }
+     */
+    private function reconcileDraftPreannouncementRecipients(
+        Deployment $deployment,
+        Team $targetTeam,
+        DispatchRequest $dispatch,
+        ?int $maximumRecipientCount,
+    ): array {
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $plan = $this->prepareSendCandidatePlan($dispatch);
+            $result = DB::transaction(function () use (
+                $deployment,
+                $targetTeam,
+                $dispatch,
+                $maximumRecipientCount,
+                $plan,
+            ): ?array {
+                $currentDeployment = Deployment::query()->lockForUpdate()->find($deployment->id);
+                if ($currentDeployment === null || in_array($currentDeployment->status, ['resolved', 'cancelled'], true)) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Voor een afgesloten of ontbrekende inzet kan geen vooraankondiging worden verstuurd.'],
+                    ]);
+                }
+                $this->assertDeploymentRequestDecisionReady($currentDeployment);
+                if ($this->deploymentRouteFingerprint($currentDeployment) !== $plan['route_target']) {
+                    return null;
+                }
+
+                $currentDispatch = DispatchRequest::query()->lockForUpdate()->find($dispatch->id);
+                if ($currentDispatch === null
+                    || (string) $currentDispatch->deployment_id !== (string) $currentDeployment->id
+                    || (string) $currentDispatch->target_team_id !== (string) $targetTeam->id) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Deze conceptalarmering bestaat niet meer of hoort niet bij het gekozen team.'],
+                    ]);
+                }
+                if ($currentDispatch->status !== 'draft') {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Alleen een conceptalarmering kan als vooraankondiging worden verstuurd.'],
+                    ]);
+                }
+
+                $currentTargetTeam = Team::query()
+                    ->whereKey($currentDispatch->target_team_id)
+                    ->where('is_operational', true)
+                    ->first();
+                if ($currentTargetTeam === null) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Het team van deze conceptalarmering is niet operationeel.'],
+                    ]);
+                }
+
+                $lockedRecipients = $currentDispatch->recipients()->lockForUpdate()->get();
+                $requestedCount = $lockedRecipients->count();
+                if ($maximumRecipientCount !== null) {
+                    $requestedCount = min($requestedCount, $maximumRecipientCount);
+                }
+                if ($requestedCount <= 0) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Deze conceptalarmering heeft geen ontvangers.'],
+                    ]);
+                }
+
+                $rankedCandidates = $this->prioritizeSendCandidates(
+                    $plan['ranked_users'],
+                    $lockedRecipients,
+                );
+                $revalidated = $this->revalidateDispatchUsers(
+                    $currentDeployment,
+                    $currentTargetTeam,
+                    $rankedCandidates,
+                    ['dispatch_recipient_count' => $requestedCount],
+                    (bool) $currentDispatch->includes_unavailable_recipients,
+                );
+                $selectedUsers = $revalidated['users'];
+                if ($selectedUsers->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => [$revalidated['message']],
+                    ]);
+                }
+
+                $selectedUserIds = $selectedUsers
+                    ->pluck('id')
+                    ->map(fn (mixed $id): string => (string) $id)
+                    ->all();
+                $originalUserIds = $lockedRecipients
+                    ->pluck('user_id')
+                    ->map(fn (mixed $id): string => (string) $id)
+                    ->sort()
+                    ->values()
+                    ->all();
+                $sortedSelectedUserIds = collect($selectedUserIds)->sort()->values()->all();
+                $selectionChanged = $originalUserIds !== $sortedSelectedUserIds;
+                $selectionShortfall = $selectedUsers->count() < $requestedCount;
+
+                $currentDispatch->recipients()->whereNotIn('user_id', $selectedUserIds)->delete();
+                $existingRecipients = $lockedRecipients->keyBy(
+                    fn (DispatchRecipient $recipient): string => (string) $recipient->user_id,
+                );
+                foreach ($selectedUsers as $user) {
+                    $recipient = $existingRecipients->get((string) $user->id);
+                    if ($recipient === null) {
+                        DispatchRecipient::query()->create([
+                            'dispatch_request_id' => $currentDispatch->id,
+                            'user_id' => $user->id,
+                            'user_name' => $user->name,
+                            'user_email' => $user->email,
+                            'response_status' => 'pending',
+                        ]);
+
+                        continue;
+                    }
+
+                    $recipient->forceFill([
+                        'user_name' => $user->name,
+                        'user_email' => $user->email,
+                    ])->save();
+                }
+
+                $currentDispatch->load([
+                    'deployment',
+                    'targetTeam',
+                    'recipients.user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
+                ]);
+
+                return [
+                    'dispatch' => $currentDispatch,
+                    'recipients' => $currentDispatch->recipients->values(),
+                    'selection_changed' => $selectionChanged,
+                    'selection_shortfall' => $selectionShortfall,
+                    'message' => "Voor team {$currentTargetTeam->code} zijn {$selectedUsers->count()} van de {$requestedCount} gevraagde ontvangers alarmeerbaar.",
+                ];
+            });
+
+            if ($result !== null) {
+                return $result;
+            }
+        }
+
+        throw ValidationException::withMessages([
+            'dispatch' => ['De inzetlocatie wijzigde tijdens de ontvangerselectie. Probeer de vooraankondiging opnieuw.'],
+        ]);
+    }
+
+    /**
      * Keep pilots who accepted the preannouncement first, then unanswered
      * selected pilots, and finally ETA-ranked backfill candidates. Explicitly
      * declined/no-response recipients never receive the actual alarm.
@@ -1490,8 +1701,11 @@ final class DispatchService
     /**
      * @return array{users: Collection<int, User>, message: string}
      */
-    private function eligibleUsers(Team $targetTeam, bool $includeUnavailable = false): array
-    {
+    private function eligibleUsers(
+        Team $targetTeam,
+        bool $includeUnavailable = false,
+        bool $requireReadyAsset = true,
+    ): array {
         if (! $targetTeam->is_operational) {
             return [
                 'users' => collect(),
@@ -1506,6 +1720,10 @@ final class DispatchService
         $teamUsers = User::query()
             ->with([
                 'certifications',
+                'assetAssignments' => fn ($assignments) => $assignments
+                    ->whereNull('released_at')
+                    ->whereHas('asset', fn ($assets) => $this->constrainUniquelyAssignedEffectivelyReadyAsset($assets))
+                    ->with('asset'),
                 'fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
                 'statuses' => fn ($statuses) => $statuses->latestPerUser(),
                 'teams',
@@ -1531,9 +1749,17 @@ final class DispatchService
         $certifiedUsers = $availableUsers
             ->filter(fn (User $user): bool => $this->hasRequiredCertifications($user, $requiredCertificationIds))
             ->values();
+        $assetReadyUsers = $requireReadyAsset
+            ? $certifiedUsers
+                ->filter(fn (User $user): bool => $user->assetAssignments->contains(
+                    fn (AssetAssignment $assignment): bool => $assignment->asset !== null
+                        && AssetReadiness::isEffectivelyReady($assignment->asset),
+                ))
+                ->values()
+            : $certifiedUsers;
 
         return [
-            'users' => $certifiedUsers,
+            'users' => $assetReadyUsers,
             'message' => $this->eligibilityFailureMessage($targetTeam, [
                 'team_users' => $teamUsers->count(),
                 'active_users' => $activeUsers->count(),
@@ -1541,9 +1767,54 @@ final class DispatchService
                 'active_token_users' => $onlineTokenUsers->count(),
                 'available_users' => $availableUsers->count(),
                 'certified_users' => $certifiedUsers->count(),
+                'asset_ready_users' => $assetReadyUsers->count(),
                 'required_certifications' => $requiredCertificationIds->count(),
-            ]),
+            ], $requireReadyAsset),
         ];
+    }
+
+    /**
+     * @param  Collection<int, mixed>  $userIds
+     * @return array<string, true>
+     */
+    private function effectivelyAssetReadyUserIdMap(Collection $userIds): array
+    {
+        $ids = $userIds
+            ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
+            ->unique()
+            ->values();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        $readyUserIds = User::query()
+            ->whereIn('id', $ids->all())
+            ->whereHas('assetAssignments', fn ($assignments) => $assignments
+                ->whereNull('released_at')
+                ->whereHas('asset', fn ($assets) => $this->constrainUniquelyAssignedEffectivelyReadyAsset($assets)))
+            ->pluck('id')
+            ->map(fn (mixed $id): string => (string) $id)
+            ->all();
+
+        return array_fill_keys($readyUserIds, true);
+    }
+
+    /**
+     * Existing duplicate open assignments are treated as unsafe data: one
+     * physical asset may never make multiple recipients dispatch-eligible.
+     *
+     * @param  Builder<Asset>  $assets
+     * @return Builder<Asset>
+     */
+    private function constrainUniquelyAssignedEffectivelyReadyAsset(Builder $assets): Builder
+    {
+        return AssetReadiness::constrainEffectivelyReady($assets)
+            ->whereHas(
+                'assignments',
+                fn (Builder $assignments) => $assignments->whereNull('released_at'),
+                '=',
+                1,
+            );
     }
 
     private function isOperationallyAvailable(User $user): bool
@@ -1679,9 +1950,9 @@ final class DispatchService
     }
 
     /**
-     * @param  array{team_users: int, active_users: int, push_enabled_users: int, active_token_users: int, available_users: int, certified_users: int, required_certifications: int}  $counts
+     * @param  array{team_users: int, active_users: int, push_enabled_users: int, active_token_users: int, available_users: int, certified_users: int, asset_ready_users: int, required_certifications: int}  $counts
      */
-    private function eligibilityFailureMessage(Team $team, array $counts): string
+    private function eligibilityFailureMessage(Team $team, array $counts, bool $requireReadyAsset): string
     {
         $prefix = "Geen alarmeerbare gebruikers gevonden voor team {$team->code}.";
 
@@ -1709,7 +1980,13 @@ final class DispatchService
             return "$prefix Beschikbare teamleden missen een verplichte geldige certificering.";
         }
 
-        return "$prefix Controleer team, push-token, beschikbaarheid en certificeringen.";
+        if ($requireReadyAsset && $counts['asset_ready_users'] === 0) {
+            return "$prefix Beschikbare gecertificeerde teamleden hebben geen actief toegewezen inzetgereed middel.";
+        }
+
+        return $requireReadyAsset
+            ? "$prefix Controleer team, push-token, beschikbaarheid, certificeringen en middelen."
+            : "$prefix Controleer team, push-token, beschikbaarheid en certificeringen.";
     }
 
     /**

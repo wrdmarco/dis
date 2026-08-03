@@ -78,6 +78,38 @@ export function dateInputValueInAmsterdam(date: Date): string {
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
+export function daysUntilAmsterdamDate(value?: string | null, now = new Date()): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const dateOnly = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (dateOnly === null) {
+    return null;
+  }
+
+  const deadlineOrdinal = dateInputOrdinal(dateOnly[1]);
+  const todayOrdinal = dateInputOrdinal(dateInputValueInAmsterdam(now));
+  if (deadlineOrdinal === null || todayOrdinal === null) {
+    return null;
+  }
+
+  return deadlineOrdinal - todayOrdinal;
+}
+
+function dateInputOrdinal(value: string): number | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match === null) {
+    return null;
+  }
+
+  const [, year, month, day] = match;
+  const timestamp = Date.UTC(Number(year), Number(month) - 1, Number(day));
+  const normalized = new Date(timestamp).toISOString().slice(0, 10);
+
+  return normalized === value ? Math.trunc(timestamp / 86_400_000) : null;
+}
+
 function parseServerLocalDateTime(value: string): string | null {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/);
 

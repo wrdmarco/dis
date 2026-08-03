@@ -7,8 +7,10 @@ use App\Models\Asset;
 use App\Models\AssetAssignment;
 use App\Models\DroneType;
 use App\Models\User;
+use App\Support\AssetReadiness;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 final class AssetService
@@ -85,14 +87,58 @@ final class AssetService
      */
     public function assign(Asset $asset, array $data, User $actor): AssetAssignment
     {
-        return DB::transaction(function () use ($asset, $data, $actor): AssetAssignment {
-            $assignment = AssetAssignment::query()->create($data + ['asset_id' => $asset->id, 'assigned_by' => $actor->id, 'assigned_at' => now()]);
-            $asset->update(['status' => 'assigned']);
-            $this->auditService->record('assets.assigned', $asset, $actor, $data);
-            $this->broadcastAssetChange($asset->refresh(), 'assigned');
+        [$assignment, $updatedAsset] = DB::transaction(function () use ($asset, $data, $actor): array {
+            $lockedAsset = Asset::query()->whereKey($asset->getKey())->lockForUpdate()->firstOrFail();
+            if (! AssetReadiness::isEffectivelyReady($lockedAsset)) {
+                throw ValidationException::withMessages([
+                    'asset' => ['Dit middel is niet inzetgereed en kan niet worden toegewezen. Controleer status en onderhoudsdatum.'],
+                ]);
+            }
+            if ($lockedAsset->assignments()->whereNull('released_at')->exists()) {
+                throw ValidationException::withMessages([
+                    'asset' => ['Dit middel heeft al een actieve toewijzing en kan niet gelijktijdig opnieuw worden toegewezen.'],
+                ]);
+            }
 
-            return $assignment;
+            $assignment = AssetAssignment::query()->create($data + ['asset_id' => $lockedAsset->id, 'assigned_by' => $actor->id, 'assigned_at' => now()]);
+            $lockedAsset->update(['status' => 'assigned']);
+            $this->auditService->record('assets.assigned', $lockedAsset, $actor, $data);
+
+            return [$assignment, $lockedAsset->refresh()];
         });
+
+        $this->broadcastAssetChange($updatedAsset, 'assigned');
+
+        return $assignment;
+    }
+
+    public function release(Asset $asset, User $actor): Asset
+    {
+        $releasedAsset = DB::transaction(function () use ($asset, $actor): Asset {
+            $lockedAsset = Asset::query()->whereKey($asset->getKey())->lockForUpdate()->firstOrFail();
+            $before = [
+                'status' => $lockedAsset->status,
+                ...AssetReadiness::fields($lockedAsset),
+            ];
+            $releasedAssignments = $lockedAsset->assignments()->whereNull('released_at')->update(['released_at' => now()]);
+            $readiness = AssetReadiness::fields($lockedAsset);
+            $status = $readiness['is_effectively_ready'] ? 'ready' : $readiness['effective_status'];
+            $lockedAsset->update(['status' => $status]);
+            $this->auditService->record('assets.released', $lockedAsset, $actor, [
+                'before' => $before,
+                'after' => [
+                    'status' => $lockedAsset->status,
+                    ...AssetReadiness::fields($lockedAsset),
+                ],
+                'released_assignment_count' => $releasedAssignments,
+            ]);
+
+            return $lockedAsset->refresh();
+        });
+
+        $this->broadcastAssetChange($releasedAsset, 'released');
+
+        return $releasedAsset;
     }
 
     private function broadcastAssetChange(Asset $asset, string $action): void

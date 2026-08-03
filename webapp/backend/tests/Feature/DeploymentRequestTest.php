@@ -7,6 +7,8 @@ use App\Events\DeploymentRequestDeleted;
 use App\Events\DispatchChanged;
 use App\Exceptions\DeploymentRequestConflictException;
 use App\Jobs\SendFcmNotification;
+use App\Models\Asset;
+use App\Models\AssetAssignment;
 use App\Models\AuditLog;
 use App\Models\Certification;
 use App\Models\DeploymentRequest;
@@ -2473,6 +2475,19 @@ final class DeploymentRequestTest extends TestCase
             'client_type' => 'operator',
             'is_active' => true,
             'last_seen_at' => now(),
+        ]);
+        $pilotAsset = Asset::query()->create([
+            'asset_tag' => 'LINKED-PLAN-PILOT-ASSET',
+            'name' => 'Linked plan pilot asset',
+            'type' => 'support_equipment',
+            'status' => 'assigned',
+            'maintenance_due_at' => today()->addYear(),
+        ]);
+        AssetAssignment::query()->create([
+            'asset_id' => $pilotAsset->id,
+            'user_id' => $pilot->id,
+            'assigned_by' => $pilot->id,
+            'assigned_at' => now(),
         ]);
 
         try {

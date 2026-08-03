@@ -7,6 +7,8 @@ import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
+import { assetTypeLabel } from '../../lib/assetLabels';
+import { assetStatusPresentation } from '../../lib/assetStatus';
 import { formatDateTime } from '../../lib/dateTime';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { countryOptions, regionOptionsForCountry } from '../../lib/profileLocation';
@@ -1291,13 +1293,8 @@ function AssetList({
     <ResourceState loading={loading} error={error} empty={assets.length === 0}>
       <ul className="compact-record-list" aria-label="Mijn assets">
         {assets.map((asset) => {
-          const tone = asset.status === 'ready'
-            ? 'good'
-            : asset.status === 'maintenance'
-              ? 'warn'
-              : asset.status === 'assigned'
-                ? 'neutral'
-                : 'critical';
+          const status = assetStatusPresentation(asset);
+          const tone = status.tone === 'bad' ? 'critical' : status.tone;
 
           return (
             <li
@@ -1311,7 +1308,7 @@ function AssetList({
                   <strong>{asset.name}</strong>
                   <span>{asset.drone_type ? droneTypeLabel(asset.drone_type) : assetTypeLabel(asset.type)}</span>
                 </div>
-                <StatusPill value={assetStatusLabel(asset.status)} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} />
+                <StatusPill value={status.label} tone={status.tone} />
               </div>
               <dl className="compact-record__meta">
                 <div>
@@ -1364,7 +1361,7 @@ function CertificationList({
                 <div className="compact-record__identity">
                   <strong>{certification.certification?.name ?? '-'}</strong>
                 </div>
-                <StatusPill value={certificationStatusLabel(certification.status)} tone={certification.status === 'active' ? 'good' : 'warn'} />
+                <StatusPill value={certification.status} tone={certification.status === 'active' ? 'good' : 'warn'} />
               </div>
               <dl className="compact-record__meta">
                 <div>
@@ -1432,53 +1429,4 @@ function dateParts(value?: string | null): { input: string; display: string } | 
 
 function ownAssetStatus(status: Asset['status']): OwnAssetStatus {
   return status === 'maintenance' || status === 'unavailable' ? status : 'ready';
-}
-
-function assetTypeLabel(type: string): string {
-  switch (type) {
-    case 'drone':
-      return 'Drone';
-    case 'battery':
-      return 'Batterij';
-    case 'sensor':
-      return 'Sensor';
-    case 'vehicle':
-      return 'Voertuig';
-    case 'support_equipment':
-      return 'Ondersteunend materieel';
-    default:
-      return type;
-  }
-}
-
-function assetStatusLabel(status: Asset['status']): string {
-  switch (status) {
-    case 'ready':
-      return 'Gereed';
-    case 'assigned':
-      return 'Toegewezen';
-    case 'maintenance':
-      return 'Onderhoud';
-    case 'unavailable':
-      return 'Niet beschikbaar';
-    case 'retired':
-      return 'Uit dienst';
-    default:
-      return status;
-  }
-}
-
-function certificationStatusLabel(status: UserCertification['status']): string {
-  switch (status) {
-    case 'active':
-      return 'Actief';
-    case 'expired':
-      return 'Verlopen';
-    case 'revoked':
-      return 'Ingetrokken';
-    case 'pending':
-      return 'In behandeling';
-    default:
-      return status;
-  }
 }

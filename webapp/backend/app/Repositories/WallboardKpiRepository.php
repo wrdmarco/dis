@@ -8,6 +8,7 @@ use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\PilotDeploymentReport;
 use App\Models\User;
+use App\Support\AssetReadiness;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -122,9 +123,9 @@ final class WallboardKpiRepository
     public function assetCounts(): array
     {
         $rows = Asset::query()
-            ->select(['type', 'status'])
+            ->select(['type', 'status', 'maintenance_due_at'])
             ->selectRaw('COUNT(*) AS aggregate')
-            ->groupBy('type', 'status')
+            ->groupBy('type', 'status', 'maintenance_due_at')
             ->get();
         $total = 0;
         $ready = 0;
@@ -135,15 +136,16 @@ final class WallboardKpiRepository
         $dronesReady = 0;
         foreach ($rows as $row) {
             $aggregate = (int) $row->aggregate;
-            $status = (string) $row->status;
+            $readiness = AssetReadiness::fields($row);
+            $effectiveStatus = $readiness['effective_status'];
             $total += $aggregate;
-            $ready += $status === 'ready' ? $aggregate : 0;
-            $maintenance += $status === 'maintenance' ? $aggregate : 0;
-            $unavailable += in_array($status, ['unavailable', 'retired'], true) ? $aggregate : 0;
-            $issues += in_array($status, ['maintenance', 'unavailable'], true) ? $aggregate : 0;
+            $ready += $readiness['is_effectively_ready'] ? $aggregate : 0;
+            $maintenance += $effectiveStatus === 'maintenance' ? $aggregate : 0;
+            $unavailable += in_array($effectiveStatus, ['unavailable', 'retired'], true) ? $aggregate : 0;
+            $issues += in_array($effectiveStatus, ['maintenance', 'unavailable'], true) ? $aggregate : 0;
             if ((string) $row->type === 'drone') {
                 $dronesTotal += $aggregate;
-                $dronesReady += $status === 'ready' ? $aggregate : 0;
+                $dronesReady += $readiness['is_effectively_ready'] ? $aggregate : 0;
             }
         }
 

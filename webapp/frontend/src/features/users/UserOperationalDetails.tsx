@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
-import { assetDisplayLabel } from '../../lib/assetLabels';
+import { assetDisplayLabel, assetTypeLabel } from '../../lib/assetLabels';
+import { assetIsEffectivelyReady, assetStatusPresentation } from '../../lib/assetStatus';
 import { formatDateOnly, formatDateTime, todayAmsterdamDateInputValue } from '../../lib/dateTime';
 import { uniqueOperatorDevices } from '../../lib/devicePresence';
 import { droneTypeLabel } from '../../lib/droneTypes';
@@ -55,8 +56,7 @@ export function UserOperationalDetails({
   const userCertifications = user?.certifications ?? [];
   const assetAssignments = user?.asset_assignments ?? [];
   const fcmTokens = uniqueOperatorDevices(user?.fcm_tokens ?? []);
-  const assignedAssetIds = new Set(assetAssignments.map((assignment) => assignment.asset_id));
-  const availableAssets = assets.filter((asset) => !assignedAssetIds.has(asset.id) && asset.status !== 'assigned' && asset.status !== 'retired');
+  const availableAssets = assets.filter((asset) => asset.active_assignment == null && assetIsEffectivelyReady(asset));
   const userCertificationIds = new Set(userCertifications.map((certification) => certification.certification_id));
   const availableCertifications = certificationOptions.filter((certification) => !userCertificationIds.has(certification.id));
   const [assetId, setAssetId] = useState('');
@@ -217,6 +217,7 @@ export function UserOperationalDetails({
               <tbody>
                 {assetAssignments.map((assignment) => {
                   const asset = assignment.asset;
+                  const status = asset ? assetStatusPresentation(asset) : null;
                   const options = [
                     asset?.drone_type?.has_thermal ? 'Thermal' : null,
                     asset?.has_spotlight ? 'Lamp' : null,
@@ -226,8 +227,8 @@ export function UserOperationalDetails({
                   return (
                     <tr key={assignment.id}>
                       <td>{asset ? assetDisplayLabel(asset) : '-'}</td>
-                      <td>{asset?.drone_type ? droneTypeLabel(asset.drone_type) : asset?.type ?? '-'}</td>
-                      <td>{asset ? <StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /> : '-'}</td>
+                      <td>{asset?.drone_type ? droneTypeLabel(asset.drone_type) : asset ? assetTypeLabel(asset.type) : '-'}</td>
+                      <td>{status ? <StatusPill value={status.label} tone={status.tone} /> : '-'}</td>
                       <td>{options || '-'}</td>
                       <td>{formatDate(asset?.maintenance_due_at)}</td>
                       <td>{formatDate(assignment.assigned_at)}</td>
