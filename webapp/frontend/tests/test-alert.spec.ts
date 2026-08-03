@@ -134,6 +134,38 @@ test('test-alert contract keeps self as the safe default and distinguishes fan-o
   expect(readTestAlertSummary({ scope: 'all_online', recipient_count: -1 })).toBeNull();
 });
 
+test('shows one weekly report with provider acceptance and confirmation kept separate', async ({ page }) => {
+  await mockTestAlertApi(
+    page,
+    async () => sendResult({
+      scope: 'self',
+      recipient_count: 1,
+      queued_token_count: 1,
+      skipped_user_count: 0,
+      failed_user_count: 0,
+    }),
+    weeklyReport,
+  );
+
+  await page.goto('/test-alert');
+
+  const report = page.getByRole('region', { name: 'Laatste wekelijkse proefalarm' });
+  await expect(report).toBeVisible();
+  await expect(report.getByRole('listitem').filter({ hasText: 'Geselecteerd' })).toContainText('3');
+  await expect(report.getByRole('listitem').filter({ hasText: 'Pushdienst geaccepteerd' })).toContainText('2');
+  await expect(report.getByRole('listitem').filter({ hasText: 'Ontvangen bevestigd' })).toContainText('1');
+  await expect(report.getByText('Nog geen bevestiging', { exact: true }).locator('..')).toContainText('2');
+  await expect(report.locator('.test-alert-report__exceptions').getByText('Geen provideracceptatie', { exact: true }).locator('..')).toContainText('1');
+  await expect(report).toContainText('Zonder reactie kan niet worden vastgesteld of het toestel de melding heeft getoond.');
+
+  const noResponseRow = report.getByRole('row').filter({ hasText: 'Operator zonder reactie' });
+  await expect(noResponseRow).toContainText('Pushdienst geaccepteerd');
+  await expect(noResponseRow).toContainText('Nog geen reactie');
+  const failedRow = report.getByRole('row').filter({ hasText: 'Operator zonder provideracceptatie' });
+  await expect(failedRow).toContainText('Geen provideracceptatie');
+  await expect(failedRow).toContainText('Nog geen reactie');
+});
+
 interface MockPostResponse {
   status?: number;
   body: unknown;
@@ -142,6 +174,7 @@ interface MockPostResponse {
 async function mockTestAlertApi(
   page: Page,
   onPost: (scope: unknown) => Promise<MockPostResponse>,
+  latestWeeklyReport: unknown = null,
 ): Promise<void> {
   await page.context().addCookies([{ name: 'XSRF-TOKEN', value: 'test-csrf-token', url: 'http://127.0.0.1:3000' }]);
   await page.route('**/api/**', async (route) => {
@@ -162,6 +195,10 @@ async function mockTestAlertApi(
     }
     if (path === '/api/test-alert/schedule') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: schedule }) });
+      return;
+    }
+    if (path === '/api/test-alert/runs/latest') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: latestWeeklyReport }) });
       return;
     }
     if (path === '/api/test-alert' && request.method() === 'GET') {
@@ -202,3 +239,66 @@ function dispatchPayload(scope: 'self' | 'all_online') {
     recipients: [],
   };
 }
+
+const weeklyReport = {
+  id: 'weekly-run-1',
+  status: 'completed',
+  scheduled_for: '2026-08-03T09:00:00+02:00',
+  started_at: '2026-08-03T09:00:01+02:00',
+  completed_at: '2026-08-03T09:00:04+02:00',
+  counts: {
+    targeted: 3,
+    queued: 3,
+    provider_accepted: 2,
+    provider_pending: 0,
+    provider_failed: 1,
+    provider_unknown: 0,
+    not_queued: 0,
+    acknowledged: 1,
+    unacknowledged: 2,
+  },
+  recipients: [
+    {
+      id: 'weekly-delivery-failed',
+      user_id: 'operator-failed',
+      user_name: 'Operator zonder provideracceptatie',
+      user_email: 'failed@example.test',
+      schedule_status: 'sent',
+      provider_status: 'failed',
+      response_status: 'pending',
+      device_counts: { total: 1, provider_accepted: 0, pending: 0, failed: 1 },
+      notified_at: '2026-08-03T09:00:02+02:00',
+      responded_at: null,
+      completed_at: '2026-08-03T09:00:02+02:00',
+      detail: 'Voor geen gekoppeld apparaat is acceptatie door de pushdienst geregistreerd.',
+    },
+    {
+      id: 'weekly-delivery-pending',
+      user_id: 'operator-pending',
+      user_name: 'Operator zonder reactie',
+      user_email: 'pending@example.test',
+      schedule_status: 'sent',
+      provider_status: 'accepted',
+      response_status: 'pending',
+      device_counts: { total: 1, provider_accepted: 1, pending: 0, failed: 0 },
+      notified_at: '2026-08-03T09:00:02+02:00',
+      responded_at: null,
+      completed_at: '2026-08-03T09:00:02+02:00',
+      detail: 'De pushdienst accepteerde de melding; ontvangst is nog niet bevestigd.',
+    },
+    {
+      id: 'weekly-delivery-acknowledged',
+      user_id: 'operator-acknowledged',
+      user_name: 'Bevestigde operator',
+      user_email: 'acknowledged@example.test',
+      schedule_status: 'sent',
+      provider_status: 'accepted',
+      response_status: 'accepted',
+      device_counts: { total: 1, provider_accepted: 1, pending: 0, failed: 0 },
+      notified_at: '2026-08-03T09:00:02+02:00',
+      responded_at: '2026-08-03T09:01:00+02:00',
+      completed_at: '2026-08-03T09:00:02+02:00',
+      detail: 'Ontvangst bevestigd in de operator-app.',
+    },
+  ],
+};

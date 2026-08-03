@@ -159,6 +159,9 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware(['permission:deployments.dispatch.manage', 'throttle:reachability-test']);
         Route::get('/test-alert/schedule', [TestAlertController::class, 'schedule'])->middleware('permission:deployments.dispatch.manage');
         Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:deployments.dispatch.manage');
+        Route::get('/test-alert/runs/latest', [TestAlertController::class, 'latestScheduledRun'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['web.client', 'permission:deployments.dispatch.view,deployments.dispatch.manage', 'throttle:alarm-read']);
 
         Route::get('/deployments', [DeploymentController::class, 'index'])
             ->withoutMiddleware('throttle:authenticated')

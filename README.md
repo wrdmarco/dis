@@ -44,6 +44,10 @@ Laravel blijft in iedere stap het systeem van waarheid. Browser- of appstatus is
 | Alarmering | `DispatchRequest` | vooraankondiging, definitieve oproep of technische testmelding |
 | Productverzoek | `ProductRequest` | niet-operationeel verzoek dat via een eigen workflow wordt afgehandeld |
 
+### Proefalarmrapportage
+
+De beheerpagina **Proefalarmering** combineert de losse dispatches van de laatste automatische weekrun via `GET /api/test-alert/runs/latest`. Deze web-only rapportage scheidt de geselecteerde doelgroep, het duurzaam klaarzetten van dispatches, acceptatie door FCM/APNs en de bevestiging **Ontvangen** in de operator-app. De historische doelgroep bevat alleen gebruikers die bij de start actief waren, push hadden ingeschakeld en minimaal één actieve operatorkoppeling hadden; gebruikers die toen buiten die selectie vielen worden niet achteraf aan de run toegevoegd. Provideracceptatie is geen bewijs dat een toestel de melding heeft getoond; alleen een geregistreerde gebruikersbevestiging bewijst ontvangst binnen het huidige contract. Ontbrekend of door retentie verwijderd providerbewijs wordt daarom als onbekend getoond en nooit als mislukte aflevering.
+
 De canonieke webpaden zijn `/aanvragen`, `/inzetten` en `/verzoeken`. Historische API-aliases kunnen voor bestaande clients aanwezig blijven, maar nieuwe code gebruikt de actuele deploymentterminologie.
 
 ## Architectuur

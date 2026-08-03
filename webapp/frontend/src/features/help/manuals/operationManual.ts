@@ -240,9 +240,9 @@ export const operationManualGuides = {
         { label: 'Bevestig een brede test', description: 'Bij Alle bereikbare operator-apps vraagt DIS om een extra bevestiging. Deze test filtert niet op beschikbaarheid, certificeringen of toegewezen drones.' },
         { label: 'Start de proefalarmering', description: 'Kies Persoonlijke proefmelding versturen of bevestig de brede bereikbaarheidstest.' },
         { label: 'Open de melding op het toestel', description: 'De proefmelding toont alleen de knop Ontvangen en geen opkomstknoppen.' },
-        { label: 'Kies Ontvangen', description: 'Ga terug naar de webapp en controleer Live status.' },
+        { label: 'Kies Ontvangen', description: 'Ga terug naar de webapp en controleer Laatste losse proefmelding.' },
       ],
-      result: 'Na het starten toont DIS voor hoeveel gebruikers de melding is klaargezet, hoeveel pushmeldingen in de wachtrij staan en hoeveel gebruikers vooraf zijn overgeslagen. Wanneer een geselecteerde gebruiker door een fout op geen enkel toestel kon worden klaargezet, wordt dit apart gemeld. Alleen Live status laat zien of en wanneer een gebruiker de melding daadwerkelijk heeft bevestigd; er is geen aparte ontvangstregel per toestel.',
+      result: 'Na het starten toont DIS voor hoeveel gebruikers de melding is klaargezet, hoeveel pushmeldingen in de wachtrij staan en hoeveel gebruikers vooraf zijn overgeslagen. Wanneer een geselecteerde gebruiker door een fout op geen enkel toestel kon worden klaargezet, wordt dit apart gemeld. Alleen een bevestiging in de operator-app bewijst ontvangst; provideracceptatie alleen bewijst niet dat het toestel de melding heeft getoond.',
     },
     {
       id: 'test-alert-schedule',
@@ -255,7 +255,7 @@ export const operationManualGuides = {
         { label: 'Vul Tekst in', description: 'Schrijf een korte herkenbare proefmelding.' },
         { label: 'Kies Planning opslaan', description: 'Controleer daarna Laatste automatische uitvoering.' },
       ],
-      result: 'Actieve gebruikers met operator-app en push ontvangen het proefalarm op het ingestelde moment.',
+      result: 'De laatste weekrun toont per geselecteerde operator of de melding is klaargezet, door de pushdienst is geaccepteerd en in de operator-app is bevestigd. Zonder bevestiging blijft toestelontvangst onbekend. De doelgroep bevat alleen actieve gebruikers met push en minimaal één actieve operatorkoppeling op het startmoment.',
     },
   ],
   map: [

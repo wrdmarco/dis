@@ -215,6 +215,150 @@ final class TestAlertScopeTest extends TestCase
         }
     }
 
+    public function test_latest_weekly_report_aggregates_provider_acceptance_and_operator_confirmations(): void
+    {
+        Queue::fake();
+        Carbon::setTestNow(Carbon::parse('2026-08-03 09:05:00', 'Europe/Amsterdam'));
+        try {
+            $manager = $this->user('weekly-report-manager@example.test');
+            $this->grant($manager, ['deployments.dispatch.manage'], operator: false, admin: true);
+
+            $acknowledged = $this->operator('weekly-report-acknowledged@example.test');
+            $acknowledged->update(['name' => 'Bevestigde operator']);
+            $this->token($acknowledged, 'weekly-report-acknowledged', lastSeenAt: now());
+            $this->token($acknowledged, 'weekly-report-acknowledged-second-device', lastSeenAt: now());
+            $unacknowledged = $this->operator('weekly-report-unacknowledged@example.test');
+            $unacknowledged->update(['name' => 'Operator zonder reactie']);
+            $this->token($unacknowledged, 'weekly-report-unacknowledged', lastSeenAt: now());
+            $providerFailure = $this->operator('weekly-report-provider-failure@example.test');
+            $providerFailure->update(['name' => 'Operator zonder provideracceptatie']);
+            $this->token($providerFailure, 'weekly-report-provider-failure', lastSeenAt: now());
+            $this->configureWeeklySchedule($manager, time: '09:00');
+
+            $result = app(TestAlertService::class)->sendScheduled();
+
+            $this->assertSame(3, $result['sent_users']);
+            $deliveries = TestAlertScheduleDelivery::query()
+                ->with('dispatchRequest.recipients')
+                ->get()
+                ->keyBy(fn (TestAlertScheduleDelivery $delivery): string => (string) $delivery->user_id);
+            $acknowledgedOutbox = DispatchPushOutbox::query()
+                ->where('dispatch_request_id', $deliveries[(string) $acknowledged->id]->dispatch_request_id)
+                ->orderBy('id')
+                ->get();
+            $acknowledgedOutbox->firstOrFail()->update(['delivered_at' => now()]);
+            $acknowledgedOutbox->last()->update([
+                'cancelled_at' => now(),
+                'last_error_code' => 'recipient_responded',
+            ]);
+            DispatchPushOutbox::query()
+                ->where('dispatch_request_id', $deliveries[(string) $unacknowledged->id]->dispatch_request_id)
+                ->update(['delivered_at' => now(), 'updated_at' => now()]);
+            DispatchPushOutbox::query()
+                ->where('dispatch_request_id', $deliveries[(string) $providerFailure->id]->dispatch_request_id)
+                ->update([
+                    'cancelled_at' => now(),
+                    'last_error_code' => 'provider_rejected',
+                    'updated_at' => now(),
+                ]);
+            $acknowledgedRecipient = $deliveries[(string) $acknowledged->id]
+                ->dispatchRequest
+                ->recipients
+                ->sole();
+            $acknowledgedRecipient->update([
+                'response_status' => 'accepted',
+                'response_note' => null,
+                'responded_at' => now(),
+            ]);
+
+            $response = $this->asWebClient($manager)
+                ->getJson('/api/test-alert/runs/latest')
+                ->assertOk()
+                ->assertJsonPath('data.status', TestAlertScheduleRun::STATUS_COMPLETED)
+                ->assertJsonPath('data.counts.targeted', 3)
+                ->assertJsonPath('data.counts.queued', 3)
+                ->assertJsonPath('data.counts.provider_accepted', 2)
+                ->assertJsonPath('data.counts.provider_pending', 0)
+                ->assertJsonPath('data.counts.provider_failed', 1)
+                ->assertJsonPath('data.counts.provider_unknown', 0)
+                ->assertJsonPath('data.counts.not_queued', 0)
+                ->assertJsonPath('data.counts.acknowledged', 1)
+                ->assertJsonPath('data.counts.unacknowledged', 2)
+                ->assertJsonCount(3, 'data.recipients');
+
+            $recipients = collect($response->json('data.recipients'))->keyBy('user_id');
+            $this->assertSame('partial', $recipients[(string) $acknowledged->id]['provider_status']);
+            $this->assertSame('accepted', $recipients[(string) $acknowledged->id]['response_status']);
+            $this->assertSame([
+                'total' => 2,
+                'provider_accepted' => 1,
+                'pending' => 0,
+                'failed' => 1,
+            ], $recipients[(string) $acknowledged->id]['device_counts']);
+            $this->assertSame('accepted', $recipients[(string) $unacknowledged->id]['provider_status']);
+            $this->assertSame('pending', $recipients[(string) $unacknowledged->id]['response_status']);
+            $this->assertSame('failed', $recipients[(string) $providerFailure->id]['provider_status']);
+            $this->assertSame('pending', $recipients[(string) $providerFailure->id]['response_status']);
+            $this->assertArrayNotHasKey('last_error_code', $recipients[(string) $providerFailure->id]);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_weekly_report_is_web_only_and_returns_null_before_the_first_run(): void
+    {
+        $manager = $this->user('empty-weekly-report-manager@example.test');
+        $this->grant($manager, ['deployments.dispatch.manage'], operator: false, admin: true);
+
+        $this->asWebClient($manager)
+            ->getJson('/api/test-alert/runs/latest')
+            ->assertOk()
+            ->assertJsonPath('data', null);
+
+        $operator = $this->operator('weekly-report-operator-client@example.test');
+        $this->grant($operator, ['deployments.dispatch.view'], operator: true, admin: false);
+        $operatorToken = $operator->createToken(
+            'Operator report client',
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->plainTextToken;
+
+        Auth::forgetGuards();
+        $this->flushHeaders()
+            ->withToken($operatorToken)
+            ->getJson('/api/test-alert/runs/latest')
+            ->assertForbidden()
+            ->assertJsonPath('error.code', 'web_client_required');
+    }
+
+    public function test_weekly_report_does_not_turn_missing_provider_evidence_into_a_delivery_failure(): void
+    {
+        Queue::fake();
+        Carbon::setTestNow(Carbon::parse('2026-08-03 09:05:00', 'Europe/Amsterdam'));
+        try {
+            $manager = $this->user('unknown-provider-report-manager@example.test');
+            $this->grant($manager, ['deployments.dispatch.manage'], operator: false, admin: true);
+            $operator = $this->operator('unknown-provider-report-operator@example.test');
+            $this->token($operator, 'unknown-provider-report-operator', lastSeenAt: now());
+            $this->configureWeeklySchedule($manager, time: '09:00');
+            app(TestAlertService::class)->sendScheduled();
+            DispatchPushOutbox::query()->delete();
+
+            $this->asWebClient($manager)
+                ->getJson('/api/test-alert/runs/latest')
+                ->assertOk()
+                ->assertJsonPath('data.counts.provider_failed', 0)
+                ->assertJsonPath('data.counts.provider_unknown', 1)
+                ->assertJsonPath('data.recipients.0.provider_status', 'not_recorded')
+                ->assertJsonPath(
+                    'data.recipients.0.detail',
+                    'Het providerresultaat is niet (meer) beschikbaar; ontvangst blijft onbekend.',
+                );
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     #[DataProvider('recoverableWeeklyScheduleTimes')]
     public function test_weekly_schedule_recovers_a_missed_minute_with_exact_offset_timestamps(string $now): void
     {

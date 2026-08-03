@@ -1280,6 +1280,60 @@ export interface DroneFlightContext {
   checklist?: string[];
 }
 
+export interface TestAlertSchedule {
+  enabled: boolean;
+  day_of_week: number;
+  time: string;
+  message: string;
+  last_run_at: string | null;
+}
+
+export type TestAlertScheduleRunStatus = 'pending' | 'processing' | 'completed' | 'expired' | 'failed';
+export type TestAlertScheduleDeliveryStatus = 'pending' | 'sent' | 'skipped' | 'failed' | 'expired';
+export type TestAlertProviderStatus = 'accepted' | 'partial' | 'pending' | 'failed' | 'not_sent' | 'not_recorded';
+
+export interface TestAlertScheduleReportCounts {
+  targeted: number;
+  queued: number;
+  provider_accepted: number;
+  provider_pending: number;
+  provider_failed: number;
+  provider_unknown: number;
+  not_queued: number;
+  acknowledged: number;
+  unacknowledged: number;
+}
+
+export interface TestAlertScheduleReportRecipient {
+  id: string;
+  user_id: string | null;
+  user_name: string;
+  user_email?: string | null;
+  schedule_status: TestAlertScheduleDeliveryStatus;
+  provider_status: TestAlertProviderStatus;
+  response_status: 'pending' | 'accepted' | 'declined' | 'no_response' | null;
+  device_counts: {
+    total: number;
+    provider_accepted: number;
+    pending: number;
+    failed: number;
+  };
+  notified_at: string | null;
+  responded_at: string | null;
+  completed_at: string | null;
+  detail: string | null;
+}
+
+export interface TestAlertScheduleReport {
+  id: string;
+  status: TestAlertScheduleRunStatus;
+  scheduled_for: string;
+  started_at: string | null;
+  completed_at: string | null;
+  counts: TestAlertScheduleReportCounts;
+  recipients: TestAlertScheduleReportRecipient[];
+}
+
 export interface DispatchRequest {
   id: string;
   deployment_id: string;

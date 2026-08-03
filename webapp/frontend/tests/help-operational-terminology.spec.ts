@@ -69,3 +69,19 @@ test('matches dispatch help to the actual view and manage gates', () => {
   expect(operationManual).toContain('De participantstatus voor deze inzet is vastgelegd.');
   expect(help).toContain('oneOfPermissions.some((permission) => access.permissions.has(permission))');
 });
+
+test('does not present push-provider acceptance as proven device delivery', () => {
+  const testAlertTopic = help.slice(
+    help.indexOf("id: 'test-alert'"),
+    help.indexOf("id: 'map'"),
+  );
+  const testAlertManual = operationManual.slice(
+    operationManual.indexOf("'test-alert': ["),
+    operationManual.indexOf('  map: ['),
+  );
+
+  expect(testAlertTopic).toContain('voor wie de pushdienst de melding accepteerde');
+  expect(testAlertTopic).not.toContain('proefmelding is aangekomen');
+  expect(testAlertManual).toContain('Alleen een bevestiging in de operator-app bewijst ontvangst');
+  expect(testAlertManual).toContain('Zonder bevestiging blijft toestelontvangst onbekend');
+});

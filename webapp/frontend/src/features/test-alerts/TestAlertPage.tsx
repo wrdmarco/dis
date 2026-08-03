@@ -1,12 +1,20 @@
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
-import { AlertTriangle, BellRing, Send, UsersRound, UserRound } from 'lucide-react';
+import { AlertTriangle, BellRing, Info, Send, UsersRound, UserRound } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { DispatchRecipient, DispatchRequest } from '../../types/api';
+import type {
+  DispatchRecipient,
+  DispatchRequest,
+  TestAlertProviderStatus,
+  TestAlertSchedule,
+  TestAlertScheduleReport,
+  TestAlertScheduleReportRecipient,
+  TestAlertScheduleRunStatus,
+} from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import {
@@ -16,14 +24,6 @@ import {
   type TestAlertScope,
   type TestAlertSummary,
 } from './testAlertContract';
-
-interface TestAlertSchedule {
-  enabled: boolean;
-  day_of_week: number;
-  time: string;
-  message: string;
-  last_run_at: string | null;
-}
 
 const weekDays = [
   { value: '1', label: 'Maandag' },
@@ -40,10 +40,15 @@ const defaultTestAlertMessage = 'Dit is het wekelijkse proefalarm.';
 export function TestAlertPage() {
   const { api } = useAuth();
   const testAlert = useApiResource<DispatchRequest>('/test-alert');
+  const scheduledReport = useApiResource<TestAlertScheduleReport>('/test-alert/runs/latest');
   const schedule = useApiResource<TestAlertSchedule>('/test-alert/schedule');
+  const reloadScheduledReport = scheduledReport.silentReload;
+  const scheduledReportStatus = scheduledReport.data?.status ?? null;
+  const scheduledProviderPending = scheduledReport.data?.counts.provider_pending ?? 0;
   const allOnlineDescriptionId = useId();
   const allOnlineConfirmationDescriptionId = useId();
   const sendingRef = useRef(false);
+  const scheduledReportReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [scope, setScope] = useState<TestAlertScope>(defaultTestAlertScope);
   const [sending, setSending] = useState(false);
   const [confirmAllOnline, setConfirmAllOnline] = useState(false);
@@ -67,6 +72,29 @@ export function TestAlertPage() {
       message: schedule.data.message,
     });
   }, [schedule.data]);
+
+  useEffect(() => {
+    return () => {
+      if (scheduledReportReloadTimerRef.current !== null) {
+        clearTimeout(scheduledReportReloadTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const shouldPoll = scheduledReportStatus === 'pending'
+      || scheduledReportStatus === 'processing'
+      || scheduledProviderPending > 0;
+    if (!shouldPoll) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      void reloadScheduledReport();
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [reloadScheduledReport, scheduledProviderPending, scheduledReportStatus]);
 
   useEffect(() => {
     if (!confirmAllOnline) {
@@ -94,6 +122,18 @@ export function TestAlertPage() {
     void sendTestAlert('self');
   }
 
+  function handleOperationalEvent() {
+    void testAlert.silentReload();
+    if (scheduledReportReloadTimerRef.current !== null) {
+      return;
+    }
+
+    scheduledReportReloadTimerRef.current = setTimeout(() => {
+      scheduledReportReloadTimerRef.current = null;
+      void reloadScheduledReport();
+    }, 750);
+  }
+
   async function sendTestAlert(requestedScope: TestAlertScope) {
     if (sendingRef.current) {
       return;
@@ -111,7 +151,7 @@ export function TestAlertPage() {
       const summary = readTestAlertSummary(response.meta);
       if (summary === null) {
         setLastSendSummary(null);
-        setError('De proefalarmering is gestart, maar het verzendresultaat kon niet worden gelezen. Controleer Live status.');
+        setError('De proefalarmering is gestart, maar het verzendresultaat kon niet worden gelezen. Controleer Laatste losse proefmelding.');
         setConfirmAllOnline(false);
         return;
       }
@@ -153,7 +193,7 @@ export function TestAlertPage() {
 
   return (
     <div className="page-stack">
-      <RealtimeBridge onOperationalEvent={() => void testAlert.silentReload()} />
+      <RealtimeBridge onOperationalEvent={handleOperationalEvent} />
 
       <Panel
         title="Proefalarmering"
@@ -209,6 +249,17 @@ export function TestAlertPage() {
         {lastSendSummary ? <TestAlertSendSummary summary={lastSendSummary} /> : null}
       </Panel>
 
+      <Panel
+        title="Laatste wekelijkse proefalarm"
+        action={scheduledReport.data ? (
+          <StatusPill value={runStatusLabel(scheduledReport.data.status)} tone={runStatusTone(scheduledReport.data.status)} />
+        ) : null}
+      >
+        <ResourceState loading={scheduledReport.loading} error={scheduledReport.error} empty={!scheduledReport.data}>
+          {scheduledReport.data ? <ScheduledTestAlertReport report={scheduledReport.data} /> : null}
+        </ResourceState>
+      </Panel>
+
       <Panel title="Automatisch proefalarm">
         <ResourceState loading={schedule.loading} error={schedule.error} empty={!schedule.data}>
           <form className="form-grid" onSubmit={saveSchedule}>
@@ -257,7 +308,7 @@ export function TestAlertPage() {
         </ResourceState>
       </Panel>
 
-      <Panel title="Live status">
+      <Panel title="Laatste losse proefmelding">
         <ResourceState loading={testAlert.loading} error={testAlert.error} empty={!testAlert.data}>
           <div className="panel-body">
             <div className="summary-grid">
@@ -348,6 +399,95 @@ function TestAlertSendSummary({ summary }: { summary: TestAlertSummary }) {
   );
 }
 
+function ScheduledTestAlertReport({ report }: { report: TestAlertScheduleReport }) {
+  return (
+    <div className="panel-body test-alert-report">
+      <div className="test-alert-report__meta">
+        <div>
+          <span>Gepland</span>
+          <strong>{formatDate(report.scheduled_for)}</strong>
+        </div>
+        <div>
+          <span>Afgerond</span>
+          <strong>{formatDate(report.completed_at)}</strong>
+        </div>
+      </div>
+
+      <ol className="test-alert-report__stages" aria-label="Bereik van het wekelijkse proefalarm">
+        <ReportStage index="1" label="Geselecteerd" value={report.counts.targeted} description="Operators in deze weekrun" />
+        <ReportStage index="2" label="Pushdienst geaccepteerd" value={report.counts.provider_accepted} description="Minstens één gekoppeld apparaat" />
+        <ReportStage index="3" label="Ontvangen bevestigd" value={report.counts.acknowledged} description="Bevestigd in de operator-app" />
+      </ol>
+
+      <div className="summary-grid test-alert-report__exceptions">
+        <SummaryItem label="Klaargezet" value={String(report.counts.queued)} />
+        <SummaryItem label="Nog geen bevestiging" value={String(report.counts.unacknowledged)} />
+        <SummaryItem label="Nog in behandeling" value={String(report.counts.provider_pending)} />
+        <SummaryItem label="Niet klaargezet" value={String(report.counts.not_queued)} />
+        <SummaryItem label="Geen provideracceptatie" value={String(report.counts.provider_failed)} />
+        <SummaryItem label="Providerbewijs onbekend" value={String(report.counts.provider_unknown)} />
+      </div>
+
+      <div className="test-alert-report__truth">
+        <Info aria-hidden size={19} />
+        <div>
+          <p><strong>Ontvangst is pas zeker na bevestiging.</strong> FCM en APNs melden alleen dat de pushdienst een bericht accepteerde. Zonder reactie kan niet worden vastgesteld of het toestel de melding heeft getoond.</p>
+          <p>De weekrun bevat alleen gebruikers die bij de start actief waren, push hadden ingeschakeld en minimaal één actieve operatorkoppeling hadden.</p>
+        </div>
+      </div>
+
+      <table className="data-table" aria-label="Ontvangers van het laatste wekelijkse proefalarm">
+        <thead>
+          <tr>
+            <th scope="col">Operator</th>
+            <th scope="col">Pushstatus</th>
+            <th scope="col">Reactie</th>
+            <th scope="col">Toelichting</th>
+          </tr>
+        </thead>
+        <tbody>
+          {report.recipients.map((recipient) => (
+            <tr key={recipient.id}>
+              <td>
+                <div className="status-cell">
+                  <strong>{recipient.user_name}</strong>
+                  {recipient.user_email ? <small>{recipient.user_email}</small> : null}
+                </div>
+              </td>
+              <td>
+                <div className="status-cell">
+                  <StatusPill value={providerStatusLabel(recipient.provider_status)} tone={providerStatusTone(recipient.provider_status)} />
+                  <small>{deviceCountLabel(recipient)}</small>
+                </div>
+              </td>
+              <td>
+                <div className="status-cell">
+                  <StatusPill value={testResponseLabel(recipient.response_status)} tone={testResponseTone(recipient.response_status)} />
+                  {recipient.responded_at ? <small>{formatDate(recipient.responded_at)}</small> : null}
+                </div>
+              </td>
+              <td><span className="test-alert-report__detail">{recipient.detail ?? '-'}</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReportStage({ index, label, value, description }: { index: string; label: string; value: number; description: string }) {
+  return (
+    <li>
+      <span className="test-alert-report__stage-index" aria-hidden>{index}</span>
+      <span className="test-alert-report__stage-copy">
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+      <strong className="test-alert-report__stage-value">{value}</strong>
+    </li>
+  );
+}
+
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -372,6 +512,93 @@ function responseLabel(value: string): string {
     default:
       return 'wacht op reactie';
   }
+}
+
+function runStatusLabel(status: TestAlertScheduleRunStatus): string {
+  switch (status) {
+    case 'completed':
+      return 'Weekrun afgerond';
+    case 'processing':
+      return 'Weekrun wordt verwerkt';
+    case 'pending':
+      return 'Weekrun staat klaar';
+    case 'expired':
+      return 'Verzendvenster verlopen';
+    case 'failed':
+      return 'Weekrun mislukt';
+  }
+}
+
+function runStatusTone(status: TestAlertScheduleRunStatus): 'good' | 'warn' | 'bad' {
+  if (status === 'completed') {
+    return 'good';
+  }
+  return status === 'pending' || status === 'processing' ? 'warn' : 'bad';
+}
+
+function providerStatusLabel(status: TestAlertProviderStatus): string {
+  switch (status) {
+    case 'accepted':
+      return 'Pushdienst geaccepteerd';
+    case 'partial':
+      return 'Deels geaccepteerd';
+    case 'pending':
+      return 'Nog in behandeling';
+    case 'failed':
+      return 'Geen provideracceptatie';
+    case 'not_sent':
+      return 'Niet klaargezet';
+    case 'not_recorded':
+      return 'Ontvangst onbekend';
+  }
+}
+
+function providerStatusTone(status: TestAlertProviderStatus): 'neutral' | 'good' | 'warn' | 'bad' {
+  if (status === 'accepted') {
+    return 'good';
+  }
+  if (status === 'partial' || status === 'pending') {
+    return 'warn';
+  }
+  return status === 'not_recorded' ? 'neutral' : 'bad';
+}
+
+function testResponseLabel(status: TestAlertScheduleReportRecipient['response_status']): string {
+  switch (status) {
+    case 'accepted':
+      return 'Ontvangen bevestigd';
+    case 'declined':
+      return 'Afgewezen';
+    case 'no_response':
+      return 'Niet bevestigd';
+    case 'pending':
+    case null:
+      return 'Nog geen reactie';
+  }
+}
+
+function testResponseTone(status: TestAlertScheduleReportRecipient['response_status']): 'good' | 'warn' | 'bad' {
+  if (status === 'accepted') {
+    return 'good';
+  }
+  return status === 'pending' || status === null ? 'warn' : 'bad';
+}
+
+function deviceCountLabel(recipient: TestAlertScheduleReportRecipient): string {
+  const counts = recipient.device_counts;
+  if (counts.total === 0) {
+    return 'Geen actueel toestelresultaat';
+  }
+
+  const parts = [`${counts.provider_accepted}/${counts.total} geaccepteerd`];
+  if (counts.pending > 0) {
+    parts.push(`${counts.pending} bezig`);
+  }
+  if (counts.failed > 0) {
+    parts.push(`${counts.failed} zonder acceptatie`);
+  }
+
+  return parts.join(' · ');
 }
 
 function formatDate(value?: string | null): string {

@@ -7,6 +7,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\DispatchRequest;
 use App\Models\User;
 use App\Services\DeploymentRequestService;
+use App\Services\TestAlertReportService;
 use App\Services\TestAlertService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +17,7 @@ final class TestAlertController extends Controller
 {
     public function __construct(
         private readonly TestAlertService $service,
+        private readonly TestAlertReportService $reports,
         private readonly DeploymentRequestService $deploymentRequestService,
     ) {}
 
@@ -38,6 +40,11 @@ final class TestAlertController extends Controller
     public function schedule(): JsonResponse
     {
         return ApiResponse::success($this->service->schedule());
+    }
+
+    public function latestScheduledRun(): JsonResponse
+    {
+        return ApiResponse::success($this->reports->latestScheduled());
     }
 
     public function updateSchedule(Request $request): JsonResponse
