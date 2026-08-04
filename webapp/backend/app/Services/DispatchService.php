@@ -21,6 +21,9 @@ use App\Models\User;
 use App\Repositories\DeploymentPilotAssignmentRepository;
 use App\Services\Routing\RoutingService;
 use App\Support\AssetReadiness;
+use App\Support\FormFieldType;
+use App\Support\FormFieldValue;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -2821,16 +2824,50 @@ final class DispatchService
             $target = DeploymentRequestWorkflowService::canonicalBindingTarget('custom_fields.'.$key);
             $tokens['field_'.$key] = in_array($target, $hiddenTargets, true)
                 ? ''
-                : $this->stringifyCustomFieldValue($value);
+                : $this->stringifyCustomFieldValue($value, $field);
         }
 
         return $tokens;
     }
 
-    private function stringifyCustomFieldValue(mixed $value): string
+    /** @param array<string, mixed>|null $field */
+    private function stringifyCustomFieldValue(mixed $value, ?array $field = null): string
     {
         if ($value === null || $value === '') {
             return '';
+        }
+
+        if (($field['type'] ?? null) === 'score' && is_numeric($value)) {
+            return FormFieldType::scoreDisplay((int) $value) ?? (string) $value;
+        }
+
+        if (in_array($field['type'] ?? null, ['select', 'radio'], true)) {
+            $option = collect($field['options'] ?? [])->firstWhere('value', $value);
+            if (is_array($option)) {
+                return (string) ($option['label'] ?? $value);
+            }
+        }
+
+        if (($field['type'] ?? null) === 'date') {
+            try {
+                $date = FormFieldValue::normalizeDate($value, 'value');
+
+                return CarbonImmutable::parse($date, 'UTC')->format('d-m-Y');
+            } catch (Throwable) {
+                return trim((string) $value);
+            }
+        }
+
+        if (($field['type'] ?? null) === 'datetime') {
+            try {
+                $dateTime = FormFieldValue::normalizeDateTime($value, 'value');
+
+                return CarbonImmutable::parse($dateTime)
+                    ->setTimezone('Europe/Amsterdam')
+                    ->format('d-m-Y H:i');
+            } catch (Throwable) {
+                return trim((string) $value);
+            }
         }
 
         if (is_bool($value)) {

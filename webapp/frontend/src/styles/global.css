@@ -16738,6 +16738,20 @@ pre {
   gap: 8px;
 }
 
+.deployment-request-radio-field > .deployment-request-flight-time {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.deployment-request-flight-time label {
+  display: grid;
+  gap: 5px;
+  color: var(--dis-muted-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .deployment-request-choice {
   min-height: 42px;
   display: inline-flex;

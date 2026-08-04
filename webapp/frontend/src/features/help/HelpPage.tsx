@@ -501,8 +501,9 @@ const helpTopics: readonly HelpTopic[] = [
     permissions: ['forms.manage'],
     actions: [
       { title: 'Kies het juiste formulier', description: 'Gebruik Inzetrapport en Inzetformulier voor hun eigen invoer. Uitvraag beheert het doorlopende aanvraagdossier voor mens, dier en object.' },
-      { title: 'Velden en tussenkoppen opbouwen', description: 'Klik of sleep onderdelen naar het canvas en zet ze in de gewenste volgorde. Het canvas is een voorbeeld; de uiteindelijke mobiele weergave kan anders zijn.' },
-      { title: 'Veldsoort kiezen', description: 'Kies uit tekst, groot tekstvak, getal, Nederlands of Belgisch telefoonnummer, vluchttijd, keuzelijst, keuzerondjes, vinkvak of een tussenkop.' },
+      { title: 'Velden en tussenkoppen opbouwen', description: 'Voeg het gewenste onderdeel toe en sleep bestaande velden in alle drie formulierbouwers naar de juiste volgorde. Gebruik Omhoog en Omlaag als toetsenbordalternatief. De uiteindelijke mobiele weergave kan anders zijn.' },
+      { title: 'Dezelfde veldsoorten gebruiken', description: 'Inzetrapport, Inzetformulier en Uitvraag bieden sectie, korte en lange tekst, adres, getal, Nederlands of Belgisch telefoonnummer, vluchttijd, dropdown, radio, checkbox, datum, datum en tijd en Smiley-score.' },
+      { title: 'Smiley-score vastleggen', description: 'De vijf keuzes lopen van Niet goed tot Zeer goed. DIS bewaart de keuze als score 1 tot en met 5, zodat resultaten betrouwbaar kunnen worden vergeleken.' },
       { title: 'Veldinstellingen aanpassen', description: 'Kies naam, verplichting, breedte, zichtbaarheid en antwoorden bij een keuzeveld. Een keuzeveld heeft minimaal twee antwoorden nodig.' },
       { title: 'Inzetformulier indelen', description: 'Verplaats vaste webonderdelen en voeg eigen velden toe. De vergrendelde onderdelen voor inzet, aanvrager en locatie blijven nodig om inzetten goed te laten werken.' },
       { title: 'Velden beschikbaar maken voor berichten', description: 'Een inzetveld kan als variabele in een pushbericht worden gebruikt. Velden uit het pilootrapport worden niet in pushberichten gebruikt.' },

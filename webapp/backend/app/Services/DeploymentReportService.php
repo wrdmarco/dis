@@ -10,6 +10,8 @@ use App\Models\PilotDeploymentReport;
 use App\Models\SystemSetting;
 use App\Support\DeploymentTimelineAttribution;
 use App\Support\DeploymentTimelineResponsePresentation;
+use App\Support\FormFieldType;
+use Carbon\CarbonImmutable;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Support\Collection;
@@ -180,6 +182,26 @@ final class DeploymentReportService
                 if (is_array($option) && (string) ($option['value'] ?? '') === (string) $value) {
                     return (string) ($option['label'] ?? $value);
                 }
+            }
+        }
+
+        if (is_array($field) && ($field['type'] ?? null) === 'score' && is_numeric($value)) {
+            return FormFieldType::scoreDisplay((int) $value) ?? (string) $value;
+        }
+
+        if (is_array($field) && ($field['type'] ?? null) === 'datetime') {
+            try {
+                return CarbonImmutable::parse((string) $value)->setTimezone('Europe/Amsterdam')->format('d-m-Y H:i');
+            } catch (Throwable) {
+                return (string) $value;
+            }
+        }
+
+        if (is_array($field) && ($field['type'] ?? null) === 'date') {
+            try {
+                return CarbonImmutable::parse((string) $value, 'UTC')->format('d-m-Y');
+            } catch (Throwable) {
+                return (string) $value;
             }
         }
 

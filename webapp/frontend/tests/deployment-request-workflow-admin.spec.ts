@@ -10,22 +10,27 @@ import {
   createWorkflowField,
   createWorkflowPriorityRule,
   createWorkflowPriorityRuleForSubject,
+  defaultConditionValue,
   deploymentRequestWorkflowFieldTypes,
   deploymentRequestWorkflowDateTimeIsoValue,
   deploymentRequestWorkflowDateTimeLocalValue,
   moveWorkflowPriorityRuleForSubject,
   normalizeRuleForSubjects,
+  reorderWorkflowFieldsForScope,
   removeWorkflowField,
   ruleSafeFields,
   updateWorkflowBinding,
   updateWorkflowDeploymentProfile,
+  updateWorkflowFlightTime,
   updateWorkflowOptionLabel,
+  workflowFlightTimeValue,
   workflowPriorityRulesForSubject,
   type DeploymentRequestWorkflowConfiguration,
   type DeploymentRequestWorkflowDeploymentProfile,
   type DeploymentRequestWorkflowField,
   type DeploymentRequestWorkflowPriorityRule,
 } from '../src/features/admin/deploymentRequestWorkflow';
+import { formFieldTypeOptions, satisfactionScoreOptions } from '../src/lib/formFieldTypes';
 
 const fields: DeploymentRequestWorkflowField[] = [
   field('last_seen_location', 'Locatie', 'common', 'address'),
@@ -131,6 +136,118 @@ test('offers address search as a typed text-like workflow field', () => {
   ]);
   expect(bindingTypesCompatible(addressField, { type: 'text' })).toBe(true);
   expect(bindingTypesCompatible(addressField, { type: 'flight_time' })).toBe(false);
+});
+
+test('uses one complete field-type catalog and a bounded smiley score', () => {
+  expect(deploymentRequestWorkflowFieldTypes).toEqual(
+    formFieldTypeOptions.map(({ value, label }) => ({ value, label })),
+  );
+  expect(deploymentRequestWorkflowFieldTypes.map((type) => type.value)).toEqual([
+    'section',
+    'text',
+    'textarea',
+    'address',
+    'number',
+    'phone',
+    'flight_time',
+    'select',
+    'radio',
+    'checkbox',
+    'date',
+    'datetime',
+    'score',
+  ]);
+  expect(deploymentRequestWorkflowFieldTypes).toContainEqual({
+    value: 'score',
+    label: 'Smiley-score',
+  });
+  expect(satisfactionScoreOptions).toEqual([
+    { value: 1, label: 'Niet goed' },
+    { value: 2, label: 'Matig' },
+    { value: 3, label: 'Neutraal' },
+    { value: 4, label: 'Goed' },
+    { value: 5, label: 'Zeer goed' },
+  ]);
+
+  const score = createWorkflowField([], 'common', 'score');
+  expect(defaultConditionValue(score)).toBe(3);
+  expect(conditionOperatorsForField(score).map((operator) => operator.key)).toEqual([
+    'equals',
+    'not_equals',
+    'greater_than_or_equal',
+    'less_than_or_equal',
+    'is_present',
+  ]);
+  expect(bindingTypesCompatible(score, { type: 'score' })).toBe(true);
+  expect(bindingTypesCompatible(score, { type: 'number' })).toBe(false);
+  expect(bindingTypesCompatible(field('count', 'Aantal', 'common', 'number'), { type: 'score' })).toBe(false);
+});
+
+test('reorders draggable workflow fields only inside the active scope', () => {
+  const commonFirst = field('common_first', 'Gemeenschappelijk 1', 'common', 'text');
+  const person = field('person', 'Persoon', 'person', 'text');
+  const commonMiddle = field('common_middle', 'Gemeenschappelijk 2', 'common', 'text');
+  const animal = field('animal', 'Dier', 'animal', 'text');
+  const commonLast = field('common_last', 'Gemeenschappelijk 3', 'common', 'text');
+  const interleaved = [commonFirst, person, commonMiddle, animal, commonLast];
+
+  const movedDown = reorderWorkflowFieldsForScope(
+    interleaved,
+    'common',
+    commonFirst.key,
+    commonLast.key,
+  );
+  expect(movedDown.map((candidate) => candidate.key)).toEqual([
+    commonMiddle.key,
+    person.key,
+    commonLast.key,
+    animal.key,
+    commonFirst.key,
+  ]);
+  expect(movedDown[1]).toBe(person);
+  expect(movedDown[3]).toBe(animal);
+
+  const movedUp = reorderWorkflowFieldsForScope(
+    interleaved,
+    'common',
+    commonLast.key,
+    commonFirst.key,
+  );
+  expect(movedUp.map((candidate) => candidate.key)).toEqual([
+    commonLast.key,
+    person.key,
+    commonFirst.key,
+    animal.key,
+    commonMiddle.key,
+  ]);
+  expect(reorderWorkflowFieldsForScope(interleaved, 'common', person.key, commonLast.key)).toBe(interleaved);
+  expect(reorderWorkflowFieldsForScope(interleaved, 'common', commonFirst.key, commonFirst.key)).toBe(interleaved);
+
+  const studio = source('../src/features/admin/DeploymentRequestWorkflowStudio.tsx');
+  expect(studio).toContain('draggable');
+  expect(studio).toContain("event.dataTransfer.setData('text/plain', field.key)");
+  expect(studio).toContain('<GripVertical size={18} aria-hidden="true" />');
+  expect(studio).toContain('reorderWorkflowFieldsForScope(configuration.fields, scope, sourceKey, target.key)');
+  expect(studio).toContain('aria-label={`${field.label} omhoog`}');
+  expect(studio).toContain('aria-label={`${field.label} omlaag`}');
+});
+
+test('normalizes flight-time simulator values to the canonical payload', () => {
+  expect(workflowFlightTimeValue('23:30-00:15')).toEqual({
+    start: '23:30',
+    end: '00:15',
+    duration_minutes: 45,
+  });
+  expect(workflowFlightTimeValue({ start: '09:15', end: '10:45', duration_minutes: 999 })).toEqual({
+    start: '09:15',
+    end: '10:45',
+    duration_minutes: 90,
+  });
+  expect(updateWorkflowFlightTime(workflowFlightTimeValue(null), 'start', '08:30')).toEqual({
+    start: '08:30',
+    end: '',
+    duration_minutes: null,
+  });
 });
 
 test('allows one deployment target across mutually exclusive subject branches only', () => {

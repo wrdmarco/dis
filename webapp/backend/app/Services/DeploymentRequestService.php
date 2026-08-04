@@ -13,6 +13,8 @@ use App\Models\Team;
 use App\Models\User;
 use App\Repositories\DeploymentRequestRepository;
 use App\Support\ApiDateTime;
+use App\Support\FormFieldType;
+use App\Support\FormFieldValue;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -1152,13 +1154,13 @@ final class DeploymentRequestService
             return $value;
         }
         preg_match(
-            '/^((?:[01]\d|2[0-4]):[0-5]\d)\s*-\s*((?:[01]\d|2[0-4]):[0-5]\d)$/',
+            '/^\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*$/D',
             $value,
             $matches,
         );
-        $start = $matches[1] ?? null;
-        $end = $matches[2] ?? null;
-        if (! is_string($start) || ! is_string($end)) {
+        $start = FormFieldValue::normalizeTime($matches[1] ?? null);
+        $end = FormFieldValue::normalizeTime($matches[2] ?? null);
+        if ($start === null || $end === null) {
             return $value;
         }
         [$startHour, $startMinute] = array_map('intval', explode(':', $start));
@@ -1222,10 +1224,23 @@ final class DeploymentRequestService
         if (($field['type'] ?? null) === 'checkbox') {
             return $value === true ? 'Ja' : 'Nee';
         }
+        if (($field['type'] ?? null) === 'score' && is_numeric($value)) {
+            return FormFieldType::scoreDisplay((int) $value) ?? (string) $value;
+        }
         if (in_array($field['type'] ?? null, ['select', 'radio'], true)) {
             $option = collect($field['options'] ?? [])->firstWhere('value', $value);
 
             return is_array($option) ? (string) $option['label'] : (string) $value;
+        }
+        if (($field['type'] ?? null) === 'flight_time' && is_array($value)) {
+            $start = trim((string) ($value['start'] ?? ''));
+            $end = trim((string) ($value['end'] ?? ''));
+            $duration = isset($value['duration_minutes']) && is_numeric($value['duration_minutes'])
+                ? ' ('.(int) $value['duration_minutes'].' min)'
+                : '';
+            $range = trim($start.($start !== '' && $end !== '' ? ' - ' : '').$end);
+
+            return $range === '' ? '-' : $range.$duration;
         }
         if (($field['type'] ?? null) === 'datetime') {
             try {

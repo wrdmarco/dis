@@ -3,7 +3,10 @@
 namespace App\Services;
 
 use App\Models\SystemSetting;
+use App\Support\FormFieldType;
+use App\Support\FormFieldValue;
 use App\Support\PhoneNumber;
+use Closure;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -14,8 +17,6 @@ final class DeploymentFormService
     public const LAYOUT_SETTING_KEY = 'deployment.form_layout';
 
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
-
-    private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'phone', 'flight_time', 'select', 'checkbox', 'radio'];
 
     private const DEFAULT_PHONE_COUNTRIES = ['31', '32'];
 
@@ -151,18 +152,39 @@ final class DeploymentFormService
                 $fieldRules[] = 'integer';
                 $fieldRules[] = 'min:0';
                 $fieldRules[] = 'max:999999';
+            } elseif ($field['type'] === 'score') {
+                $fieldRules[] = 'integer';
+                $fieldRules[] = 'min:'.FormFieldType::SCORE_MIN;
+                $fieldRules[] = 'max:'.FormFieldType::SCORE_MAX;
             } elseif ($field['type'] === 'phone') {
                 $fieldRules[] = 'string';
                 $fieldRules[] = 'max:40';
             } elseif ($field['type'] === 'flight_time') {
                 $fieldRules[] = 'array';
-                $rules['custom_fields.'.$field['key'].'.start'] = [$partial ? 'sometimes' : ($field['required'] === true ? 'required' : 'nullable'), 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
-                $rules['custom_fields.'.$field['key'].'.end'] = [$partial ? 'sometimes' : ($field['required'] === true ? 'required' : 'nullable'), 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
+                $rules['custom_fields.'.$field['key'].'.start'] = [$partial ? 'sometimes' : ($field['required'] === true ? 'required' : 'nullable'), 'regex:'.FormFieldValue::TIME_PATTERN];
+                $rules['custom_fields.'.$field['key'].'.end'] = [$partial ? 'sometimes' : ($field['required'] === true ? 'required' : 'nullable'), 'regex:'.FormFieldValue::TIME_PATTERN];
             } elseif ($field['type'] === 'checkbox') {
                 $fieldRules[] = 'boolean';
             } elseif (in_array($field['type'], ['select', 'radio'], true)) {
                 $fieldRules[] = 'string';
                 $fieldRules[] = Rule::in(array_column($field['options'] ?? [], 'value'));
+            } elseif ($field['type'] === 'address') {
+                $fieldRules[] = 'string';
+                $fieldRules[] = 'max:255';
+            } elseif ($field['type'] === 'date') {
+                $fieldRules[] = 'string';
+                $fieldRules[] = static function (string $attribute, mixed $value, Closure $fail): void {
+                    if (! FormFieldValue::isValidDate($value)) {
+                        $fail('Vul een geldige datum in.');
+                    }
+                };
+            } elseif ($field['type'] === 'datetime') {
+                $fieldRules[] = 'string';
+                $fieldRules[] = static function (string $attribute, mixed $value, Closure $fail): void {
+                    if (! FormFieldValue::isValidDateTime($value)) {
+                        $fail('Vul een geldig datum-tijdstip met tijdzone in.');
+                    }
+                };
             } else {
                 $fieldRules[] = 'string';
                 $fieldRules[] = 'max:'.(int) ($field['max_length'] ?? 5000);
@@ -227,12 +249,18 @@ final class DeploymentFormService
                 $values[$key] = null;
             } elseif ($field['type'] === 'number') {
                 $values[$key] = (int) $value;
+            } elseif ($field['type'] === 'score') {
+                $values[$key] = FormFieldValue::normalizeScore($value, 'custom_fields.'.$key);
             } elseif ($field['type'] === 'phone') {
                 $values[$key] = PhoneNumber::normalize($value, $phoneCountry, 'custom_fields.'.$key, allowLocalWithoutCountry: $phoneCountry === null);
             } elseif ($field['type'] === 'flight_time') {
                 $values[$key] = $this->normalizeFlightTimeValue($value);
             } elseif ($field['type'] === 'checkbox') {
                 $values[$key] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+            } elseif ($field['type'] === 'date') {
+                $values[$key] = FormFieldValue::normalizeDate($value, 'custom_fields.'.$key);
+            } elseif ($field['type'] === 'datetime') {
+                $values[$key] = FormFieldValue::normalizeDateTime($value, 'custom_fields.'.$key);
             } else {
                 $values[$key] = trim((string) $value);
             }
@@ -253,7 +281,7 @@ final class DeploymentFormService
         }
 
         $type = (string) ($field['type'] ?? 'text');
-        if (! in_array($type, self::FIELD_TYPES, true)) {
+        if (! in_array($type, FormFieldType::ALL, true)) {
             throw ValidationException::withMessages([$index === null ? 'fields.type' : "fields.$index.type" => ['Veldtype is ongeldig.']]);
         }
 
@@ -266,8 +294,8 @@ final class DeploymentFormService
             'type' => $type,
             'visible' => $visible,
             'required' => $type !== 'section' && $visible && $required,
-            'max_length' => $type === 'textarea' ? 5000 : ($type === 'phone' ? 20 : 1000),
-            'max' => 999999,
+            'max_length' => $type === 'textarea' ? 5000 : ($type === 'address' ? 255 : ($type === 'phone' ? 20 : 1000)),
+            'max' => $type === 'score' ? FormFieldType::SCORE_MAX : 999999,
             'options' => $this->cleanOptions($field['options'] ?? [], $type, $index),
             'phone_countries' => $type === 'phone' ? $this->cleanPhoneCountries($field['phone_countries'] ?? self::DEFAULT_PHONE_COUNTRIES) : [],
             'width' => $this->cleanWidth($field['width'] ?? null, $type),
@@ -779,9 +807,7 @@ final class DeploymentFormService
 
     private function cleanTimeValue(?string $value): ?string
     {
-        $time = trim((string) $value);
-
-        return preg_match('/^([01]\d|2[0-4]):[0-5]\d$/', $time) === 1 ? $time : null;
+        return FormFieldValue::normalizeTime($value);
     }
 
     private function flightDurationMinutes(?string $start, ?string $end): ?int

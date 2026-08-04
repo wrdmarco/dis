@@ -7,6 +7,9 @@ use App\Models\Deployment;
 use App\Models\PilotDeploymentReport;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Support\FormFieldType;
+use App\Support\FormFieldValue;
+use Closure;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -15,8 +18,6 @@ final class PilotDeploymentReportFormService
     public const SETTING_KEY = 'pilot_report.form_fields';
 
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
-
-    private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'phone', 'flight_time', 'select', 'checkbox', 'radio'];
 
     private const OPTION_SOURCES = ['manual', 'user_drones'];
 
@@ -110,13 +111,17 @@ final class PilotDeploymentReportFormService
                 $fieldRules[] = 'integer';
                 $fieldRules[] = 'min:0';
                 $fieldRules[] = 'max:'.(int) ($field['max'] ?? 1440);
+            } elseif ($field['type'] === 'score') {
+                $fieldRules[] = 'integer';
+                $fieldRules[] = 'min:'.FormFieldType::SCORE_MIN;
+                $fieldRules[] = 'max:'.FormFieldType::SCORE_MAX;
             } elseif ($field['type'] === 'phone') {
                 $fieldRules[] = 'string';
                 $fieldRules[] = 'regex:'.$this->phonePattern($field['phone_countries'] ?? self::DEFAULT_PHONE_COUNTRIES);
             } elseif ($field['type'] === 'flight_time') {
                 $fieldRules[] = 'array';
-                $rules[$target.'.start'] = [$field['required'] === true ? 'required' : 'nullable', 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
-                $rules[$target.'.end'] = [$field['required'] === true ? 'required' : 'nullable', 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
+                $rules[$target.'.start'] = [$field['required'] === true ? 'required' : 'nullable', 'regex:'.FormFieldValue::TIME_PATTERN];
+                $rules[$target.'.end'] = [$field['required'] === true ? 'required' : 'nullable', 'regex:'.FormFieldValue::TIME_PATTERN];
             } elseif ($field['type'] === 'checkbox') {
                 $fieldRules[] = 'boolean';
             } elseif (in_array($field['type'], ['select', 'radio'], true)) {
@@ -129,6 +134,23 @@ final class PilotDeploymentReportFormService
                     }
                 }
                 $fieldRules[] = Rule::in(array_values(array_unique($allowedValues)));
+            } elseif ($field['type'] === 'address') {
+                $fieldRules[] = 'string';
+                $fieldRules[] = 'max:255';
+            } elseif ($field['type'] === 'date') {
+                $fieldRules[] = 'string';
+                $fieldRules[] = static function (string $attribute, mixed $value, Closure $fail): void {
+                    if (! FormFieldValue::isValidDate($value)) {
+                        $fail('Vul een geldige datum in.');
+                    }
+                };
+            } elseif ($field['type'] === 'datetime') {
+                $fieldRules[] = 'string';
+                $fieldRules[] = static function (string $attribute, mixed $value, Closure $fail): void {
+                    if (! FormFieldValue::isValidDateTime($value)) {
+                        $fail('Vul een geldig datum-tijdstip met tijdzone in.');
+                    }
+                };
             } else {
                 $fieldRules[] = 'string';
                 $fieldRules[] = 'max:'.(int) ($field['max_length'] ?? 5000);
@@ -170,12 +192,18 @@ final class PilotDeploymentReportFormService
                 $values[$key] = null;
             } elseif ($field['type'] === 'number') {
                 $values[$key] = (int) $value;
+            } elseif ($field['type'] === 'score') {
+                $values[$key] = FormFieldValue::normalizeScore($value, 'custom_fields.'.$key);
             } elseif ($field['type'] === 'phone') {
                 $values[$key] = $this->normalizePhoneValue($value);
             } elseif ($field['type'] === 'flight_time') {
                 $values[$key] = $this->normalizeFlightTimeValue($value);
             } elseif ($field['type'] === 'checkbox') {
                 $values[$key] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+            } elseif ($field['type'] === 'date') {
+                $values[$key] = FormFieldValue::normalizeDate($value, 'custom_fields.'.$key);
+            } elseif ($field['type'] === 'datetime') {
+                $values[$key] = FormFieldValue::normalizeDateTime($value, 'custom_fields.'.$key);
             } else {
                 $values[$key] = trim((string) $value);
             }
@@ -241,7 +269,7 @@ final class PilotDeploymentReportFormService
         }
 
         $type = (string) ($field['type'] ?? 'text');
-        if (! in_array($type, self::FIELD_TYPES, true)) {
+        if (! in_array($type, FormFieldType::ALL, true)) {
             throw ValidationException::withMessages([$index === null ? 'fields.type' : "fields.$index.type" => ['Veldtype is ongeldig.']]);
         }
 
@@ -255,8 +283,8 @@ final class PilotDeploymentReportFormService
             'type' => $type,
             'visible' => $visible,
             'required' => $type !== 'section' && $visible && $required,
-            'max_length' => $type === 'textarea' ? 5000 : ($type === 'phone' ? 20 : 1000),
-            'max' => 1440,
+            'max_length' => $type === 'textarea' ? 5000 : ($type === 'address' ? 255 : ($type === 'phone' ? 20 : 1000)),
+            'max' => $type === 'score' ? FormFieldType::SCORE_MAX : 1440,
             'option_source' => $optionSource,
             'options' => $this->cleanOptions($field['options'] ?? [], $type, $optionSource, $index),
             'phone_countries' => $type === 'phone' ? $this->cleanPhoneCountries($field['phone_countries'] ?? self::DEFAULT_PHONE_COUNTRIES) : [],
@@ -545,9 +573,7 @@ final class PilotDeploymentReportFormService
 
     private function cleanTimeValue(?string $value): ?string
     {
-        $time = trim((string) $value);
-
-        return preg_match('/^([01]\d|2[0-4]):[0-5]\d$/', $time) === 1 ? $time : null;
+        return FormFieldValue::normalizeTime($value);
     }
 
     private function flightDurationMinutes(?string $start, ?string $end): ?int

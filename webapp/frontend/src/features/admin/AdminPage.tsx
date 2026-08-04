@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic';
 import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { ResourceState } from '../../components/ResourceState';
+import { SatisfactionScoreField } from '../../components/SatisfactionScoreField';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import { dateInputValueInAmsterdam, formatDateTime } from '../../lib/dateTime';
@@ -13,6 +14,7 @@ import type { ConfigurableFormField, DeploymentFormConfig, DeploymentFormLayoutI
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
+import { fieldTypeDefaultWidth, formFieldTypeOptions } from '../../lib/formFieldTypes';
 import { MapPin } from 'lucide-react';
 import {
   buildAdminApiSettingsPayload,
@@ -2486,7 +2488,7 @@ function FormFieldPropertiesPanel(props: {
             setOptionDraft(null);
             onUpdate(field.key, {
               type,
-              width: type === 'section' || type === 'textarea' || type === 'radio' || type === 'checkbox' || type === 'flight_time' ? 'full' : field.width ?? 'half',
+              width: fieldTypeDefaultWidth(type) === 'full' ? 'full' : field.width ?? 'half',
               required: type === 'section' ? false : field.required,
               option_source: 'manual',
               options: ['select', 'radio'].includes(type) ? defaultFieldOptions(field.options) : [],
@@ -2600,7 +2602,7 @@ function FormFieldPropertiesPanel(props: {
 }
 
 function FormFieldPreview({ field }: { field: ConfigurableFormField }) {
-  const className = field.width === 'full' || field.type === 'section' || ['textarea', 'radio', 'checkbox', 'flight_time'].includes(field.type)
+  const className = field.width === 'full' || fieldTypeDefaultWidth(field.type) === 'full'
     ? 'form-grid__wide'
     : undefined;
   const label = field.required ? `${field.label} *` : field.label;
@@ -2617,6 +2619,10 @@ function FormFieldPreview({ field }: { field: ConfigurableFormField }) {
     return <label className={className}>{label}<input type="number" readOnly placeholder="0" /></label>;
   }
 
+  if (field.type === 'address') {
+    return <label className={className}>{label}<input type="search" readOnly placeholder="Zoek op adres, gebouw of locatie" /></label>;
+  }
+
   if (field.type === 'phone') {
     return <label className={className}>{label}<input type="tel" readOnly placeholder={phonePlaceholder(field)} /></label>;
   }
@@ -2630,6 +2636,29 @@ function FormFieldPreview({ field }: { field: ConfigurableFormField }) {
           <label>Eind<input type="time" readOnly /></label>
         </div>
       </div>
+    );
+  }
+
+  if (field.type === 'date' || field.type === 'datetime') {
+    return (
+      <label className={className}>
+        {label}
+        <input type={field.type === 'date' ? 'date' : 'datetime-local'} readOnly />
+      </label>
+    );
+  }
+
+  if (field.type === 'score') {
+    return (
+      <SatisfactionScoreField
+        id={`form-builder-score-${field.key}`}
+        className={className}
+        label={label}
+        value={null}
+        disabled
+        compact
+        onChange={() => undefined}
+      />
     );
   }
 
@@ -2950,24 +2979,15 @@ function deploymentModuleDescription(item: DeploymentFormLayoutItem): string {
   return `${visibility} - ${lockState}`;
 }
 
-const formBuilderPalette: Array<{ type: ConfigurableFormField['type']; label: string; description: string }> = [
-  { type: 'section', label: 'Sectie', description: 'Groep of tussenkop' },
-  { type: 'text', label: 'Tekst', description: 'Korte invoer' },
-  { type: 'textarea', label: 'Grote tekst', description: 'Meerdere regels' },
-  { type: 'number', label: 'Getal', description: 'Numerieke invoer' },
-  { type: 'phone', label: 'Telefoon', description: '+31, +32' },
-  { type: 'flight_time', label: 'Vluchttijd', description: 'Start en eind' },
-  { type: 'select', label: 'Dropdown', description: 'Een keuze' },
-  { type: 'radio', label: 'Radio', description: 'Keuzelijst' },
-  { type: 'checkbox', label: 'Checkbox', description: 'Aan of uit' },
-];
+const formBuilderPalette: Array<{ type: ConfigurableFormField['type']; label: string; description: string }> = formFieldTypeOptions
+  .map((item) => ({ type: item.value, label: item.label, description: item.description }));
 
 function fieldTypeLabel(type: ConfigurableFormField['type']): string {
   return formBuilderPalette.find((item) => item.type === type)?.label ?? type;
 }
 
 function formBuilderCanvasItemClass(field: ConfigurableFormField): string {
-  const wide = field.width === 'full' || field.type === 'section' || ['textarea', 'radio', 'checkbox', 'flight_time'].includes(field.type);
+  const wide = field.width === 'full' || fieldTypeDefaultWidth(field.type) === 'full';
   return wide ? 'form-builder-canvas-item form-grid__wide' : 'form-builder-canvas-item';
 }
 
@@ -2989,7 +3009,7 @@ function newCustomFormField(
     type,
     visible: true,
     required: false,
-    width: type === 'section' || type === 'textarea' || type === 'radio' || type === 'checkbox' || type === 'flight_time' ? 'full' : 'half',
+    width: fieldTypeDefaultWidth(type),
     option_source: 'manual',
     options: ['select', 'radio'].includes(type) ? defaultFieldOptions() : [],
     phone_countries: type === 'phone' ? ['31', '32'] : [],
@@ -3000,7 +3020,11 @@ function newCustomFormField(
 }
 
 function defaultFieldLabel(type: ConfigurableFormField['type']): string {
-  return type === 'section' ? 'Nieuwe sectie' : `Nieuw ${fieldTypeLabel(type).toLowerCase()} veld`;
+  if (type === 'section') {
+    return 'Nieuwe sectie';
+  }
+
+  return type === 'score' ? 'Nieuwe smiley-score' : `Nieuw ${fieldTypeLabel(type).toLowerCase()} veld`;
 }
 
 function newSectionFormField(

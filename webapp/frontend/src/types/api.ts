@@ -2043,10 +2043,25 @@ export interface FormFieldOption {
   value: string;
 }
 
+export type FormFieldType =
+  | 'section'
+  | 'text'
+  | 'textarea'
+  | 'address'
+  | 'number'
+  | 'phone'
+  | 'flight_time'
+  | 'select'
+  | 'radio'
+  | 'checkbox'
+  | 'date'
+  | 'datetime'
+  | 'score';
+
 export interface ConfigurableFormField {
   key: string;
   label: string;
-  type: 'section' | 'text' | 'textarea' | 'number' | 'phone' | 'flight_time' | 'select' | 'checkbox' | 'radio';
+  type: FormFieldType;
   visible: boolean;
   required: boolean;
   max_length?: number;

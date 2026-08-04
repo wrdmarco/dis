@@ -32,16 +32,22 @@ import {
 } from 'react';
 import { AddressAutocomplete } from '../../components/AddressAutocomplete';
 import { useConfirmDialog } from '../../components/ConfirmDialogContext';
+import { SatisfactionScoreField } from '../../components/SatisfactionScoreField';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import {
   browserNavigationController,
   type InterceptableNavigationEvent,
 } from '../../lib/browserNavigation';
-import { formatDateTime } from '../../lib/dateTime';
+import { dateTimeLocalInputIsoValue, dateTimeLocalInputValue, formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import type { Team } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
+import {
+  deploymentRequestFlightTimeChangeValue,
+  deploymentRequestFlightTimeValue,
+  updateDeploymentRequestFlightTimeValue,
+} from './deploymentRequestFlightTime';
 import {
   bindingLabel,
   conflictDeploymentRequest,
@@ -1314,7 +1320,7 @@ function DeploymentRequestField(props: {
       {binding ? <small><ChevronRight size={13} /> Naar {bindingLabel(binding.target)}</small> : null}
     </span>
   );
-  const className = `deployment-request-field${field.type === 'textarea' || field.type === 'radio' ? ' deployment-request-field--wide' : ''}`;
+  const className = `deployment-request-field${['textarea', 'radio', 'flight_time', 'score'].includes(field.type) ? ' deployment-request-field--wide' : ''}`;
 
   if (field.type === 'address') {
     const helpId = field.help_text ? `${fieldId}-help` : undefined;
@@ -1349,6 +1355,56 @@ function DeploymentRequestField(props: {
         />
         {field.help_text ? <small id={`${fieldId}-help`}>{field.help_text}</small> : null}
       </label>
+    );
+  }
+
+  if (field.type === 'phone') {
+    return (
+      <label className={className} htmlFor={fieldId}>
+        {label}
+        <input
+          id={fieldId}
+          type="tel"
+          inputMode="tel"
+          value={asInputString(value)}
+          disabled={disabled}
+          required={field.required}
+          placeholder="+31612345678"
+          title="Gebruik een internationaal telefoonnummer met landcode."
+          onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
+        />
+        {field.help_text ? <small>{field.help_text}</small> : null}
+      </label>
+    );
+  }
+
+  if (field.type === 'flight_time') {
+    return (
+      <DeploymentRequestFlightTimeField
+        id={fieldId}
+        className={className}
+        label={label}
+        value={value}
+        disabled={disabled}
+        required={field.required}
+        helpText={field.help_text}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (field.type === 'score') {
+    return (
+      <SatisfactionScoreField
+        id={fieldId}
+        className={className}
+        label={label}
+        value={value}
+        disabled={disabled}
+        required={field.required}
+        helpText={field.help_text ?? 'Kies een score van 1 (niet goed) tot 5 (zeer goed).'}
+        onChange={onChange}
+      />
     );
   }
 
@@ -1441,7 +1497,7 @@ function DeploymentRequestField(props: {
       <input
         id={fieldId}
         type={inputType}
-        value={field.type === 'datetime' ? dateTimeLocalValue(value) : asInputString(value)}
+        value={field.type === 'datetime' ? dateTimeLocalInputValue(value) : asInputString(value)}
         disabled={disabled}
         required={field.required}
         onChange={(event) => {
@@ -1450,7 +1506,7 @@ function DeploymentRequestField(props: {
           } else if (field.type === 'number') {
             onChange(Number(event.target.value));
           } else if (field.type === 'datetime') {
-            onChange(new Date(event.target.value).toISOString());
+            onChange(dateTimeLocalInputIsoValue(event.target.value));
           } else {
             onChange(event.target.value);
           }
@@ -1458,6 +1514,66 @@ function DeploymentRequestField(props: {
       />
       {field.help_text ? <small>{field.help_text}</small> : null}
     </label>
+  );
+}
+
+function DeploymentRequestFlightTimeField(props: {
+  id: string;
+  className: string;
+  label: ReactNode;
+  value: unknown;
+  disabled: boolean;
+  required: boolean;
+  helpText?: string | null;
+  onChange: (value: unknown | null) => void;
+}) {
+  const parsedValue = deploymentRequestFlightTimeValue(props.value);
+  const parsedStart = parsedValue.start;
+  const parsedEnd = parsedValue.end;
+  const parsedDurationMinutes = parsedValue.duration_minutes;
+  const [draft, setDraft] = useState(parsedValue);
+
+  useEffect(() => {
+    setDraft({
+      start: parsedStart,
+      end: parsedEnd,
+      duration_minutes: parsedDurationMinutes,
+    });
+  }, [parsedDurationMinutes, parsedEnd, parsedStart]);
+
+  function update(part: 'start' | 'end', nextValue: string) {
+    const next = updateDeploymentRequestFlightTimeValue(draft, part, nextValue);
+    setDraft(next);
+    props.onChange(deploymentRequestFlightTimeChangeValue(next));
+  }
+
+  return (
+    <fieldset className={`${props.className} deployment-request-radio-field`} id={props.id}>
+      <legend>{props.label}</legend>
+      <div className="deployment-request-flight-time">
+        <label>
+          Start
+          <input
+            type="time"
+            value={draft.start}
+            disabled={props.disabled}
+            required={props.required}
+            onChange={(event) => update('start', event.target.value)}
+          />
+        </label>
+        <label>
+          Eind
+          <input
+            type="time"
+            value={draft.end}
+            disabled={props.disabled}
+            required={props.required}
+            onChange={(event) => update('end', event.target.value)}
+          />
+        </label>
+      </div>
+      {props.helpText ? <small>{props.helpText}</small> : null}
+    </fieldset>
   );
 }
 
@@ -1958,14 +2074,6 @@ function sameStringList(left: string[], right: string[]): boolean {
 function asInputString(value: unknown): string {
   if (typeof value === 'string' || typeof value === 'number') return String(value);
   return '';
-}
-
-function dateTimeLocalValue(value: unknown): string {
-  if (typeof value !== 'string' || value.trim() === '') return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const offset = parsed.getTimezoneOffset() * 60_000;
-  return new Date(parsed.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function isOfflineError(error: unknown): boolean {

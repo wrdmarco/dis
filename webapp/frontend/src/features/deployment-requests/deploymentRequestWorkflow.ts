@@ -1,10 +1,10 @@
-import type { Deployment } from '../../types/api';
+import type { Deployment, FormFieldType } from '../../types/api';
 
 export type DeploymentRequestSubjectType = 'person' | 'animal' | 'object';
 export type DeploymentRequestPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type DeploymentRequestStatus = 'open' | 'prepared' | 'closed';
 export type DeploymentRequestTriageState = 'incomplete' | 'unknown' | 'determined';
-export type DeploymentRequestFieldType = 'section' | 'text' | 'textarea' | 'address' | 'number' | 'select' | 'radio' | 'checkbox' | 'date' | 'datetime';
+export type DeploymentRequestFieldType = FormFieldType;
 
 export interface DeploymentRequestSubjectOption {
   key: DeploymentRequestSubjectType;

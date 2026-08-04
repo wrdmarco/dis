@@ -477,10 +477,24 @@
   border: 1px solid var(--dis-border);
   border-radius: 8px;
   background: var(--dis-field);
+  transition: border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
 }
 
 .editorCard[open] {
   border-color: var(--dis-border-strong);
+}
+
+.editorCardDragging {
+  opacity: 0.52;
+}
+
+.editorCardDropTarget {
+  border-color: color-mix(in srgb, var(--dis-blue) 72%, var(--dis-border));
+  box-shadow: inset 4px 0 0 var(--dis-blue);
+}
+
+.editorCardDropTarget > summary {
+  background: var(--dis-blue-soft);
 }
 
 .decisionRuleCard {
@@ -506,6 +520,40 @@
   min-width: 0;
   align-items: center;
   gap: 10px;
+}
+
+.dragHandle {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--dis-muted);
+  cursor: grab;
+  user-select: none;
+}
+
+.dragHandle:hover {
+  background: var(--dis-surface-3);
+  color: var(--dis-blue);
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.fieldIdentity {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.fieldIdentity strong,
+.fieldIdentity code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editorCard summary strong {
@@ -728,6 +776,17 @@
   width: 100%;
 }
 
+.conditionFlightTime {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.conditionFlightTime input {
+  min-width: 0;
+}
+
 .noValue {
   color: var(--dis-muted);
   font-size: 0.76rem;
@@ -839,6 +898,38 @@
 
 .simulationFields {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.simulationScore,
+.simulationFlightTime {
+  grid-column: 1 / -1;
+}
+
+.simulationFlightTime {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.simulationFlightTime legend,
+.simulationFlightTime small {
+  grid-column: 1 / -1;
+}
+
+.simulationFlightTime legend {
+  margin-bottom: -3px;
+  color: var(--dis-muted-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.simulationFlightTime small {
+  color: var(--dis-muted);
+  font-size: 0.72rem;
 }
 
 .simulationCheck {
@@ -1013,7 +1104,18 @@
 
   .conditionRow label,
   .conditionRow .noValue,
+  .conditionRow .conditionFlightTime,
   .bindingRow label {
+    grid-column: 1;
+  }
+
+  .conditionFlightTime,
+  .simulationFlightTime {
+    grid-template-columns: 1fr;
+  }
+
+  .simulationFlightTime legend,
+  .simulationFlightTime small {
     grid-column: 1;
   }
 
@@ -1040,7 +1142,9 @@
   .flowStep,
   .flowStepActive,
   .scopeTab,
-  .scopeTabActive {
+  .scopeTabActive,
+  .editorCard {
     scroll-behavior: auto;
+    transition: none;
   }
 }

@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   GitBranch,
+  GripVertical,
   History,
   Link2,
   ListChecks,
@@ -14,16 +15,18 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from 'react';
 import { useConfirmDialog } from '../../components/ConfirmDialogContext';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
+import { SatisfactionScoreField } from '../../components/SatisfactionScoreField';
 import { ApiClientError } from '../../lib/apiClient';
 import {
   browserNavigationController,
   type InterceptableNavigationEvent,
 } from '../../lib/browserNavigation';
 import { formatDateTime } from '../../lib/dateTime';
+import { fieldTypeHasOptions, satisfactionScoreOptions } from '../../lib/formFieldTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import type { DeploymentSubjectType } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -55,11 +58,14 @@ import {
   optionsFromLines,
   priorityLabel,
   removeWorkflowField,
+  reorderWorkflowFieldsForScope,
   ruleSafeFields,
   scopeLabel,
   updateWorkflowBinding,
   updateWorkflowDeploymentProfile,
+  updateWorkflowFlightTime,
   updateWorkflowOptionLabel,
+  workflowFlightTimeValue,
   workflowPriorityRulesForSubject,
   type DeploymentRequestWorkflowAdminEnvelope,
   type DeploymentRequestWorkflowCondition,
@@ -626,6 +632,8 @@ function QuestionsPanel(props: {
   const confirmAction = useConfirmDialog();
   const [scope, setScope] = useState<DeploymentRequestWorkflowScope>('common');
   const [newType, setNewType] = useState<DeploymentRequestWorkflowFieldType>('text');
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const scopedFields = fieldsForScope(configuration.fields, scope);
 
   function updateField(fieldKey: string, changes: Partial<DeploymentRequestWorkflowField>) {
@@ -688,20 +696,42 @@ function QuestionsPanel(props: {
   }
 
   function moveField(field: DeploymentRequestWorkflowField, direction: -1 | 1) {
-    const scopeIndexes = configuration.fields
-      .map((candidate, index) => candidate.scope === field.scope ? index : -1)
-      .filter((index) => index >= 0);
     const scopedIndex = scopedFields.findIndex((candidate) => candidate.key === field.key);
-    const targetScopedIndex = scopedIndex + direction;
-    if (targetScopedIndex < 0 || targetScopedIndex >= scopeIndexes.length) {
+    const target = scopedFields[scopedIndex + direction];
+    if (scopedIndex < 0 || target === undefined) {
       return;
     }
 
-    const next = [...configuration.fields];
-    const currentIndex = scopeIndexes[scopedIndex];
-    const targetIndex = scopeIndexes[targetScopedIndex];
-    [next[currentIndex], next[targetIndex]] = [next[targetIndex], next[currentIndex]];
-    onChange({ ...configuration, fields: next });
+    onChange({
+      ...configuration,
+      fields: reorderWorkflowFieldsForScope(configuration.fields, field.scope, field.key, target.key),
+    });
+  }
+
+  function startDragging(field: DeploymentRequestWorkflowField, event: ReactDragEvent<HTMLElement>) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', field.key);
+    setDraggingKey(field.key);
+    setDragOverKey(null);
+  }
+
+  function stopDragging() {
+    setDraggingKey(null);
+    setDragOverKey(null);
+  }
+
+  function dropField(target: DeploymentRequestWorkflowField, event: ReactDragEvent<HTMLElement>) {
+    event.preventDefault();
+    const sourceKey = draggingKey ?? event.dataTransfer.getData('text/plain');
+    stopDragging();
+    if (sourceKey === '' || sourceKey === target.key) {
+      return;
+    }
+
+    onChange({
+      ...configuration,
+      fields: reorderWorkflowFieldsForScope(configuration.fields, scope, sourceKey, target.key),
+    });
   }
 
   return (
@@ -737,7 +767,10 @@ function QuestionsPanel(props: {
               type="button"
               aria-pressed={scope === item.value}
               className={scope === item.value ? styles.scopeTabActive : styles.scopeTab}
-              onClick={() => setScope(item.value)}
+              onClick={() => {
+                stopDragging();
+                setScope(item.value);
+              }}
             >
               <strong>{item.label}</strong>
               <span>{count}</span>
@@ -759,6 +792,19 @@ function QuestionsPanel(props: {
             field={field}
             first={index === 0}
             last={index === scopedFields.length - 1}
+            dragging={draggingKey === field.key}
+            dropTarget={dragOverKey === field.key && draggingKey !== field.key}
+            onDragStart={(event) => startDragging(field, event)}
+            onDragEnd={stopDragging}
+            onDragOver={(event) => {
+              if (draggingKey === null || draggingKey === field.key) {
+                return;
+              }
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+              setDragOverKey(field.key);
+            }}
+            onDrop={(event) => dropField(field, event)}
             onMove={(direction) => moveField(field, direction)}
             onRemove={() => void removeField(field)}
             onRemoveOption={(option) => void removeOption(field, option)}
@@ -774,19 +820,59 @@ function FieldCard(props: {
   field: DeploymentRequestWorkflowField;
   first: boolean;
   last: boolean;
+  dragging: boolean;
+  dropTarget: boolean;
+  onDragStart: (event: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+  onDragOver: (event: ReactDragEvent<HTMLElement>) => void;
+  onDrop: (event: ReactDragEvent<HTMLElement>) => void;
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
   onRemoveOption: (option: DeploymentRequestWorkflowOption) => void;
   onUpdate: (changes: Partial<DeploymentRequestWorkflowField>) => void;
 }) {
-  const { field, first, last, onMove, onRemove, onRemoveOption, onUpdate } = props;
+  const {
+    field,
+    first,
+    last,
+    dragging,
+    dropTarget,
+    onDragStart,
+    onDragEnd,
+    onDragOver,
+    onDrop,
+    onMove,
+    onRemove,
+    onRemoveOption,
+    onUpdate,
+  } = props;
+  const cardClassName = [
+    styles.editorCard,
+    dragging ? styles.editorCardDragging : '',
+    dropTarget ? styles.editorCardDropTarget : '',
+  ].filter(Boolean).join(' ');
 
   return (
-    <details className={styles.editorCard}>
+    <details className={cardClassName} onDragOver={onDragOver} onDrop={onDrop}>
       <summary>
         <div>
-          <strong>{field.label}</strong>
-          <code>{field.key}</code>
+          <span
+            className={styles.dragHandle}
+            draggable
+            title={`${field.label} slepen`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          >
+            <GripVertical size={18} aria-hidden="true" />
+          </span>
+          <span className={styles.fieldIdentity}>
+            <strong>{field.label}</strong>
+            <code>{field.key}</code>
+          </span>
         </div>
         <span className={styles.summaryMeta}>
           <span>{fieldTypeLabel(field.type)}</span>
@@ -815,7 +901,7 @@ function FieldCard(props: {
                   type,
                   required: type === 'section' ? false : field.required,
                   operator_visible: type === 'section' ? false : field.operator_visible,
-                  options: type === 'select' || type === 'radio'
+                  options: fieldTypeHasOptions(type)
                     ? (field.options.length > 0 ? field.options : optionsFromLines('Optie 1\nOptie 2'))
                     : [],
                 });
@@ -861,7 +947,7 @@ function FieldCard(props: {
             </div>
           </>
         ) : null}
-        {field.type === 'select' || field.type === 'radio' ? (
+        {fieldTypeHasOptions(field.type) ? (
           <OptionsEditor field={field} onRemoveOption={onRemoveOption} onUpdate={onUpdate} />
         ) : null}
         <div className={styles.cardActions}>
@@ -1539,11 +1625,64 @@ function ConditionValueInput(props: {
     );
   }
 
+  if (field.type === 'score') {
+    return (
+      <label>
+        <span className="sr-only">Waarde</span>
+        <select
+          value={typeof value === 'number' && value >= 1 && value <= 5 ? String(value) : '3'}
+          onChange={(event) => onChange(Number(event.target.value))}
+        >
+          {satisfactionScoreOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.value} - {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  if (field.type === 'flight_time') {
+    const flightTime = workflowFlightTimeValue(value);
+
+    return (
+      <div className={styles.conditionFlightTime}>
+        <label>
+          <span className="sr-only">Starttijd</span>
+          <input
+            aria-label="Starttijd"
+            type="time"
+            value={flightTime.start}
+            onChange={(event) => onChange(updateWorkflowFlightTime(flightTime, 'start', event.target.value))}
+          />
+        </label>
+        <label>
+          <span className="sr-only">Eindtijd</span>
+          <input
+            aria-label="Eindtijd"
+            type="time"
+            value={flightTime.end}
+            onChange={(event) => onChange(updateWorkflowFlightTime(flightTime, 'end', event.target.value))}
+          />
+        </label>
+      </div>
+    );
+  }
+
   return (
     <label>
       <span className="sr-only">Waarde</span>
       <input
-        type={field.type === 'number' ? 'number' : field.type === 'datetime' ? 'datetime-local' : field.type === 'date' ? 'date' : 'text'}
+        type={field.type === 'number'
+          ? 'number'
+          : field.type === 'datetime'
+            ? 'datetime-local'
+            : field.type === 'date'
+              ? 'date'
+              : field.type === 'phone'
+                ? 'tel'
+                : 'text'}
         value={field.type === 'datetime'
           ? deploymentRequestWorkflowDateTimeLocalValue(value)
           : typeof value === 'string' || typeof value === 'number' ? value : ''}
@@ -2119,6 +2258,50 @@ function SimulationInput(props: {
     );
   }
 
+  if (field.type === 'score') {
+    return (
+      <SatisfactionScoreField
+        id={`workflow-simulation-${field.key}`}
+        label={label}
+        value={value}
+        required={field.required}
+        helpText={field.help_text}
+        compact
+        className={styles.simulationScore}
+        onChange={(nextValue) => onChange(nextValue ?? undefined)}
+      />
+    );
+  }
+
+  if (field.type === 'flight_time') {
+    const flightTime = workflowFlightTimeValue(value);
+
+    return (
+      <fieldset className={styles.simulationFlightTime}>
+        <legend>{label}</legend>
+        <label>
+          Start
+          <input
+            type="time"
+            value={flightTime.start}
+            required={field.required}
+            onChange={(event) => onChange(updateWorkflowFlightTime(flightTime, 'start', event.target.value))}
+          />
+        </label>
+        <label>
+          Eind
+          <input
+            type="time"
+            value={flightTime.end}
+            required={field.required}
+            onChange={(event) => onChange(updateWorkflowFlightTime(flightTime, 'end', event.target.value))}
+          />
+        </label>
+        {field.help_text ? <small>{field.help_text}</small> : null}
+      </fieldset>
+    );
+  }
+
   return (
     <label>
       {label}
@@ -2126,7 +2309,15 @@ function SimulationInput(props: {
         <textarea rows={2} value={typeof value === 'string' ? value : ''} onChange={(event) => onChange(event.target.value)} />
       ) : (
         <input
-          type={field.type === 'number' ? 'number' : field.type === 'datetime' ? 'datetime-local' : field.type === 'date' ? 'date' : 'text'}
+          type={field.type === 'number'
+            ? 'number'
+            : field.type === 'datetime'
+              ? 'datetime-local'
+              : field.type === 'date'
+                ? 'date'
+                : field.type === 'phone'
+                  ? 'tel'
+                  : 'text'}
           value={field.type === 'datetime'
             ? deploymentRequestWorkflowDateTimeLocalValue(value)
             : typeof value === 'string' || typeof value === 'number' ? value : ''}
@@ -2230,7 +2421,7 @@ function normalizeField(
     };
   }
 
-  if (field.type !== 'select' && field.type !== 'radio') {
+  if (!fieldTypeHasOptions(field.type)) {
     return { ...field, options: [] };
   }
 

@@ -1,16 +1,14 @@
+import {
+  fieldTypeHasOptions,
+  fieldTypeLabel as sharedFieldTypeLabel,
+  formFieldTypeOptions,
+  isSatisfactionScore,
+  type FormFieldType,
+} from '../../lib/formFieldTypes';
+import { dateTimeLocalInputIsoValue, dateTimeLocalInputValue } from '../../lib/dateTime';
 import type { DeploymentSubjectType } from '../../types/api';
 
-export type DeploymentRequestWorkflowFieldType =
-  | 'section'
-  | 'text'
-  | 'textarea'
-  | 'address'
-  | 'number'
-  | 'select'
-  | 'radio'
-  | 'checkbox'
-  | 'date'
-  | 'datetime';
+export type DeploymentRequestWorkflowFieldType = FormFieldType;
 export type DeploymentRequestWorkflowScope = 'common' | DeploymentSubjectType;
 export type DeploymentRequestWorkflowPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type DeploymentRequestWorkflowRuleMatch = 'all' | 'any';
@@ -43,6 +41,12 @@ export interface DeploymentRequestWorkflowField {
   operator_visible: boolean;
   help_text?: string | null;
   options: DeploymentRequestWorkflowOption[];
+}
+
+export interface DeploymentRequestWorkflowFlightTimeValue {
+  start: string;
+  end: string;
+  duration_minutes: number | null;
 }
 
 export interface DeploymentRequestWorkflowBinding {
@@ -183,27 +187,18 @@ export const deploymentRequestWorkflowPriorities: Array<{ value: DeploymentReque
 ];
 
 export const deploymentRequestWorkflowFieldTypes: Array<{ value: DeploymentRequestWorkflowFieldType; label: string }> = [
-  { value: 'section', label: 'Sectie' },
-  { value: 'text', label: 'Korte tekst' },
-  { value: 'textarea', label: 'Lange tekst' },
-  { value: 'address', label: 'Adreszoekveld' },
-  { value: 'number', label: 'Getal' },
-  { value: 'select', label: 'Dropdown' },
-  { value: 'radio', label: 'Keuzelijst' },
-  { value: 'checkbox', label: 'Ja / nee' },
-  { value: 'date', label: 'Datum' },
-  { value: 'datetime', label: 'Datum en tijd' },
+  ...formFieldTypeOptions.map(({ value, label }) => ({ value, label })),
 ];
 
 export const deploymentRequestWorkflowConditionOperators: DeploymentRequestWorkflowOperatorCatalogItem[] = [
-  { key: 'equals', label: 'is gelijk aan', field_types: ['text', 'textarea', 'address', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: true },
-  { key: 'not_equals', label: 'is niet gelijk aan', field_types: ['text', 'textarea', 'address', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: true },
+  { key: 'equals', label: 'is gelijk aan', field_types: ['text', 'textarea', 'address', 'number', 'phone', 'flight_time', 'select', 'radio', 'checkbox', 'date', 'datetime', 'score'], needs_value: true },
+  { key: 'not_equals', label: 'is niet gelijk aan', field_types: ['text', 'textarea', 'address', 'number', 'phone', 'flight_time', 'select', 'radio', 'checkbox', 'date', 'datetime', 'score'], needs_value: true },
   { key: 'contains', label: 'bevat', field_types: ['text', 'textarea', 'address', 'select', 'radio'], needs_value: true },
-  { key: 'greater_than_or_equal', label: 'is minimaal', field_types: ['number', 'date', 'datetime'], needs_value: true },
-  { key: 'less_than_or_equal', label: 'is maximaal', field_types: ['number', 'date', 'datetime'], needs_value: true },
+  { key: 'greater_than_or_equal', label: 'is minimaal', field_types: ['number', 'date', 'datetime', 'score'], needs_value: true },
+  { key: 'less_than_or_equal', label: 'is maximaal', field_types: ['number', 'date', 'datetime', 'score'], needs_value: true },
   { key: 'is_true', label: 'is ja', field_types: ['checkbox'], needs_value: false },
   { key: 'is_false', label: 'is nee', field_types: ['checkbox'], needs_value: false },
-  { key: 'is_present', label: 'is ingevuld', field_types: ['text', 'textarea', 'address', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: false },
+  { key: 'is_present', label: 'is ingevuld', field_types: ['text', 'textarea', 'address', 'number', 'phone', 'flight_time', 'select', 'radio', 'checkbox', 'date', 'datetime', 'score'], needs_value: false },
 ];
 
 export function createWorkflowField(
@@ -220,7 +215,7 @@ export function createWorkflowField(
     scope,
     required: false,
     operator_visible: false,
-    options: type === 'select' || type === 'radio'
+    options: fieldTypeHasOptions(type)
       ? [
           { value: 'optie_1', label: 'Optie 1' },
           { value: 'optie_2', label: 'Optie 2' },
@@ -371,7 +366,7 @@ export function priorityLabel(priority: DeploymentRequestWorkflowPriority): stri
 }
 
 export function fieldTypeLabel(type: DeploymentRequestWorkflowFieldType): string {
-  return deploymentRequestWorkflowFieldTypes.find((item) => item.value === type)?.label ?? type;
+  return sharedFieldTypeLabel(type);
 }
 
 export function fieldsForScope(
@@ -426,8 +421,16 @@ export function defaultConditionValue(field: DeploymentRequestWorkflowField): un
     return 0;
   }
 
+  if (field.type === 'score') {
+    return 3;
+  }
+
   if (field.type === 'checkbox') {
     return true;
+  }
+
+  if (field.type === 'flight_time') {
+    return { start: '09:00', end: '10:00', duration_minutes: 60 };
   }
 
   if (field.type === 'select' || field.type === 'radio') {
@@ -475,6 +478,9 @@ export function bindingTypesCompatible(
   if (targetField.type === 'number') {
     return sourceField.type === 'number';
   }
+  if (targetField.type === 'score') {
+    return sourceField.type === 'score';
+  }
   if (targetField.type === 'checkbox') {
     return sourceField.type === 'checkbox';
   }
@@ -487,13 +493,27 @@ export function bindingTypesCompatible(
     return sourceField.options.every((option) => targetValues.has(option.value));
   }
   if (targetField.type === 'phone') {
-    return sourceField.type === 'text' || sourceField.type === 'select' || sourceField.type === 'radio';
+    return sourceField.type === 'phone'
+      || sourceField.type === 'text'
+      || sourceField.type === 'select'
+      || sourceField.type === 'radio';
   }
   if (targetField.type === 'flight_time') {
-    return sourceField.type === 'text' || sourceField.type === 'textarea';
+    return sourceField.type === 'flight_time'
+      || sourceField.type === 'text'
+      || sourceField.type === 'textarea';
+  }
+  if (targetField.type === 'address') {
+    return sourceField.type === 'address' || sourceField.type === 'text';
+  }
+  if (targetField.type === 'date') {
+    return sourceField.type === 'date';
+  }
+  if (targetField.type === 'datetime') {
+    return sourceField.type === 'datetime';
   }
 
-  return ['text', 'textarea', 'address', 'select', 'radio', 'date', 'datetime'].includes(sourceField.type);
+  return ['text', 'textarea', 'address', 'select', 'radio', 'date', 'datetime', 'phone'].includes(sourceField.type);
 }
 
 export function updateWorkflowBinding(
@@ -542,6 +562,36 @@ export function moveWorkflowItem<T>(
   return next;
 }
 
+export function reorderWorkflowFieldsForScope(
+  fields: DeploymentRequestWorkflowField[],
+  scope: DeploymentRequestWorkflowScope,
+  sourceKey: string,
+  targetKey: string,
+): DeploymentRequestWorkflowField[] {
+  if (sourceKey === targetKey) {
+    return fields;
+  }
+
+  const scopedIndexes = fields.flatMap((field, index) => field.scope === scope ? [index] : []);
+  const scopedFields = scopedIndexes.map((index) => fields[index]);
+  const sourceIndex = scopedFields.findIndex((field) => field.key === sourceKey);
+  const targetIndex = scopedFields.findIndex((field) => field.key === targetKey);
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return fields;
+  }
+
+  const reordered = [...scopedFields];
+  const [source] = reordered.splice(sourceIndex, 1);
+  reordered.splice(targetIndex, 0, source);
+
+  const next = [...fields];
+  scopedIndexes.forEach((fieldIndex, index) => {
+    next[fieldIndex] = reordered[index];
+  });
+
+  return next;
+}
+
 export function normalizeRuleForSubjects(
   rule: DeploymentRequestWorkflowPriorityRule,
   fields: DeploymentRequestWorkflowField[],
@@ -572,11 +622,12 @@ export function normalizeRuleForSubjects(
       const hasValue = condition.value !== null
         && condition.value !== undefined
         && condition.value !== '';
+      const typedValueIsValid = field.type !== 'score' || isSatisfactionScore(condition.value);
 
       return [{
         field_key: field.key,
         operator,
-        value: supported && optionStillExists && hasValue
+        value: supported && optionStillExists && hasValue && typedValueIsValid
           ? condition.value
           : defaultConditionValue(field),
       }];
@@ -640,23 +691,64 @@ export function linesToResources(value: string): string[] {
 }
 
 export function deploymentRequestWorkflowDateTimeLocalValue(value: unknown): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    return '';
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return '';
-  }
-  const offset = parsed.getTimezoneOffset() * 60_000;
-
-  return new Date(parsed.getTime() - offset).toISOString().slice(0, 16);
+  return dateTimeLocalInputValue(value);
 }
 
 export function deploymentRequestWorkflowDateTimeIsoValue(value: string): string {
-  if (value === '') {
-    return '';
-  }
-  const parsed = new Date(value);
+  return dateTimeLocalInputIsoValue(value);
+}
 
-  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+export function workflowFlightTimeValue(value: unknown): DeploymentRequestWorkflowFlightTimeValue {
+  const legacy = typeof value === 'string'
+    ? value.match(/^\s*((?:[01]\d|2[0-4]):[0-5]\d)\s*-\s*((?:[01]\d|2[0-4]):[0-5]\d)\s*$/)
+    : null;
+  const record = value !== null && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null;
+  const start = normalizeWorkflowTime(legacy?.[1] ?? record?.start);
+  const end = normalizeWorkflowTime(legacy?.[2] ?? record?.end);
+
+  return {
+    start,
+    end,
+    duration_minutes: workflowFlightDurationMinutes(start, end),
+  };
+}
+
+export function updateWorkflowFlightTime(
+  current: DeploymentRequestWorkflowFlightTimeValue,
+  part: 'start' | 'end',
+  value: string,
+): DeploymentRequestWorkflowFlightTimeValue {
+  const next = {
+    ...current,
+    [part]: normalizeWorkflowTime(value),
+  };
+
+  return {
+    ...next,
+    duration_minutes: workflowFlightDurationMinutes(next.start, next.end),
+  };
+}
+
+function normalizeWorkflowTime(value: unknown): string {
+  return typeof value === 'string' && /^(?:[01]\d|2[0-4]):[0-5]\d$/.test(value.trim())
+    ? value.trim()
+    : '';
+}
+
+function workflowFlightDurationMinutes(start: string, end: string): number | null {
+  if (start === '' || end === '') {
+    return null;
+  }
+
+  const [startHour, startMinute] = start.split(':').map(Number);
+  const [endHour, endMinute] = end.split(':').map(Number);
+  const startTotal = startHour * 60 + startMinute;
+  let endTotal = endHour * 60 + endMinute;
+  if (endTotal < startTotal) {
+    endTotal += 24 * 60;
+  }
+
+  return endTotal - startTotal;
 }

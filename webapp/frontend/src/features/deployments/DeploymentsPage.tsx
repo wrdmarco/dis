@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Archive, Clock, CloudSun, FileText, MapPin, Plane, Plus, RadioTower, Search, Users } from 'lucide-react';
+import { AddressAutocomplete } from '../../components/AddressAutocomplete';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
+import { SatisfactionScoreField } from '../../components/SatisfactionScoreField';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
-import { formatDateTime } from '../../lib/dateTime';
+import { dateTimeLocalInputIsoValue, dateTimeLocalInputValue, formatDateTime } from '../../lib/dateTime';
 import { fetchLocationSuggestions, geocodeAddressLabel, lookupLocationSuggestion, type LocationSuggestion } from '../../lib/locationSearch';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
@@ -884,6 +886,21 @@ function DynamicDeploymentField(props: {
   const label = field.required ? `${field.label} *` : field.label;
   const className = field.width === 'full' ? 'form-grid__wide' : undefined;
 
+  if (field.type === 'address') {
+    const fieldId = `deployment-custom-field-${field.key}`;
+    return (
+      <div className={className}>
+        <label htmlFor={fieldId}>{label}</label>
+        <AddressAutocomplete
+          id={fieldId}
+          value={asFormString(value)}
+          required={field.required}
+          onChange={(nextValue) => onChange(nextValue === '' ? null : nextValue)}
+        />
+      </div>
+    );
+  }
+
   if (field.type === 'textarea') {
     return (
       <label className="form-grid__wide">
@@ -925,6 +942,41 @@ function DynamicDeploymentField(props: {
         label={label}
         value={value}
         required={field.required}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (field.type === 'date' || field.type === 'datetime') {
+    return (
+      <label className={className}>
+        {label}
+        <input
+          type={field.type === 'date' ? 'date' : 'datetime-local'}
+          value={field.type === 'date' ? asFormString(value) : dateTimeLocalInputValue(value)}
+          required={field.required}
+          onChange={(event) => {
+            if (event.target.value === '') {
+              onChange(null);
+              return;
+            }
+
+            onChange(field.type === 'datetime' ? dateTimeLocalInputIsoValue(event.target.value) : event.target.value);
+          }}
+        />
+      </label>
+    );
+  }
+
+  if (field.type === 'score') {
+    return (
+      <SatisfactionScoreField
+        id={`deployment-score-${field.key}`}
+        className="form-grid__wide"
+        label={label}
+        value={value}
+        required={field.required}
+        helpText="Kies een score van 1 (niet goed) tot 5 (zeer goed)."
         onChange={onChange}
       />
     );

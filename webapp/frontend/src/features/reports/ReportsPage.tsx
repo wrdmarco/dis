@@ -1,11 +1,13 @@
 import { type ReactNode, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileText, MessageCircleOff, Users } from 'lucide-react';
 import Link from 'next/link';
+import { AddressAutocomplete } from '../../components/AddressAutocomplete';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
+import { SatisfactionScoreField } from '../../components/SatisfactionScoreField';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
-import { formatDateTime } from '../../lib/dateTime';
+import { dateTimeLocalInputIsoValue, dateTimeLocalInputValue, formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { ConfigurableFormField, DispatchStatistics, DispatchStatisticsDeploymentSummary, ReportDeployment } from '../../types/api';
@@ -239,6 +241,22 @@ export function PilotReportField({ field, value, onChange, disabled = false }: {
   const label = field.required ? `${field.label} *` : field.label;
   const className = field.width === 'full' ? 'form-grid__wide' : undefined;
 
+  if (field.type === 'address') {
+    const fieldId = `pilot-report-custom-field-${field.key}`;
+    return (
+      <div className={className}>
+        <label htmlFor={fieldId}>{label}</label>
+        <AddressAutocomplete
+          id={fieldId}
+          value={asFormString(value)}
+          required={field.required}
+          disabled={disabled}
+          onChange={(nextValue) => onChange(nextValue === '' ? null : nextValue)}
+        />
+      </div>
+    );
+  }
+
   if (field.type === 'textarea') {
     return <label className="form-grid__wide">{label}<textarea value={asFormString(value)} required={field.required} rows={4} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></label>;
   }
@@ -276,6 +294,43 @@ export function PilotReportField({ field, value, onChange, disabled = false }: {
           <label>Eind<input type="time" value={flightTime.end} required={field.required} disabled={disabled} onChange={(event) => onChange({ ...flightTime, end: event.target.value })} /></label>
         </div>
       </div>
+    );
+  }
+
+  if (field.type === 'date' || field.type === 'datetime') {
+    return (
+      <label className={className}>
+        {label}
+        <input
+          type={field.type === 'date' ? 'date' : 'datetime-local'}
+          value={field.type === 'date' ? asFormString(value) : dateTimeLocalInputValue(value)}
+          required={field.required}
+          disabled={disabled}
+          onChange={(event) => {
+            if (event.target.value === '') {
+              onChange(null);
+              return;
+            }
+
+            onChange(field.type === 'datetime' ? dateTimeLocalInputIsoValue(event.target.value) : event.target.value);
+          }}
+        />
+      </label>
+    );
+  }
+
+  if (field.type === 'score') {
+    return (
+      <SatisfactionScoreField
+        id={`pilot-report-score-${field.key}`}
+        className="form-grid__wide"
+        label={label}
+        value={value}
+        required={field.required}
+        disabled={disabled}
+        helpText="Kies een score van 1 (niet goed) tot 5 (zeer goed)."
+        onChange={onChange}
+      />
     );
   }
 

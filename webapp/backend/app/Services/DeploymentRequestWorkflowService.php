@@ -10,7 +10,9 @@ use App\Models\Team;
 use App\Models\User;
 use App\Repositories\DeploymentRequestWorkflowRepository;
 use App\Support\ApiDateTime;
-use Carbon\CarbonImmutable;
+use App\Support\FormFieldType;
+use App\Support\FormFieldValue;
+use App\Support\PhoneNumber;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -35,9 +37,6 @@ final class DeploymentRequestWorkflowService
         'on_scene_contact_role',
         'required_resources',
     ];
-
-    /** @var list<string> */
-    private const FIELD_TYPES = ['section', 'text', 'textarea', 'address', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'];
 
     /** @var list<string> */
     private const SCOPES = ['common', 'person', 'animal', 'object'];
@@ -541,14 +540,14 @@ final class DeploymentRequestWorkflowService
                 ->all(),
             'certification_types' => Certification::query()->orderBy('name')->get(['id', 'code', 'name'])->map->only(['id', 'code', 'name'])->values()->all(),
             'operators' => [
-                ['key' => 'equals', 'label' => 'is gelijk aan', 'field_types' => array_values(array_diff(self::FIELD_TYPES, ['section'])), 'needs_value' => true],
-                ['key' => 'not_equals', 'label' => 'is niet gelijk aan', 'field_types' => array_values(array_diff(self::FIELD_TYPES, ['section'])), 'needs_value' => true],
+                ['key' => 'equals', 'label' => 'is gelijk aan', 'field_types' => array_values(array_diff(FormFieldType::ALL, ['section'])), 'needs_value' => true],
+                ['key' => 'not_equals', 'label' => 'is niet gelijk aan', 'field_types' => array_values(array_diff(FormFieldType::ALL, ['section'])), 'needs_value' => true],
                 ['key' => 'contains', 'label' => 'bevat', 'field_types' => ['text', 'textarea', 'address', 'select', 'radio'], 'needs_value' => true],
-                ['key' => 'greater_than_or_equal', 'label' => 'is minimaal', 'field_types' => ['number', 'date', 'datetime'], 'needs_value' => true],
-                ['key' => 'less_than_or_equal', 'label' => 'is maximaal', 'field_types' => ['number', 'date', 'datetime'], 'needs_value' => true],
+                ['key' => 'greater_than_or_equal', 'label' => 'is minimaal', 'field_types' => ['number', 'date', 'datetime', 'score'], 'needs_value' => true],
+                ['key' => 'less_than_or_equal', 'label' => 'is maximaal', 'field_types' => ['number', 'date', 'datetime', 'score'], 'needs_value' => true],
                 ['key' => 'is_true', 'label' => 'is waar', 'field_types' => ['checkbox'], 'needs_value' => false],
                 ['key' => 'is_false', 'label' => 'is onwaar', 'field_types' => ['checkbox'], 'needs_value' => false],
-                ['key' => 'is_present', 'label' => 'is ingevuld', 'field_types' => array_values(array_diff(self::FIELD_TYPES, ['section'])), 'needs_value' => false],
+                ['key' => 'is_present', 'label' => 'is ingevuld', 'field_types' => array_values(array_diff(FormFieldType::ALL, ['section'])), 'needs_value' => false],
             ],
         ];
     }
@@ -763,9 +762,12 @@ final class DeploymentRequestWorkflowService
     private function alignInitialWorkflowField(array $workflowField, array $deploymentField): array
     {
         $deploymentType = (string) ($deploymentField['type'] ?? 'text');
-        $workflowType = in_array($deploymentType, self::FIELD_TYPES, true)
-            ? $deploymentType
-            : 'text';
+        $preserveLegacyPhoneText = ($workflowField['key'] ?? null) === 'on_scene_contact_phone'
+            && ($workflowField['type'] ?? null) === 'text'
+            && $deploymentType === 'phone';
+        $workflowType = $preserveLegacyPhoneText
+            ? 'text'
+            : (in_array($deploymentType, FormFieldType::ALL, true) ? $deploymentType : 'text');
 
         return [
             ...$workflowField,
@@ -853,7 +855,7 @@ final class DeploymentRequestWorkflowService
             if (preg_match(self::KEY_PATTERN, $key) !== 1 || isset($seen[$key])) {
                 throw ValidationException::withMessages(["configuration.fields.$index.key" => ['Veldsleutel is ongeldig of dubbel.']]);
             }
-            if ($label === '' || mb_strlen($label) > 160 || ! in_array($type, self::FIELD_TYPES, true) || ! in_array($scope, self::SCOPES, true)) {
+            if ($label === '' || mb_strlen($label) > 160 || ! in_array($type, FormFieldType::ALL, true) || ! in_array($scope, self::SCOPES, true)) {
                 throw ValidationException::withMessages(["configuration.fields.$index" => ['Label, type of scope is ongeldig.']]);
             }
             $seen[$key] = true;
@@ -1197,18 +1199,17 @@ final class DeploymentRequestWorkflowService
             'number' => is_int($value) || (is_float($value) && floor($value) === $value)
                 ? (int) $value
                 : throw ValidationException::withMessages([$path => ['Vul een geldig geheel getal in.']]),
+            'score' => FormFieldValue::normalizeScore($value, $path),
             'checkbox' => is_bool($value)
                 ? $value
                 : throw ValidationException::withMessages([$path => ['Gebruik uitsluitend true of false.']]),
             'select', 'radio' => is_string($value) && in_array($value, array_column($field['options'] ?? [], 'value'), true)
                 ? $value
                 : throw ValidationException::withMessages([$path => ['Kies een geldige optie.']]),
-            'date' => is_string($value)
-                ? $this->parseDate($value, $path)
-                : throw ValidationException::withMessages([$path => ['Vul een geldige datum in.']]),
-            'datetime' => is_string($value)
-                ? $this->parseDateTime($value, $path)
-                : throw ValidationException::withMessages([$path => ['Vul een geldig datum-tijdstip met tijdzone in.']]),
+            'date' => FormFieldValue::normalizeDate($value, $path),
+            'datetime' => FormFieldValue::normalizeDateTime($value, $path),
+            'phone' => PhoneNumber::normalize($value, null, $path),
+            'flight_time' => $this->normalizeFlightTimeAnswer($value, $path),
             'address' => $this->boundedText($value, 255, $path),
             default => $this->boundedText($value, 10000, $path),
         };
@@ -1306,33 +1307,47 @@ final class DeploymentRequestWorkflowService
         return $value === null || $value === '' || (is_array($value) && $value === []);
     }
 
-    private function parseDate(string $value, string $path): string
+    /** @return array{start: string, end: string, duration_minutes: int}|null */
+    private function normalizeFlightTimeAnswer(mixed $value, string $path): ?array
     {
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value, new \DateTimeZone('UTC'));
-        $errors = \DateTimeImmutable::getLastErrors();
-        if ($date === false || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0)) || $date->format('Y-m-d') !== $value) {
-            throw ValidationException::withMessages([$path => ['Vul een geldige datum in.']]);
-        }
-
-        return $date->format('Y-m-d');
-    }
-
-    private function parseDateTime(string $value, string $path): string
-    {
-        $parsed = null;
-        foreach (['!Y-m-d\TH:iP', '!Y-m-d\TH:i:sP', '!Y-m-d\TH:i:s.vP', '!Y-m-d\TH:i:s.uP'] as $format) {
-            $candidate = \DateTimeImmutable::createFromFormat($format, $value);
-            $errors = \DateTimeImmutable::getLastErrors();
-            if ($candidate !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
-                $parsed = $candidate;
-                break;
+        if (is_string($value)) {
+            if (preg_match('/^\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*$/D', $value, $matches) !== 1) {
+                throw ValidationException::withMessages([$path => ['Gebruik begin- en eindtijd als UU:MM-UU:MM.']]);
             }
-        }
-        if ($parsed === null) {
-            throw ValidationException::withMessages([$path => ['Vul een geldig datum-tijdstip met tijdzone in.']]);
+            $start = FormFieldValue::normalizeTime($matches[1]);
+            $end = FormFieldValue::normalizeTime($matches[2]);
+        } elseif (is_array($value)) {
+            if (array_diff(array_keys($value), ['start', 'end', 'duration_minutes']) !== []) {
+                throw ValidationException::withMessages([$path => ['Vluchttijd bevat onbekende eigenschappen.']]);
+            }
+            $start = is_string($value['start'] ?? null) ? trim($value['start']) : '';
+            $end = is_string($value['end'] ?? null) ? trim($value['end']) : '';
+            if ($start === '' && $end === '') {
+                return null;
+            }
+        } else {
+            throw ValidationException::withMessages([$path => ['Gebruik begin- en eindtijd als UU:MM-UU:MM.']]);
         }
 
-        return CarbonImmutable::instance($parsed)->utc()->toIso8601String();
+        $start = FormFieldValue::normalizeTime($start);
+        $end = FormFieldValue::normalizeTime($end);
+        if ($start === null || $end === null) {
+            throw ValidationException::withMessages([$path => ['Gebruik een volledige begin- en eindtijd als UU:MM.']]);
+        }
+
+        [$startHour, $startMinute] = array_map('intval', explode(':', $start));
+        [$endHour, $endMinute] = array_map('intval', explode(':', $end));
+        $startTotal = $startHour * 60 + $startMinute;
+        $endTotal = $endHour * 60 + $endMinute;
+        if ($endTotal < $startTotal) {
+            $endTotal += 24 * 60;
+        }
+
+        return [
+            'start' => $start,
+            'end' => $end,
+            'duration_minutes' => $endTotal - $startTotal,
+        ];
     }
 
     private function operatorSupportsFieldType(string $operator, string $fieldType): bool
@@ -1340,7 +1355,7 @@ final class DeploymentRequestWorkflowService
         return match ($operator) {
             'is_true', 'is_false' => $fieldType === 'checkbox',
             'contains' => in_array($fieldType, ['text', 'textarea', 'address', 'select', 'radio'], true),
-            'greater_than_or_equal', 'less_than_or_equal' => in_array($fieldType, ['number', 'date', 'datetime'], true),
+            'greater_than_or_equal', 'less_than_or_equal' => in_array($fieldType, ['number', 'date', 'datetime', 'score'], true),
             'equals', 'not_equals', 'is_present' => $fieldType !== 'section',
             default => false,
         };
@@ -1353,16 +1368,19 @@ final class DeploymentRequestWorkflowService
 
         return match ($targetType) {
             'number' => $sourceType === 'number',
+            'score' => $sourceType === 'score',
             'checkbox' => $sourceType === 'checkbox',
             'select', 'radio' => in_array($sourceType, ['select', 'radio'], true)
                 && array_diff(
                     array_column($sourceField['options'] ?? [], 'value'),
                     array_column($targetDefinition['options'] ?? [], 'value'),
                 ) === [],
-            'phone' => in_array($sourceType, ['text', 'select', 'radio'], true),
-            'flight_time' => in_array($sourceType, ['text', 'textarea'], true),
+            'phone' => in_array($sourceType, ['phone', 'text', 'select', 'radio'], true),
+            'flight_time' => in_array($sourceType, ['flight_time', 'text', 'textarea'], true),
             'address' => in_array($sourceType, ['address', 'text'], true),
-            default => in_array($sourceType, ['text', 'textarea', 'address', 'select', 'radio', 'date', 'datetime'], true),
+            'date' => $sourceType === 'date',
+            'datetime' => $sourceType === 'datetime',
+            default => in_array($sourceType, ['text', 'textarea', 'address', 'select', 'radio', 'date', 'datetime', 'phone'], true),
         };
     }
 
@@ -1409,7 +1427,7 @@ final class DeploymentRequestWorkflowService
                 $path => ["Gebruik maximaal $maximum tekens voor het gekoppelde inzetveld."],
             ]);
         }
-        if (($definition['type'] ?? null) === 'number' && is_int($value)) {
+        if (in_array($definition['type'] ?? null, ['number', 'score'], true) && is_int($value)) {
             $minimumValue = is_int($definition['minimum'] ?? null) ? $definition['minimum'] : null;
             $maximumValue = is_int($definition['maximum'] ?? null) ? $definition['maximum'] : null;
             if (($minimumValue !== null && $value < $minimumValue)
@@ -1427,11 +1445,19 @@ final class DeploymentRequestWorkflowService
             ]);
         }
         if (($definition['type'] ?? null) === 'flight_time'
-            && (! is_string($value)
-                || preg_match('/^([01]\d|2[0-4]):[0-5]\d\\s*-\\s*([01]\d|2[0-4]):[0-5]\d$/', $value) !== 1)) {
+            && ! $this->boundFlightTimeIsValid($value)) {
             throw ValidationException::withMessages([
                 $path => ['Gebruik begin- en eindtijd als UU:MM-UU:MM.'],
             ]);
+        }
+    }
+
+    private function boundFlightTimeIsValid(mixed $value): bool
+    {
+        try {
+            return $this->normalizeFlightTimeAnswer($value, 'value') !== null;
+        } catch (ValidationException) {
+            return false;
         }
     }
 
@@ -1609,8 +1635,16 @@ final class DeploymentRequestWorkflowService
                     'label' => 'Inzetveld: '.$field['label'],
                     'type' => $field['type'],
                     'max_length' => $field['max_length'] ?? null,
-                    'minimum' => ($field['type'] ?? null) === 'number' ? 0 : null,
-                    'maximum' => ($field['type'] ?? null) === 'number' ? (int) ($field['max'] ?? 999999) : null,
+                    'minimum' => match ($field['type'] ?? null) {
+                        'number' => 0,
+                        'score' => FormFieldType::SCORE_MIN,
+                        default => null,
+                    },
+                    'maximum' => match ($field['type'] ?? null) {
+                        'number' => (int) ($field['max'] ?? 999999),
+                        'score' => FormFieldType::SCORE_MAX,
+                        default => null,
+                    },
                     'options' => $field['options'] ?? [],
                 ]))
             ->values()
