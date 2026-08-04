@@ -21,7 +21,7 @@ final class PushProviderCoalescingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_web_login_approval_is_high_priority_short_lived_and_silent_on_apns(): void
+    public function test_web_login_approval_is_high_priority_short_lived_and_uses_the_default_apns_sound(): void
     {
         $user = User::query()->create([
             'name' => 'Login Approval Pilot',
@@ -61,7 +61,7 @@ final class PushProviderCoalescingTest extends TestCase
         $apnsPayload = $apnsRequest->data();
         $this->assertSame('Inlogverzoek', $apnsPayload['aps']['alert']['title'] ?? null);
         $this->assertSame('Open de app om te beoordelen.', $apnsPayload['aps']['alert']['body'] ?? null);
-        $this->assertArrayNotHasKey('sound', $apnsPayload['aps']);
+        $this->assertSame('default', $apnsPayload['aps']['sound'] ?? null);
         $this->assertSame(1, $apnsPayload['aps']['content-available'] ?? null);
         $this->assertTrue($apnsRequest->hasHeader('apns-expiration'));
         $expiration = (int) $apnsRequest->header('apns-expiration')[0];
@@ -148,6 +148,51 @@ final class PushProviderCoalescingTest extends TestCase
             'type' => 'dispatch_update',
             'dispatch_id' => $dispatchId,
         ]));
+    }
+
+    public function test_apns_visible_notification_phases_request_the_default_device_alert_behavior(): void
+    {
+        $user = User::query()->create([
+            'name' => 'APNs Alert Policy Pilot',
+            'first_name' => 'APNs',
+            'last_name' => 'Pilot',
+            'email' => 'apns-alert-policy@example.test',
+            'password' => Hash::make('Test-password-123!'),
+            'account_status' => 'active',
+        ]);
+        $token = $this->token($user, 'ios', 'ios-alert-policy');
+        $this->configureApns();
+        Http::fake([
+            'https://api.push.apple.com/*' => Http::response([], 200, ['apns-id' => 'test-apns-id']),
+        ]);
+        $notifications = [
+            ['type' => 'manual_admin'],
+            ['type' => 'dispatch_request', 'action_mode' => 'attendance'],
+            [
+                'type' => 'dispatch_update',
+                'deployment_event_type' => 'deployment_preannouncement',
+                'action_mode' => 'availability',
+            ],
+            ['type' => 'dispatch_update', 'action_mode' => 'additional_info'],
+        ];
+
+        foreach ($notifications as $data) {
+            app(ApnsClient::class)->send($token, 'Titel', 'Bericht', $data);
+        }
+
+        $requests = Http::recorded(
+            static fn (ClientRequest $request): bool => str_contains($request->url(), 'api.push.apple.com'),
+        );
+        $this->assertCount(count($notifications), $requests);
+        foreach ($requests as [$request]) {
+            $aps = $request->data()['aps'] ?? [];
+
+            // APNs has no separate vibration payload key. A default sound asks
+            // iOS to apply the user's configured notification sound and haptics.
+            $this->assertSame('default', $aps['sound'] ?? null);
+            $this->assertIsArray($aps['alert'] ?? null);
+            $this->assertSame(1, $aps['content-available'] ?? null);
+        }
     }
 
     public function test_apns_dispatch_phases_share_one_safe_provider_collapse_id(): void

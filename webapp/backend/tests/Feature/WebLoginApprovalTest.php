@@ -708,7 +708,7 @@ final class WebLoginApprovalTest extends TestCase
             ->json($method, $uri, $data);
 
         foreach ($response->headers->getCookies() as $cookie) {
-            if ($cookie->getExpiresTime() !== 0 && $cookie->getExpiresTime() <= time()) {
+            if ($cookie->getExpiresTime() !== 0 && $cookie->getExpiresTime() <= now()->getTimestamp()) {
                 unset($this->browserCookies[$cookie->getName()]);
 
                 continue;

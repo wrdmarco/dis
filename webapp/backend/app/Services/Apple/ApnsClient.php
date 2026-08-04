@@ -49,10 +49,12 @@ final class ApnsClient
                 'body' => self::SESSION_NEUTRAL_ALERT_BODY,
             ],
             'content-available' => 1,
+            // APNs owns ordinary notification presentation while the app is
+            // suspended. The default sound also lets iOS apply the user's
+            // device-level haptic settings; operational custom audio remains
+            // an independent, app-owned path after session validation.
+            'sound' => 'default',
         ];
-        if (! $this->isWebLoginApproval($data)) {
-            $aps['sound'] = 'default';
-        }
 
         return Http::withToken($this->providerToken($credentials))
             ->connectTimeout(3)
