@@ -58,6 +58,15 @@ final class TestAlertAcknowledgementTest extends TestCase
         $this->assertSame('Proefalarm zichtbaar ontvangen.', $recipient->response_note);
         $this->assertNotNull($recipient->responded_at);
 
+        $this->asOperator($pilot)
+            ->getJson('/api/dispatches/'.$dispatch->id.'/response-state')
+            ->assertOk()
+            ->assertJsonPath('data.dispatch_id', (string) $dispatch->id)
+            ->assertJsonPath('data.deployment_id', (string) $deployment->id)
+            ->assertJsonPath('data.dispatch_status', 'sent')
+            ->assertJsonPath('data.response_status', 'accepted')
+            ->assertJsonPath('data.requires_response', false);
+
         $this->assertSame('active', $deployment->refresh()->status);
         $this->assertDatabaseCount('availability_statuses', 1);
         $availability->refresh();
@@ -114,6 +123,50 @@ final class TestAlertAcknowledgementTest extends TestCase
             ->where('target_id', $dispatch->id)
             ->exists());
         Queue::assertNothingPushed();
+
+        $this->asOperator($otherPilot)
+            ->getJson('/api/dispatches/'.$dispatch->id.'/response-state')
+            ->assertForbidden();
+    }
+
+    public function test_declined_real_alarm_remains_available_through_minimal_response_state_only(): void
+    {
+        Queue::fake();
+
+        $coordinator = $this->user('real-response-coordinator@example.test');
+        $pilot = $this->user('real-response-pilot@example.test');
+        $this->grantOperatorPermission($pilot, 'deployments.assigned.view');
+        $this->operatorToken($pilot);
+        [$deployment, $dispatch, $recipient] = $this->createTestDispatch(
+            $coordinator,
+            $pilot,
+            isTest: false,
+        );
+
+        $this->asOperator($pilot)
+            ->getJson('/api/dispatches/'.$dispatch->id.'/response-state')
+            ->assertOk()
+            ->assertJsonPath('data.response_status', 'pending')
+            ->assertJsonPath('data.requires_response', true);
+
+        $this->asOperator($pilot)
+            ->postJson('/api/dispatches/'.$dispatch->id.'/respond', [
+                'response' => 'declined',
+                'note' => 'Niet inzetbaar.',
+            ])
+            ->assertNoContent();
+
+        $this->assertSame('declined', $recipient->refresh()->response_status);
+        $this->asOperator($pilot)
+            ->getJson('/api/dispatches/'.$dispatch->id)
+            ->assertForbidden();
+        $this->asOperator($pilot)
+            ->getJson('/api/dispatches/'.$dispatch->id.'/response-state')
+            ->assertOk()
+            ->assertJsonPath('data.dispatch_id', (string) $dispatch->id)
+            ->assertJsonPath('data.deployment_id', (string) $deployment->id)
+            ->assertJsonPath('data.response_status', 'declined')
+            ->assertJsonPath('data.requires_response', false);
     }
 
     private function user(string $email): User
@@ -171,15 +224,15 @@ final class TestAlertAcknowledgementTest extends TestCase
     /**
      * @return array{Deployment, DispatchRequest, DispatchRecipient}
      */
-    private function createTestDispatch(User $coordinator, User $recipientUser): array
+    private function createTestDispatch(User $coordinator, User $recipientUser, bool $isTest = true): array
     {
         $deployment = Deployment::query()->create([
-            'reference' => 'TEST-ACK-'.strtoupper(substr((string) str()->ulid(), -8)),
-            'title' => 'Proefalarmering',
+            'reference' => ($isTest ? 'TEST-ACK-' : 'REAL-ACK-').strtoupper(substr((string) str()->ulid(), -8)),
+            'title' => $isTest ? 'Proefalarmering' : 'Operationele alarmering',
             'description' => 'Gerichte integratietest',
             'priority' => 'normal',
             'status' => 'active',
-            'is_test' => true,
+            'is_test' => $isTest,
             'created_by' => $coordinator->id,
             'created_by_name' => $coordinator->name,
             'created_by_email' => $coordinator->email,

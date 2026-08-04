@@ -310,6 +310,54 @@ final class PushProviderCoalescingTest extends TestCase
         }
     }
 
+    public function test_response_sync_has_a_short_lifetime_on_fcm_and_apns(): void
+    {
+        Carbon::setTestNow('2026-07-17T10:00:00Z');
+        try {
+            $user = User::query()->create([
+                'name' => 'Response Sync TTL Pilot',
+                'first_name' => 'Response',
+                'last_name' => 'Pilot',
+                'email' => 'response-sync-ttl@example.test',
+                'password' => Hash::make('Test-password-123!'),
+                'account_status' => 'active',
+            ]);
+            $androidToken = $this->token($user, 'android', 'android-response-sync-ttl');
+            $iosToken = $this->token($user, 'ios', 'ios-response-sync-ttl');
+            $this->configureFcm();
+            $this->configureApns();
+            Http::fake([
+                'https://fcm.googleapis.com/*' => Http::response(['name' => 'messages/test'], 200),
+                'https://api.push.apple.com/*' => Http::response([], 200, ['apns-id' => 'test-apns-id']),
+            ]);
+            $dispatchId = (string) Str::ulid();
+            $data = [
+                'type' => 'dispatch_response_sync',
+                'action_mode' => 'attendance',
+                'dispatch_id' => $dispatchId,
+                'response' => 'accepted',
+            ];
+
+            app(FcmClient::class)->send($androidToken, 'Reactie verwerkt', 'De reactie is opgeslagen.', $data);
+            app(ApnsClient::class)->send($iosToken, 'Reactie verwerkt', 'De reactie is opgeslagen.', $data);
+
+            Http::assertSent(static function (ClientRequest $request): bool {
+                if (! str_contains($request->url(), 'fcm.googleapis.com')) {
+                    return false;
+                }
+                $android = $request->data()['message']['android'] ?? [];
+
+                return ($android['priority'] ?? null) === 'HIGH'
+                    && ($android['ttl'] ?? null) === '30s';
+            });
+            Http::assertSent(static fn (ClientRequest $request): bool => str_contains($request->url(), 'api.push.apple.com')
+                && $request->hasHeader('apns-expiration', '1784282430')
+                && $request->hasHeader('apns-collapse-id', 'dispatch-'.$dispatchId));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_canonical_deployment_event_type_takes_precedence_for_provider_policy(): void
     {
         Carbon::setTestNow('2026-07-17T10:00:00Z');
@@ -369,6 +417,7 @@ final class PushProviderCoalescingTest extends TestCase
             'location_share_request' => 'HIGH',
             'deployment_cancelled' => 'HIGH',
             'incident_cancelled' => 'HIGH',
+            'dispatch_response_sync' => 'HIGH',
         ]);
     }
 
@@ -379,7 +428,6 @@ final class PushProviderCoalescingTest extends TestCase
 
         $this->sendAndAssertAndroidPriorities($token, [
             'device_presence_ping' => 'NORMAL',
-            'dispatch_response_sync' => 'NORMAL',
             'location_sharing_stopped' => 'NORMAL',
             'session_revoked' => 'NORMAL',
             'unknown_control_message' => 'NORMAL',
@@ -455,6 +503,8 @@ final class PushProviderCoalescingTest extends TestCase
             $this->assertArrayNotHasKey('notification', $message['android']);
             if (in_array($type, ['deployment_preannouncement', 'incident_preannouncement'], true)) {
                 $this->assertSame('120s', $message['android']['ttl'] ?? null);
+            } elseif ($type === 'dispatch_response_sync') {
+                $this->assertSame('30s', $message['android']['ttl'] ?? null);
             } else {
                 $this->assertArrayNotHasKey('ttl', $message['android']);
             }

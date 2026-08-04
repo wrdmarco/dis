@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\DeploymentAccessService;
 use App\Services\DeploymentRequestService;
 use App\Services\DispatchDeliveryStatusService;
+use App\Services\DispatchResponseStateService;
 use App\Services\DispatchService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -24,6 +25,7 @@ final class DispatchController extends Controller
         private readonly DispatchService $service,
         private readonly DeploymentAccessService $access,
         private readonly DispatchDeliveryStatusService $deliveryStatus,
+        private readonly DispatchResponseStateService $responseState,
         private readonly DeploymentRequestService $deploymentRequestService,
     ) {}
 
@@ -72,6 +74,11 @@ final class DispatchController extends Controller
         $this->access->assertCanViewDispatch($request->user(), $dispatch);
 
         return ApiResponse::success($this->deliveryStatus->payload($dispatch->refresh()));
+    }
+
+    public function responseState(Request $request, DispatchRequest $dispatch): JsonResponse
+    {
+        return ApiResponse::success($this->responseState->forOperator($dispatch, $request->user()));
     }
 
     public function message(Request $request, DispatchRequest $dispatch): JsonResponse

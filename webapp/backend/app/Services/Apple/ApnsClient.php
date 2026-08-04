@@ -17,6 +17,8 @@ final class ApnsClient
 
     private const WEB_LOGIN_APPROVAL_TTL_SECONDS = 120;
 
+    private const RESPONSE_SYNC_TTL_SECONDS = 30;
+
     private const SESSION_NEUTRAL_ALERT_TITLE = 'Nieuwe melding van NDT Alarmering';
 
     private const SESSION_NEUTRAL_ALERT_BODY = 'Open NDT Alarmering om de actuele melding veilig te bekijken.';
@@ -36,6 +38,8 @@ final class ApnsClient
         }
         if ($this->isPreannouncement($data)) {
             $headers['apns-expiration'] = (string) now()->addSeconds(self::PREANNOUNCEMENT_TTL_SECONDS)->timestamp;
+        } elseif (($data['type'] ?? null) === 'dispatch_response_sync') {
+            $headers['apns-expiration'] = (string) now()->addSeconds(self::RESPONSE_SYNC_TTL_SECONDS)->timestamp;
         } elseif ($this->isWebLoginApproval($data)) {
             $headers['apns-expiration'] = (string) now()->addSeconds(self::WEB_LOGIN_APPROVAL_TTL_SECONDS)->timestamp;
         }

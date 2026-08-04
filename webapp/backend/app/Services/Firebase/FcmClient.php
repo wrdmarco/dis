@@ -13,10 +13,15 @@ final class FcmClient
 
     private const WEB_LOGIN_APPROVAL_TTL_SECONDS = 120;
 
+    private const RESPONSE_SYNC_TTL_SECONDS = 30;
+
     /**
-     * Data-only messages that result in an immediate, visible operator notification.
-     * Unknown and control-only message types deliberately remain normal priority so
-     * background traffic cannot cause FCM to deprioritize genuine alarm delivery.
+     * Data-only messages that immediately start, update or stop visible
+     * operational feedback. Unknown and background-only control messages remain
+     * normal priority so they cannot consume the time-sensitive delivery path.
+     * Response synchronisation is high priority but short-lived: a sleeping
+     * second device must wake promptly, then authenticate and reconcile before
+     * it may stop its already-visible alarm feedback.
      *
      * @var list<string>
      */
@@ -31,6 +36,7 @@ final class FcmClient
         'web_login_approval',
         'deployment_cancelled',
         'incident_cancelled',
+        'dispatch_response_sync',
     ];
 
     public function __construct(private readonly FirebaseAccessTokenProvider $tokens) {}
@@ -50,6 +56,8 @@ final class FcmClient
         $android = ['priority' => $this->androidPriority($data)];
         if ($this->isPreannouncement($data)) {
             $android['ttl'] = self::PREANNOUNCEMENT_TTL_SECONDS.'s';
+        } elseif ($this->notificationType($data) === 'dispatch_response_sync') {
+            $android['ttl'] = self::RESPONSE_SYNC_TTL_SECONDS.'s';
         } elseif ($this->notificationType($data) === 'web_login_approval') {
             $android['ttl'] = self::WEB_LOGIN_APPROVAL_TTL_SECONDS.'s';
         }

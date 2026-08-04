@@ -308,6 +308,9 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/dispatches/{dispatch}', [DispatchController::class, 'show'])
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::get('/dispatches/{dispatch}/response-state', [DispatchController::class, 'responseState'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
         Route::get('/dispatches/{dispatch}/delivery', [DispatchController::class, 'delivery'])
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
