@@ -13,6 +13,7 @@ use App\Services\DispatchPushOutboxService;
 use App\Services\FcmTokenIdentityLock;
 use App\Services\MobileDeviceSessionService;
 use App\Services\StatusService;
+use App\Services\WebLoginApprovalService;
 use App\Support\PushNotificationIdentity;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -97,6 +98,7 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
         public readonly ?string $dispatchRequestId = null,
         public readonly ?string $dispatchPushOutboxId = null,
         public readonly ?string $expectedRevocationGeneration = null,
+        public readonly ?string $webLoginApprovalRecipientId = null,
     ) {
         $this->onConnection('push')->onQueue('push');
     }
@@ -233,6 +235,7 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
         if ($token === null
             || ($revocationMessage && ! $revocationDelivery)
             || (! $revocationMessage && ! $token->is_active)) {
+            $this->markWebLoginApprovalDelivery(false);
             if ($this->dispatchPushOutboxId !== null) {
                 $outbox->markTerminal($this->dispatchPushOutboxId, $this->fcmTokenId, 'token_inactive');
             }
@@ -248,6 +251,7 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
                     $token->personal_access_token_id,
                     (string) $token->client_type,
                 ) === null)) {
+            $this->markWebLoginApprovalDelivery(false);
             $this->deactivateUnchangedToken($token);
             if ($this->dispatchPushOutboxId !== null) {
                 $outbox->markTerminal(
@@ -256,6 +260,18 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
                     'token_session_invalid',
                 );
             }
+
+            return;
+        }
+
+        $webLoginApprovalRecipientId = $this->webLoginApprovalRecipientId();
+        if ($this->canonicalMessageType() === WebLoginApprovalService::PUSH_TYPE
+            && ($webLoginApprovalRecipientId === null
+                || ! app(WebLoginApprovalService::class)->mayDeliver(
+                    $webLoginApprovalRecipientId,
+                    $token,
+                ))) {
+            $this->markWebLoginApprovalDelivery(false);
 
             return;
         }
@@ -292,6 +308,8 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
             // provider response body or credentials in the exception.
             throw TransientPushDeliveryException::forHttpStatus($response->status());
         }
+
+        $this->markWebLoginApprovalDelivery($response->successful());
 
         if (in_array($errorCode, ['NOT_FOUND', 'INVALID_ARGUMENT', 'UNREGISTERED', 'BadDeviceToken', 'Unregistered', 'DeviceTokenNotForTopic'], true)) {
             $this->invalidateUnchangedProviderToken($token);
@@ -424,6 +442,8 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
+        $this->markWebLoginApprovalDelivery(false);
+
         if ($this->dispatchPushOutboxId === null) {
             return;
         }
@@ -455,6 +475,32 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
                 (string) $token->revocation_generation,
                 $this->expectedRevocationGeneration,
             );
+    }
+
+    private function markWebLoginApprovalDelivery(bool $successful): void
+    {
+        $recipientId = $this->webLoginApprovalRecipientId();
+        if ($recipientId === null) {
+            return;
+        }
+
+        try {
+            app(WebLoginApprovalService::class)->markDelivery(
+                $recipientId,
+                $successful,
+            );
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    private function webLoginApprovalRecipientId(): ?string
+    {
+        // Queue workers may still receive jobs serialized before this optional
+        // property existed. isset() is safe for an uninitialized typed property.
+        return isset($this->webLoginApprovalRecipientId)
+            ? $this->webLoginApprovalRecipientId
+            : null;
     }
 
     private function completeRevokedTokenGeneration(): void

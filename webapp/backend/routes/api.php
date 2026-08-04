@@ -35,6 +35,7 @@ use App\Http\Controllers\ExpiryOverviewController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
+use App\Http\Controllers\MobileLoginApprovalController;
 use App\Http\Controllers\MobilePairingController;
 use App\Http\Controllers\OperationalForecastController;
 use App\Http\Controllers\OperationalMapController;
@@ -54,6 +55,7 @@ use App\Http\Controllers\VacationController;
 use App\Http\Controllers\WallboardController;
 use App\Http\Controllers\WallboardMediaController;
 use App\Http\Controllers\WallboardPairingController;
+use App\Http\Controllers\WebLoginApprovalController;
 use App\Http\Responses\ApiResponse;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -114,6 +116,12 @@ Route::middleware(['two_factor.challenge', 'operational', 'audit.privileged', 's
     Route::post('/auth/2fa/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:two-factor');
     Route::post('/auth/2fa/setup', [AuthController::class, 'setupTwoFactor'])->middleware('throttle:two-factor');
     Route::post('/auth/2fa/enable', [AuthController::class, 'enableTwoFactor'])->middleware('throttle:two-factor');
+    Route::get('/auth/2fa/mobile-approval/status', [WebLoginApprovalController::class, 'status'])
+        ->middleware('throttle:login-approval-poll');
+    Route::post('/auth/2fa/mobile-approval/complete', [WebLoginApprovalController::class, 'complete'])
+        ->middleware('throttle:login-approval-complete');
+    Route::post('/auth/2fa/mobile-approval/resend', [WebLoginApprovalController::class, 'resend'])
+        ->middleware('throttle:login-approval-resend');
 });
 
 Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileged', 'store.review', 'throttle:authenticated'])->group(function (): void {
@@ -123,6 +131,15 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
     Route::patch('/auth/me', [AuthController::class, 'updateMe'])->middleware('two_factor.complete');
 
     Route::middleware('two_factor.complete')->group(function (): void {
+        Route::get('/auth/login-approvals/{approval}', [MobileLoginApprovalController::class, 'show'])
+            ->whereUlid('approval')
+            ->middleware('throttle:login-approval-app-read');
+        Route::post('/auth/login-approvals/{approval}/approve', [MobileLoginApprovalController::class, 'approve'])
+            ->whereUlid('approval')
+            ->middleware('throttle:login-approval-app-action');
+        Route::post('/auth/login-approvals/{approval}/deny', [MobileLoginApprovalController::class, 'deny'])
+            ->whereUlid('approval')
+            ->middleware('throttle:login-approval-app-action');
         Route::post('/auth/2fa/disable', [AuthController::class, 'disableTwoFactor'])->middleware('throttle:two-factor');
         Route::get('/notifications', [UserNotificationController::class, 'index']);
         Route::patch('/notifications/read-all', [UserNotificationController::class, 'markAllRead']);

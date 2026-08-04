@@ -11,6 +11,8 @@ final class FcmClient
 {
     private const PREANNOUNCEMENT_TTL_SECONDS = 120;
 
+    private const WEB_LOGIN_APPROVAL_TTL_SECONDS = 120;
+
     /**
      * Data-only messages that result in an immediate, visible operator notification.
      * Unknown and control-only message types deliberately remain normal priority so
@@ -26,6 +28,7 @@ final class FcmClient
         'incident_preannouncement',
         'manual_admin',
         'location_share_request',
+        'web_login_approval',
         'deployment_cancelled',
         'incident_cancelled',
     ];
@@ -47,6 +50,8 @@ final class FcmClient
         $android = ['priority' => $this->androidPriority($data)];
         if ($this->isPreannouncement($data)) {
             $android['ttl'] = self::PREANNOUNCEMENT_TTL_SECONDS.'s';
+        } elseif ($this->notificationType($data) === 'web_login_approval') {
+            $android['ttl'] = self::WEB_LOGIN_APPROVAL_TTL_SECONDS.'s';
         }
         $message = [
             'token' => $token->token,

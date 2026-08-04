@@ -1,7 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ApiClient, apiBaseUrl } from '../../lib/apiClient';
 import { createRealtime } from '../../lib/realtime';
-import type { TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
+import type {
+  TwoFactorEnableResult,
+  TwoFactorSetup,
+  User,
+  WebLoginApprovalCompletion,
+  WebLoginApprovalState,
+} from '../../types/api';
 
 interface LoginResult {
   requires_2fa: boolean;
@@ -9,6 +15,7 @@ interface LoginResult {
   authenticated: boolean;
   two_factor_setup?: TwoFactorSetup;
   user?: User;
+  mobile_approval?: WebLoginApprovalState;
 }
 
 interface AuthContextValue {
@@ -20,6 +27,9 @@ interface AuthContextValue {
   setThemePreference: (theme: ThemePreference) => Promise<void>;
   login: (email: string, password: string) => Promise<LoginResult>;
   verifyTwoFactor: (code: string) => Promise<User>;
+  getMobileApprovalStatus: () => Promise<WebLoginApprovalState>;
+  completeMobileApproval: () => Promise<User>;
+  resendMobileApproval: () => Promise<WebLoginApprovalState>;
   startTwoFactorSetup: () => Promise<TwoFactorSetup>;
   enableTwoFactor: (code: string) => Promise<TwoFactorEnableResult>;
   disableTwoFactor: (password: string, code: string) => Promise<User>;
@@ -233,6 +243,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return response.data.user;
   }, [api, applyAuthenticatedUser]);
 
+  const getMobileApprovalStatus = useCallback(async (): Promise<WebLoginApprovalState> => {
+    const response = await api.get<WebLoginApprovalState>('/auth/2fa/mobile-approval/status');
+    return response.data;
+  }, [api]);
+
+  const completeMobileApproval = useCallback(async (): Promise<User> => {
+    const response = await api.post<WebLoginApprovalCompletion>('/auth/2fa/mobile-approval/complete');
+    applyAuthenticatedUser(response.data.authenticated ? response.data.user : null);
+    return response.data.user;
+  }, [api, applyAuthenticatedUser]);
+
+  const resendMobileApproval = useCallback(async (): Promise<WebLoginApprovalState> => {
+    const response = await api.post<WebLoginApprovalState>('/auth/2fa/mobile-approval/resend');
+    return response.data;
+  }, [api]);
+
   const startTwoFactorSetup = useCallback(async (): Promise<TwoFactorSetup> => {
     const response = await api.post<TwoFactorSetup>('/auth/2fa/setup');
     return response.data;
@@ -282,6 +308,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setThemePreference,
     login,
     verifyTwoFactor,
+    getMobileApprovalStatus,
+    completeMobileApproval,
+    resendMobileApproval,
     startTwoFactorSetup,
     enableTwoFactor,
     disableTwoFactor,
@@ -296,6 +325,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setThemePreference,
     login,
     verifyTwoFactor,
+    getMobileApprovalStatus,
+    completeMobileApproval,
+    resendMobileApproval,
     startTwoFactorSetup,
     enableTwoFactor,
     disableTwoFactor,

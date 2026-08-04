@@ -7,6 +7,7 @@ use App\Support\ApiDateTime;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 final class FcmToken extends Model
 {
@@ -21,6 +22,7 @@ final class FcmToken extends Model
         'device_model',
         'android_version',
         'sdk_version',
+        'capabilities',
         'token',
         'token_hash',
         'personal_access_token_id',
@@ -39,7 +41,12 @@ final class FcmToken extends Model
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean', 'last_seen_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime'];
+        return [
+            'capabilities' => 'array',
+            'is_active' => 'boolean',
+            'last_seen_at' => 'immutable_datetime',
+            'revoked_at' => 'immutable_datetime',
+        ];
     }
 
     public function getIsOnlineAttribute(): bool
@@ -133,6 +140,11 @@ final class FcmToken extends Model
     public function personalAccessToken(): BelongsTo
     {
         return $this->belongsTo(PersonalAccessToken::class, 'personal_access_token_id');
+    }
+
+    public function webLoginApprovalRecipients(): HasMany
+    {
+        return $this->hasMany(WebLoginApprovalRecipient::class);
     }
 
     private function seenAfterMinutes(int $minutes): bool

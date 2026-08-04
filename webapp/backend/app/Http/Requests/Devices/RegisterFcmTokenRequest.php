@@ -25,6 +25,8 @@ final class RegisterFcmTokenRequest extends FormRequest
             'device_model' => ['nullable', 'string', 'max:160'],
             'android_version' => ['nullable', 'string', 'max:80'],
             'sdk_version' => ['nullable', 'string', 'max:40'],
+            'capabilities' => ['sometimes', 'array', 'max:20'],
+            'capabilities.*' => ['string', 'max:80', 'distinct', 'regex:/\A[a-z0-9][a-z0-9_.:-]*\z/'],
         ];
     }
 }

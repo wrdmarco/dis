@@ -15,6 +15,8 @@ final class ApnsClient
 {
     private const PREANNOUNCEMENT_TTL_SECONDS = 120;
 
+    private const WEB_LOGIN_APPROVAL_TTL_SECONDS = 120;
+
     private const SESSION_NEUTRAL_ALERT_TITLE = 'Nieuwe melding van NDT Alarmering';
 
     private const SESSION_NEUTRAL_ALERT_BODY = 'Open NDT Alarmering om de actuele melding veilig te bekijken.';
@@ -34,6 +36,22 @@ final class ApnsClient
         }
         if ($this->isPreannouncement($data)) {
             $headers['apns-expiration'] = (string) now()->addSeconds(self::PREANNOUNCEMENT_TTL_SECONDS)->timestamp;
+        } elseif ($this->isWebLoginApproval($data)) {
+            $headers['apns-expiration'] = (string) now()->addSeconds(self::WEB_LOGIN_APPROVAL_TTL_SECONDS)->timestamp;
+        }
+
+        $aps = [
+            'alert' => $this->isWebLoginApproval($data) ? [
+                'title' => $title,
+                'body' => $body,
+            ] : [
+                'title' => self::SESSION_NEUTRAL_ALERT_TITLE,
+                'body' => self::SESSION_NEUTRAL_ALERT_BODY,
+            ],
+            'content-available' => 1,
+        ];
+        if (! $this->isWebLoginApproval($data)) {
+            $aps['sound'] = 'default';
         }
 
         return Http::withToken($this->providerToken($credentials))
@@ -46,14 +64,7 @@ final class ApnsClient
                 // chance to compare session_token_id. Keep the system-owned
                 // surface account-neutral; the app may use the caller copy
                 // below only after its session-binding check succeeds.
-                'aps' => [
-                    'alert' => [
-                        'title' => self::SESSION_NEUTRAL_ALERT_TITLE,
-                        'body' => self::SESSION_NEUTRAL_ALERT_BODY,
-                    ],
-                    'sound' => 'default',
-                    'content-available' => 1,
-                ],
+                'aps' => $aps,
                 ...$data,
                 'title' => $title,
                 'body' => $body,
@@ -73,6 +84,12 @@ final class ApnsClient
         return $type === 'deployment_preannouncement'
             || $type === 'incident_preannouncement'
             || ($type === 'dispatch_update' && ($data['action_mode'] ?? null) === 'availability');
+    }
+
+    /** @param array<string, string> $data */
+    private function isWebLoginApproval(array $data): bool
+    {
+        return ($data['type'] ?? null) === 'web_login_approval';
     }
 
     /** @return array{team_id:string,key_id:string,bundle_id:string,private_key:string,environment:string} */

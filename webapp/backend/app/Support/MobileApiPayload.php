@@ -192,6 +192,7 @@ final class MobileApiPayload
             'device_model' => $token->device_model,
             'android_version' => $token->android_version,
             'sdk_version' => $token->sdk_version,
+            'capabilities' => array_values(is_array($token->capabilities) ? $token->capabilities : []),
             'platform' => $token->platform,
             'client_type' => $token->client_type,
             'app_version' => $token->app_version,

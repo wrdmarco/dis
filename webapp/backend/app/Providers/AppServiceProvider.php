@@ -221,6 +221,42 @@ final class AppServiceProvider extends ServiceProvider
             Limit::perMinute(20)->by('two-factor:ip:'.$request->ip()),
             Limit::perMinute(6)->by('two-factor:subject:'.$this->authenticationSubjectKey($request)),
         ]);
+        RateLimiter::for('login-approval-poll', fn (Request $request): array => [
+            Limit::perMinute(60)->by('login-approval-poll:session:'.hash(
+                'sha256',
+                $request->hasSession() ? $request->session()->getId() : 'missing',
+            )),
+            Limit::perMinute(120)->by('login-approval-poll:ip:'.$request->ip()),
+        ]);
+        RateLimiter::for('login-approval-complete', fn (Request $request): array => [
+            Limit::perMinute(10)->by('login-approval-complete:session:'.hash(
+                'sha256',
+                $request->hasSession() ? $request->session()->getId() : 'missing',
+            )),
+            Limit::perMinute(20)->by('login-approval-complete:ip:'.$request->ip()),
+        ]);
+        RateLimiter::for('login-approval-resend', fn (Request $request): array => [
+            Limit::perMinute(3)->by('login-approval-resend:session:'.hash(
+                'sha256',
+                $request->hasSession() ? $request->session()->getId() : 'missing',
+            )),
+            Limit::perHour(10)->by('login-approval-resend-hour:session:'.hash(
+                'sha256',
+                $request->hasSession() ? $request->session()->getId() : 'missing',
+            )),
+        ]);
+        RateLimiter::for('login-approval-app-read', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'login-approval-app-read',
+            perClient: 120,
+            perUser: 240,
+        ));
+        RateLimiter::for('login-approval-app-action', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'login-approval-app-action',
+            perClient: 10,
+            perUser: 30,
+        ));
         RateLimiter::for('password-reset', fn (Request $request): array => [
             Limit::perMinute(10)->by('password-reset:ip:'.$request->ip()),
             Limit::perMinute(5)->by('password-reset:account:'.$this->accountRateLimitKey($request)),

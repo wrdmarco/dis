@@ -190,6 +190,7 @@ export interface FcmToken {
   device_model?: string | null;
   android_version?: string | null;
   sdk_version?: string | null;
+  capabilities?: string[];
   platform: string;
   client_type?: 'operator' | 'admin' | string;
   app_version?: string | null;
@@ -2217,6 +2218,28 @@ export interface TwoFactorSetup {
   enabled: boolean;
   secret: string | null;
   provisioning_uri: string | null;
+}
+
+export type WebLoginApprovalStatus =
+  | 'pending'
+  | 'approved'
+  | 'denied'
+  | 'consumed'
+  | 'expired'
+  | 'cancelled'
+  | 'unavailable';
+
+export interface WebLoginApprovalState {
+  available: boolean;
+  status: WebLoginApprovalStatus;
+  expires_at: string | null;
+  poll_after_seconds: number;
+  verification_number: string | null;
+}
+
+export interface WebLoginApprovalCompletion {
+  authenticated: true;
+  user: User;
 }
 
 export interface TwoFactorEnableResult {

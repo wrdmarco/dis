@@ -10,6 +10,7 @@ use App\Services\AuditService;
 use App\Services\StoreReviewAccountService;
 use App\Services\TwoFactorService;
 use App\Services\UserService;
+use App\Services\WebLoginApprovalService;
 use App\Services\WebSessionService;
 use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
@@ -33,6 +34,7 @@ final class AuthController extends Controller
         private readonly TwoFactorService $twoFactorService,
         private readonly UserService $userService,
         private readonly WebSessionService $webSessionService,
+        private readonly WebLoginApprovalService $webLoginApprovals,
     ) {}
 
     public function csrfCookie(): Response
@@ -198,9 +200,12 @@ final class AuthController extends Controller
                     10,
                 );
 
+                $mobileApproval = $this->webLoginApprovals->start($request, $user);
+
                 return ApiResponse::success([
                     'requires_2fa' => true,
                     'authenticated' => false,
+                    'mobile_approval' => $mobileApproval,
                 ], 202);
             }
 
@@ -268,7 +273,27 @@ final class AuthController extends Controller
             return $this->twoFactorLockedResponse($challengeKey);
         }
 
-        if (! $this->twoFactorService->verifyForLogin($user, (string) $request->input('code'))) {
+        $verificationResult = $isWebChallenge
+            ? $this->webLoginApprovals->verifyAlternativeFactor(
+                $request,
+                $user,
+                (string) $request->input('code'),
+            )
+            : ($this->twoFactorService->verifyForLogin($user, (string) $request->input('code'))
+                ? 'verified'
+                : 'invalid');
+        if ($verificationResult === 'denied') {
+            $this->invalidateTwoFactorChallenge($request, $isWebChallenge);
+            $this->auditService->record('auth.login_2fa_denied_by_mobile', $user, $user, [], null, $request);
+
+            return ApiResponse::error(
+                'login_approval_denied',
+                'Het inlogverzoek is in de app geweigerd. Log opnieuw in om het nogmaals te proberen.',
+                403,
+            );
+        }
+
+        if ($verificationResult !== 'verified') {
             RateLimiter::hit($challengeKey, 600);
             $this->auditService->record('auth.2fa_failed', $user, $user, [], null, $request);
 

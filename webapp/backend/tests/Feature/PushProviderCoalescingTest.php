@@ -21,6 +21,54 @@ final class PushProviderCoalescingTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_web_login_approval_is_high_priority_short_lived_and_silent_on_apns(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Login Approval Pilot',
+            'first_name' => 'Login',
+            'last_name' => 'Pilot',
+            'email' => 'login-approval-transport@example.test',
+            'password' => Hash::make('Test-password-123!'),
+            'account_status' => 'active',
+        ]);
+        $androidToken = $this->token($user, 'android', 'android-login-approval');
+        $iosToken = $this->token($user, 'ios', 'ios-login-approval');
+        $this->configureFcm();
+        $this->configureApns();
+        Http::fake([
+            'https://fcm.googleapis.com/*' => Http::response(['name' => 'messages/test'], 200),
+            'https://api.push.apple.com/*' => Http::response([], 200, ['apns-id' => 'test-apns-id']),
+        ]);
+        $data = [
+            'type' => 'web_login_approval',
+            'login_approval_id' => (string) Str::ulid(),
+        ];
+
+        app(FcmClient::class)->send($androidToken, 'Inlogverzoek', 'Open de app om te beoordelen.', $data);
+        app(ApnsClient::class)->send($iosToken, 'Inlogverzoek', 'Open de app om te beoordelen.', $data);
+
+        $fcmRequest = Http::recorded(
+            static fn (ClientRequest $request): bool => str_contains($request->url(), 'fcm.googleapis.com'),
+        )->sole()[0];
+        $fcmMessage = $fcmRequest->data()['message'];
+        $this->assertSame('HIGH', $fcmMessage['android']['priority'] ?? null);
+        $this->assertSame('120s', $fcmMessage['android']['ttl'] ?? null);
+        $this->assertArrayNotHasKey('notification', $fcmMessage);
+
+        $apnsRequest = Http::recorded(
+            static fn (ClientRequest $request): bool => str_contains($request->url(), 'api.push.apple.com'),
+        )->sole()[0];
+        $apnsPayload = $apnsRequest->data();
+        $this->assertSame('Inlogverzoek', $apnsPayload['aps']['alert']['title'] ?? null);
+        $this->assertSame('Open de app om te beoordelen.', $apnsPayload['aps']['alert']['body'] ?? null);
+        $this->assertArrayNotHasKey('sound', $apnsPayload['aps']);
+        $this->assertSame(1, $apnsPayload['aps']['content-available'] ?? null);
+        $this->assertTrue($apnsRequest->hasHeader('apns-expiration'));
+        $expiration = (int) $apnsRequest->header('apns-expiration')[0];
+        $this->assertGreaterThanOrEqual(now()->addSeconds(110)->timestamp, $expiration);
+        $this->assertLessThanOrEqual(now()->addSeconds(120)->timestamp, $expiration);
+    }
+
     public function test_dispatch_alarm_is_non_collapsible_on_fcm_and_uses_the_stable_apns_identifier(): void
     {
         $dispatchId = (string) Str::ulid();

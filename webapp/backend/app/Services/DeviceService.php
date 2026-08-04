@@ -226,6 +226,7 @@ final class DeviceService
                         'device_model' => $data['device_model'] ?? null,
                         'android_version' => $data['android_version'] ?? null,
                         'sdk_version' => $data['sdk_version'] ?? null,
+                        'capabilities' => $this->capabilities($data['capabilities'] ?? []),
                         'token' => $data['token'],
                         'token_hash' => $tokenHash,
                         'personal_access_token_id' => $liveAccessToken->id,
@@ -361,6 +362,10 @@ final class DeviceService
                         'device_model' => $data['device_model'] ?? $token->device_model,
                         'android_version' => $data['android_version'] ?? $token->android_version,
                         'sdk_version' => $data['sdk_version'] ?? $token->sdk_version,
+                        // Capability advertisement is a complete snapshot. An
+                        // older app that omits the field must not retain a
+                        // capability advertised by a newer build.
+                        'capabilities' => $this->capabilities($data['capabilities'] ?? []),
                         'app_version' => $data['app_version'] ?? $token->app_version,
                         'personal_access_token_id' => $liveAccessToken->id,
                         'last_seen_at' => now(),
@@ -489,6 +494,22 @@ final class DeviceService
         ], fn ($value): bool => filled($value))));
 
         return $label !== '' ? $label : ($fallback ?: 'Android device');
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function capabilities(mixed $capabilities): array
+    {
+        if (! is_array($capabilities)) {
+            return [];
+        }
+
+        return collect($capabilities)
+            ->filter(fn ($capability): bool => is_string($capability) && $capability !== '')
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function revokeDuplicateActiveDeviceTokens(FcmToken $token): int

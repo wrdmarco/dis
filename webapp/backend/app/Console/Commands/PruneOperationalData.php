@@ -11,6 +11,7 @@ use App\Models\PushQueueWorkItem;
 use App\Models\SystemSetting;
 use App\Models\WallboardPairingRequest;
 use App\Models\WallboardSession;
+use App\Models\WebLoginApproval;
 use DateTimeInterface;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -50,6 +51,8 @@ final class PruneOperationalData extends Command
                 ->orWhere(fn ($consumed) => $consumed
                     ->whereNotNull('consumed_at')
                     ->where('consumed_at', '<', now()->subDay())));
+        $expiredWebLoginApprovals = WebLoginApproval::query()
+            ->where('expires_at', '<', now()->subDay());
 
         $counts = [
             'location_updates' => LocationUpdate::query()->where('created_at', '<', $locationCutoff)->count(),
@@ -60,6 +63,7 @@ final class PruneOperationalData extends Command
             'audit_logs' => AuditLog::query()->where('created_at', '<', $auditCutoff)->count(),
             'wallboard_sessions' => (clone $expiredWallboardSessions)->count(),
             'wallboard_pairing_requests' => (clone $expiredWallboardPairings)->count(),
+            'web_login_approvals' => (clone $expiredWebLoginApprovals)->count(),
         ];
 
         if (! $dryRun) {
@@ -71,6 +75,7 @@ final class PruneOperationalData extends Command
             AuditLog::query()->where('created_at', '<', $auditCutoff)->delete();
             $expiredWallboardSessions->delete();
             $expiredWallboardPairings->delete();
+            $expiredWebLoginApprovals->delete();
         }
 
         $this->info(json_encode(['dry_run' => $dryRun, 'counts' => $counts], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
