@@ -372,6 +372,16 @@
 }
 
 @media (max-width: 820px) {
+  .refreshButton,
+  .pageButton {
+    width: 44px;
+    height: 44px;
+  }
+
+  .taskAction {
+    min-height: 44px;
+  }
+
   .workItem {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -424,9 +434,6 @@
     justify-content: space-between;
   }
 
-  .taskAction {
-    min-height: 40px;
-  }
 }
 
 @media (max-width: 390px) {

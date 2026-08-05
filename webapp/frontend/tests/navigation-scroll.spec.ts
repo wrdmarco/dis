@@ -82,6 +82,91 @@ test('mobile navigation keeps its scroll position after selecting a menu item', 
   )).toBeLessThanOrEqual(12);
 });
 
+test('mobile navigation is hidden when closed and behaves as a modal drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto('/queues');
+
+  const sidebar = page.locator('#mobile-navigation');
+  const workspace = page.locator('.workspace');
+  const menuTrigger = page.getByRole('button', { name: 'Menu openen', exact: true });
+  const closeButton = sidebar.getByRole('button', { name: 'Menu sluiten', exact: true });
+
+  await expect(sidebar).toBeHidden();
+  await expect(sidebar.getByRole('link', { name: 'Systeem', exact: true })).toBeHidden();
+
+  await menuTrigger.click();
+  await expect(sidebar).toBeVisible();
+  await expect(sidebar).toHaveClass(/sidebar--open/);
+  await expect(page.locator('body')).toHaveClass(/mobile-navigation-open/);
+  await expect(workspace).toHaveAttribute('inert', '');
+  await expect(closeButton).toBeFocused();
+
+  await page.keyboard.press('Shift+Tab');
+  await expect.poll(() => sidebar.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+
+  await page.keyboard.press('Escape');
+  await expect(sidebar).toBeHidden();
+  await expect(page.locator('body')).not.toHaveClass(/mobile-navigation-open/);
+  await expect(workspace).not.toHaveAttribute('inert', '');
+  await expect(menuTrigger).toBeFocused();
+});
+
+test('navigation switches without a tablet-width layout cliff', async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 800 });
+  await page.goto('/system');
+
+  const sidebar = page.locator('#mobile-navigation');
+  const menuTrigger = page.getByRole('button', { name: 'Menu openen', exact: true });
+
+  await expect(sidebar).toBeHidden();
+  await expect(menuTrigger).toBeVisible();
+
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await expect(sidebar).toBeVisible();
+  await expect(menuTrigger).toBeHidden();
+});
+
+test('command shell fits phone, 1080p and 4K viewports and scales its wide-screen rhythm', async ({ page }) => {
+  const wideMetrics: Array<{ width: number; sidebar: number; contentPadding: number }> = [];
+
+  for (const viewport of [
+    { width: 320, height: 700 },
+    { width: 390, height: 844 },
+    { width: 430, height: 932 },
+    { width: 1920, height: 1080 },
+    { width: 3840, height: 2160 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/system');
+    await expect(page.getByRole('heading', { level: 1, name: 'Systeem', exact: true })).toBeVisible();
+
+    const overflow = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth,
+    }));
+    expect(overflow.document).toBeLessThanOrEqual(overflow.viewport + 1);
+    expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
+
+    if (viewport.width >= 1920) {
+      wideMetrics.push({
+        width: viewport.width,
+        sidebar: (await page.locator('#mobile-navigation').boundingBox())?.width ?? 0,
+        contentPadding: await page.locator('#main-content').evaluate((element) => (
+          Number.parseFloat(window.getComputedStyle(element).paddingLeft)
+        )),
+      });
+    }
+  }
+
+  const fullHd = wideMetrics.find((entry) => entry.width === 1920);
+  const ultraHd = wideMetrics.find((entry) => entry.width === 3840);
+  expect(fullHd).toBeDefined();
+  expect(ultraHd).toBeDefined();
+  expect(ultraHd?.sidebar ?? 0).toBeGreaterThan(fullHd?.sidebar ?? 0);
+  expect(ultraHd?.contentPadding ?? 0).toBeGreaterThan(fullHd?.contentPadding ?? 0);
+});
+
 test('wide page roots use the full workspace and remain left aligned', async ({ page }) => {
   await page.setViewportSize({ width: 2560, height: 900 });
 

@@ -635,6 +635,13 @@
 }
 
 @media (max-width: 760px) {
+  .tabs button,
+  .search input,
+  .compactFilter select,
+  .viewButton {
+    min-height: 44px;
+  }
+
   .requestTable {
     min-width: 0;
     table-layout: auto;
@@ -723,10 +730,6 @@
     grid-row: 4;
   }
 
-  .viewButton {
-    min-height: 38px;
-  }
-
   .requestSummary strong,
   .requestSummary span {
     white-space: normal;
@@ -787,6 +790,14 @@
   .dialogForm,
   .detail {
     padding-inline: 14px;
+  }
+
+  .dialogForm {
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
+  }
+
+  .detail {
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
   }
 
   .dialogSuccess,

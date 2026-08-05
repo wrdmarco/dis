@@ -1043,6 +1043,18 @@
   to { transform: translateX(300%); }
 }
 
+@media (min-width: 2200px) {
+  .root {
+    width: min(100%, 2400px);
+    margin-inline: auto;
+  }
+
+  .libraryGrid,
+  .playlistGrid {
+    grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 980px) {
   .libraryGrid,
   .playlistGrid {
@@ -1076,6 +1088,52 @@
 
   .tabs button {
     justify-content: center;
+    min-height: 44px;
+  }
+
+  .folderRow {
+    grid-template-columns: minmax(0, 1fr) 44px 44px;
+    gap: 4px;
+  }
+
+  .folderButton,
+  .activeFolder {
+    min-height: 44px;
+  }
+
+  .rowAction,
+  .renameFolderForm button,
+  .newFolderForm button,
+  .assetControls button,
+  .orderedAssets button,
+  .uploadQueue li > button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .newFolderForm > div {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+
+  .renameFolderForm input,
+  .newFolderForm input,
+  .uploadSelection input,
+  .playlistNameField input,
+  .searchField,
+  .assetControls select {
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .fileButton,
+  .primaryButton,
+  .secondaryButton,
+  .dangerButton,
+  .newPlaylistButton,
+  .pagination button {
+    min-height: 44px;
   }
 
   .assetColumn,
@@ -1091,7 +1149,7 @@
   }
 
   .uploadQueue li {
-    grid-template-columns: 36px minmax(0, 1fr) 34px;
+    grid-template-columns: 36px minmax(0, 1fr) 44px;
   }
 
   .uploadQueue li > input,

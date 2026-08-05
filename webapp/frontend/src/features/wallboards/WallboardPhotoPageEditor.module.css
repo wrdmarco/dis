@@ -161,6 +161,11 @@
 }
 
 @media (max-width: 720px) {
+  .refresh {
+    width: 44px;
+    height: 44px;
+  }
+
   .fields {
     grid-template-columns: 1fr;
   }

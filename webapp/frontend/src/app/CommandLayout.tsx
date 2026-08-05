@@ -204,6 +204,8 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   const accountMenuOpen = openTopbarPopover === 'account';
   const sidebarRef = useRef<HTMLElement | null>(null);
   const navigationRef = useRef<HTMLElement | null>(null);
+  const mobileMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const mobileMenuCloseRef = useRef<HTMLButtonElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const accountMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [branding, setBranding] = useState<BrandingState>({
@@ -243,21 +245,70 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
     setOpenTopbarPopover(null);
   }, [pathname]);
 
+  const closeMobileNavigation = useCallback((restoreFocus = true) => {
+    setMobileNavOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => mobileMenuTriggerRef.current?.focus({ preventScroll: true }));
+    }
+  }, []);
+
   useEffect(() => {
     if (!mobileNavOpen) {
       return undefined;
     }
 
-    const closeOnEscape = (event: KeyboardEvent) => {
+    document.body.classList.add('mobile-navigation-open');
+    mobileMenuCloseRef.current?.focus({ preventScroll: true });
+
+    const handleDrawerKeyboard = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        closeMobileNavigation();
+        return;
+      }
+
+      if (event.key !== 'Tab' || sidebarRef.current === null) {
+        return;
+      }
+
+      const drawer = sidebarRef.current;
+      const focusableElements = Array.from(drawer.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.getAttribute('aria-hidden') !== 'true');
+      const firstFocusableElement = focusableElements[0];
+      const lastFocusableElement = focusableElements.at(-1);
+
+      if (firstFocusableElement === undefined || lastFocusableElement === undefined) {
+        return;
+      }
+
+      if (event.shiftKey && (document.activeElement === firstFocusableElement || !drawer.contains(document.activeElement))) {
+        event.preventDefault();
+        lastFocusableElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastFocusableElement) {
+        event.preventDefault();
+        firstFocusableElement.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleDrawerKeyboard);
+
+    return () => {
+      document.body.classList.remove('mobile-navigation-open');
+      window.removeEventListener('keydown', handleDrawerKeyboard);
+    };
+  }, [closeMobileNavigation, mobileNavOpen]);
+
+  useEffect(() => {
+    const desktopNavigation = window.matchMedia('(min-width: 1024px)');
+    const closeWhenDesktopNavigationReturns = (event: MediaQueryListEvent) => {
+      if (event.matches) {
         setMobileNavOpen(false);
       }
     };
 
-    window.addEventListener('keydown', closeOnEscape);
-
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [mobileNavOpen]);
+    desktopNavigation.addEventListener('change', closeWhenDesktopNavigationReturns);
+    return () => desktopNavigation.removeEventListener('change', closeWhenDesktopNavigationReturns);
+  }, []);
 
   useEffect(() => {
     if (!accountMenuOpen) {
@@ -335,7 +386,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
             {branding.logo_data_url ? <img src={branding.logo_data_url} alt="" /> : branding.short_name}
           </span>
           <span className="brand__text">Command Center</span>
-          <button className="icon-button sidebar__close" type="button" onClick={() => setMobileNavOpen(false)} aria-label="Menu sluiten">
+          <button ref={mobileMenuCloseRef} className="icon-button sidebar__close" type="button" onClick={() => closeMobileNavigation()} aria-label="Menu sluiten">
             <X size={18} />
           </button>
         </div>
@@ -351,7 +402,10 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
                       key={item.to}
                       href={item.to}
                       className={`nav__item ${isActivePath(pathname, item) ? 'nav__item--active' : ''}`}
-                      onClick={() => persistNavigationScrollPosition(sidebarRef.current, navigationRef.current)}
+                      onClick={() => {
+                        persistNavigationScrollPosition(sidebarRef.current, navigationRef.current);
+                        setMobileNavOpen(false);
+                      }}
                       onFocus={() => void preloadRoute(item.to)}
                       onMouseEnter={() => void preloadRoute(item.to)}
                     >
@@ -366,11 +420,12 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
         </nav>
       </aside>
       {mobileNavOpen ? (
-        <button className="mobile-nav-backdrop mobile-nav-backdrop--open" type="button" onClick={() => setMobileNavOpen(false)} aria-label="Menu sluiten" />
+        <button className="mobile-nav-backdrop mobile-nav-backdrop--open" type="button" tabIndex={-1} onClick={() => closeMobileNavigation()} aria-label="Menu sluiten" />
       ) : null}
-      <div className="workspace">
+      <div className="workspace" inert={mobileNavOpen ? true : undefined}>
         <header className="topbar">
           <button
+            ref={mobileMenuTriggerRef}
             className="icon-button topbar__menu"
             type="button"
             onClick={() => setMobileNavOpen(true)}

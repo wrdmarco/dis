@@ -208,6 +208,13 @@
   .label {
     font-size: 0.65rem;
   }
+
+  .clear {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 4px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

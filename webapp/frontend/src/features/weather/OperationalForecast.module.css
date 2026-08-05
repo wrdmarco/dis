@@ -2121,7 +2121,13 @@
 
   .radarOverlay button {
     width: 100%;
+    min-height: 44px;
     margin-left: 0;
+  }
+
+  .radarMapLoadState button,
+  .radarRetryButton {
+    min-height: 44px;
   }
 
   .radarEmpty {
@@ -2167,6 +2173,25 @@
 
   .radarLegend > small {
     grid-column: auto;
+  }
+}
+
+@media (max-width: 360px) {
+  .radarTransport {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr) 46px;
+  }
+
+  .radarTransport .radarPlayButton {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .radarTransport .latestButton {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0 !important;
+    margin-left: 0;
   }
 }
 

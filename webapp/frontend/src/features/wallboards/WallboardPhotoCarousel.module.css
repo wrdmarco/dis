@@ -131,7 +131,15 @@
   backdrop-filter: blur(16px);
 }
 
+.caption strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .caption span {
+  flex: 0 0 auto;
   color: #9ac9e6;
   font-variant-numeric: tabular-nums;
 }
@@ -250,6 +258,42 @@
 
 :global(.wallboard-display__page-card-stage:not(.wallboard-display__page-card-stage--settled)) .transitioning .outgoing {
   display: none;
+}
+
+@media (max-width: 680px) {
+  .caption {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 11px;
+    font-size: clamp(0.78rem, 3.8vw, 0.95rem);
+  }
+}
+
+@media (min-width: 1600px) and (min-height: 800px) {
+  :global(.wallboard-display--profile-4k) .caption {
+    right: clamp(40px, 1.7vw, 64px);
+    bottom: clamp(36px, 1.4vw, 54px);
+    left: clamp(40px, 1.7vw, 64px);
+    gap: 40px;
+    padding: 20px 26px;
+    border-radius: 20px;
+    font-size: clamp(1.25rem, 0.75vw, 1.75rem);
+  }
+}
+
+@media (min-width: 2560px) and (min-height: 1200px) {
+  :global(.wallboard-display--profile-auto) .caption {
+    right: clamp(40px, 1.7vw, 64px);
+    bottom: clamp(36px, 1.4vw, 54px);
+    left: clamp(40px, 1.7vw, 64px);
+    gap: 40px;
+    padding: 20px 26px;
+    border-radius: 20px;
+    font-size: clamp(1.25rem, 0.75vw, 1.75rem);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
