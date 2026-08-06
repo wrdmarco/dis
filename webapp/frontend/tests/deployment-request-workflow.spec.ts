@@ -7,11 +7,13 @@ import {
   deploymentRequestBooleanChoice,
   deploymentRequestCompleteness,
   deploymentRequestDecisionProfileId,
+  deploymentRequestFieldIsAnswered,
   deploymentRequestPilotVisibleAnswers,
   deploymentRequestPilotVisibleChanges,
   deploymentRequestPilotVisibleChangesMessage,
   deploymentRequestPriorityLabel,
   deploymentRequestRequiredAnswersAreComplete,
+  deploymentRequestRequiredFieldIsMissing,
   deploymentRequestSuggestedDecisionPriority,
   mergeDeploymentRequestChanges,
   mergeQueuedDeploymentRequestChanges,
@@ -145,6 +147,138 @@ test('allows deployment preparation to flush locally complete answers before che
   expect(workspace).toContain('Het geadviseerde inzetvoorstel en de teams worden bij voorbereiden automatisch vastgelegd.');
   expect(prepareFlow.indexOf("title: 'Conceptinzet voorbereiden?'"))
     .toBeLessThan(prepareFlow.indexOf('currentDeploymentRequest = adoptActionResponse(decided)'));
+});
+
+test('automatically includes newly configured required fields in the missing-field state', () => {
+  const futureRequiredField = {
+    key: 'future_required_field',
+    label: 'Later toegevoegd verplicht veld',
+    type: 'text' as const,
+    scope: 'common' as const,
+    required: true,
+    operator_visible: true,
+  };
+  const expandedConfiguration = {
+    ...configuration,
+    fields: [...configuration.fields, futureRequiredField],
+  };
+  const dossier = dossierFixture();
+
+  expect(deploymentRequestRequiredFieldIsMissing(futureRequiredField, undefined)).toBe(true);
+  expect(deploymentRequestRequiredFieldIsMissing(futureRequiredField, '   ')).toBe(true);
+  expect(deploymentRequestRequiredFieldIsMissing(futureRequiredField, 'Ingevuld')).toBe(false);
+  expect(deploymentRequestRequiredAnswersAreComplete(dossier, expandedConfiguration)).toBe(false);
+
+  dossier.answers.future_required_field = 'Ingevuld';
+  expect(deploymentRequestRequiredAnswersAreComplete(dossier, expandedConfiguration)).toBe(true);
+});
+
+test('keeps valid false and zero answers filled and requires a complete flight-time interval', () => {
+  const requiredBooleanField = {
+    ...configuration.fields[0],
+    type: 'checkbox' as const,
+  };
+  const requiredNumberField = {
+    ...configuration.fields[0],
+    type: 'number' as const,
+  };
+  const requiredFlightTimeField = {
+    ...configuration.fields[0],
+    type: 'flight_time' as const,
+  };
+
+  expect(deploymentRequestFieldIsAnswered(requiredBooleanField, false)).toBe(true);
+  expect(deploymentRequestRequiredFieldIsMissing(requiredBooleanField, null)).toBe(true);
+  expect(deploymentRequestFieldIsAnswered(requiredNumberField, 0)).toBe(true);
+  expect(deploymentRequestRequiredFieldIsMissing(requiredFlightTimeField, {
+    start: '10:00',
+    end: '',
+    duration_minutes: null,
+  })).toBe(true);
+  expect(deploymentRequestRequiredFieldIsMissing(requiredFlightTimeField, {
+    start: '10:00',
+    end: '10:45',
+    duration_minutes: 45,
+  })).toBe(false);
+});
+
+test('renders missing required fields with a red, accessible state across every field type', () => {
+  const workspace = source('../src/features/deployment-requests/DeploymentRequestWorkspace.tsx');
+  const createPage = source('../src/features/deployment-requests/DeploymentRequestCreatePage.tsx');
+  const addressAutocomplete = source('../src/components/AddressAutocomplete.tsx');
+  const scoreField = source('../src/components/SatisfactionScoreField.tsx');
+  const styles = source('../src/styles/global.css');
+
+  expect(workspace).toContain('deploymentRequestRequiredFieldIsMissing(field, value)');
+  expect(workspace).toContain('deployment-request-field--required-missing');
+  expect(workspace).toContain('aria-invalid={requiredMissing || undefined}');
+  expect(workspace).toContain('Verplicht veld — nog niet ingevuld.');
+  expect(createPage).toContain('deployment-request-field--required-missing');
+  expect(addressAutocomplete).toContain('aria-invalid={invalid || undefined}');
+  expect(scoreField).toContain('aria-invalid={invalid || undefined}');
+  expect(styles).toContain('.deployment-request-field--required-missing');
+  expect(styles).toContain('border: 2px solid var(--dis-critical) !important;');
+  expect(styles).toContain('background: color-mix(in srgb, var(--dis-critical) 8%, var(--dis-field)) !important;');
+});
+
+test('keeps the missing-field border and text visibly red in dark and light themes', async ({ page }) => {
+  await page.setContent(`
+    <main class="page-stack">
+      <label class="deployment-request-field deployment-request-field--required-missing">
+        <span class="deployment-request-field__label"><span>Naam *</span></span>
+        <input aria-invalid="true" value="">
+        <small class="deployment-request-field__required-message">Verplicht veld — nog niet ingevuld.</small>
+        <small><span class="deployment-request-field__required-message" id="nested-required-message">Verplicht veld — nog niet ingevuld.</span></small>
+      </label>
+      <fieldset class="deployment-request-field deployment-request-field--required-missing" aria-invalid="true">
+        <legend>Keuze *</legend>
+        <div>Keuzes</div>
+      </fieldset>
+    </main>
+    <span id="critical-color-probe" style="color: var(--dis-critical)"></span>
+  `);
+  await page.addStyleTag({ content: source('../src/styles/global.css') });
+  await page.addStyleTag({ content: '* { transition: none !important; }' });
+
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((nextTheme) => {
+      if (nextTheme === 'light') {
+        document.documentElement.dataset.theme = 'light';
+      } else {
+        delete document.documentElement.dataset.theme;
+      }
+    }, theme);
+
+    const colors = await page.evaluate(() => {
+      const input = document.querySelector<HTMLInputElement>('input[aria-invalid="true"]');
+      const label = document.querySelector<HTMLElement>('.deployment-request-field__label > span');
+      const message = document.querySelector<HTMLElement>('.deployment-request-field__required-message');
+      const nestedMessage = document.querySelector<HTMLElement>('#nested-required-message');
+      const fieldset = document.querySelector<HTMLFieldSetElement>('fieldset[aria-invalid="true"]');
+      const probe = document.querySelector<HTMLElement>('#critical-color-probe');
+      if (!input || !label || !message || !nestedMessage || !fieldset || !probe) {
+        throw new Error('Required-field fixture is incomplete.');
+      }
+
+      return {
+        critical: getComputedStyle(probe).color,
+        inputBorder: getComputedStyle(input).borderTopColor,
+        label: getComputedStyle(label).color,
+        message: getComputedStyle(message).color,
+        nestedMessage: getComputedStyle(nestedMessage).color,
+        fieldsetOutline: getComputedStyle(fieldset).outlineColor,
+      };
+    });
+
+    expect(
+      rgbChannelDistance(colors.inputBorder, colors.critical),
+      `${theme} input border: ${colors.inputBorder} versus ${colors.critical}`,
+    ).toBeLessThanOrEqual(16);
+    expect(colors.label, `${theme} field label`).toBe(colors.critical);
+    expect(colors.message, `${theme} required message`).toBe(colors.critical);
+    expect(colors.nestedMessage, `${theme} nested score message`).toBe(colors.critical);
+    expect(colors.fieldsetOutline, `${theme} choice-group outline`).toBe(colors.critical);
+  }
 });
 
 test('merges dirty patches without dropping newer keystrokes and null removes an answer', () => {
@@ -545,4 +679,13 @@ function answerRow(key: string, displayValue: string) {
 
 function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), 'utf8');
+}
+
+function rgbChannelDistance(left: string, right: string): number {
+  const channels = (color: string) => color.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number) ?? [];
+  const leftChannels = channels(left);
+  const rightChannels = channels(right);
+  if (leftChannels.length !== 3 || rightChannels.length !== 3) return Number.POSITIVE_INFINITY;
+
+  return Math.max(...leftChannels.map((channel, index) => Math.abs(channel - rightChannels[index])));
 }

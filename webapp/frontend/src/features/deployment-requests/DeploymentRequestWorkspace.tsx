@@ -61,6 +61,7 @@ import {
   deploymentRequestPriorityLabel,
   deploymentRequestPriorityOptions,
   deploymentRequestPriorityTone,
+  deploymentRequestRequiredFieldIsMissing,
   deploymentRequestRequiredAnswersAreComplete,
   deploymentRequestSaveLabel,
   deploymentRequestStatusLabel,
@@ -196,9 +197,13 @@ export const DeploymentRequestWorkspace = forwardRef<
     [configuration?.bindings],
   );
   const completeness = configuration ? deploymentRequestCompleteness(draft, configuration) : null;
-  const requiredAnswersComplete = configuration
-    ? deploymentRequestRequiredAnswersAreComplete(draft, configuration)
-    : false;
+  const titleMissing = draft.title.trim() === '';
+  const requiredAnswersComplete = configuration !== null
+    && !titleMissing
+    && deploymentRequestRequiredAnswersAreComplete(draft, configuration);
+  const titleFieldId = `deployment-request-title-${draft.id}`;
+  const titleHelpId = `${titleFieldId}-help`;
+  const titleRequiredMessageId = `${titleFieldId}-required`;
   const recommendedPlan = draft.deployment_proposal;
   const selectedPlan = draft.selected_deployment_proposal;
   const planChanged = deploymentDiffers(deploymentDraft, recommendedPlan);
@@ -1072,23 +1077,30 @@ export const DeploymentRequestWorkspace = forwardRef<
             description="Deze gegevens worden één keer vastgelegd en waar ingesteld overgenomen in de inzet."
             leadingContent={(
               <label
-                className="deployment-request-field deployment-request-field--wide"
-                htmlFor={`deployment-request-title-${draft.id}`}
+                className={`deployment-request-field deployment-request-field--wide${titleMissing ? ' deployment-request-field--required-missing' : ''}`}
+                htmlFor={titleFieldId}
               >
                 <span className="deployment-request-field__label">
                   <span>Titel *</span>
                 </span>
                 <input
-                  id={`deployment-request-title-${draft.id}`}
+                  id={titleFieldId}
                   type="text"
                   value={draft.title}
                   required
+                  aria-invalid={titleMissing || undefined}
+                  aria-describedby={titleMissing ? `${titleHelpId} ${titleRequiredMessageId}` : titleHelpId}
                   maxLength={180}
                   autoComplete="off"
                   disabled={!editable}
                   onChange={(event) => queueChanges({ title: event.target.value })}
                 />
-                <small>De herkenbare titel van deze aanvraag. Maximaal 180 tekens.</small>
+                <small id={titleHelpId}>De herkenbare titel van deze aanvraag. Maximaal 180 tekens.</small>
+                {titleMissing ? (
+                  <small className="deployment-request-field__required-message" id={titleRequiredMessageId}>
+                    Verplicht veld — nog niet ingevuld.
+                  </small>
+                ) : null}
               </label>
             )}
             fields={deploymentRequestCommonFields(configuration)}
@@ -1314,17 +1326,28 @@ function DeploymentRequestField(props: {
 }) {
   const { field, value, binding, disabled, onChange } = props;
   const fieldId = `deployment-request-field-${field.key}`;
+  const helpId = field.help_text ? `${fieldId}-help` : undefined;
+  const requiredMissing = deploymentRequestRequiredFieldIsMissing(field, value);
+  const requiredMessageId = `${fieldId}-required`;
+  const describedBy = [helpId, requiredMissing ? requiredMessageId : undefined].filter(Boolean).join(' ') || undefined;
+  const requiredMessage = requiredMissing ? (
+    <small className="deployment-request-field__required-message" id={requiredMessageId}>
+      Verplicht veld — nog niet ingevuld.
+    </small>
+  ) : null;
   const label = (
     <span className="deployment-request-field__label">
       <span>{field.label}{field.required ? ' *' : ''}</span>
       {binding ? <small><ChevronRight size={13} /> Naar {bindingLabel(binding.target)}</small> : null}
     </span>
   );
-  const className = `deployment-request-field${['textarea', 'radio', 'flight_time', 'score'].includes(field.type) ? ' deployment-request-field--wide' : ''}`;
+  const className = [
+    'deployment-request-field',
+    ['textarea', 'radio', 'flight_time', 'score'].includes(field.type) ? 'deployment-request-field--wide' : '',
+    requiredMissing ? 'deployment-request-field--required-missing' : '',
+  ].filter(Boolean).join(' ');
 
   if (field.type === 'address') {
-    const helpId = field.help_text ? `${fieldId}-help` : undefined;
-
     return (
       <div className={className}>
         <label htmlFor={fieldId}>{label}</label>
@@ -1333,10 +1356,12 @@ function DeploymentRequestField(props: {
           value={asInputString(value)}
           disabled={disabled}
           required={field.required}
-          describedBy={helpId}
+          invalid={requiredMissing}
+          describedBy={describedBy}
           onChange={(nextValue) => onChange(nextValue === '' ? null : nextValue)}
         />
         {field.help_text ? <small id={helpId}>{field.help_text}</small> : null}
+        {requiredMessage}
       </div>
     );
   }
@@ -1350,10 +1375,12 @@ function DeploymentRequestField(props: {
           value={asInputString(value)}
           disabled={disabled}
           required={field.required}
-          aria-describedby={field.help_text ? `${fieldId}-help` : undefined}
+          aria-invalid={requiredMissing || undefined}
+          aria-describedby={describedBy}
           onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
         />
-        {field.help_text ? <small id={`${fieldId}-help`}>{field.help_text}</small> : null}
+        {field.help_text ? <small id={helpId}>{field.help_text}</small> : null}
+        {requiredMessage}
       </label>
     );
   }
@@ -1369,11 +1396,14 @@ function DeploymentRequestField(props: {
           value={asInputString(value)}
           disabled={disabled}
           required={field.required}
+          aria-invalid={requiredMissing || undefined}
+          aria-describedby={describedBy}
           placeholder="+31612345678"
           title="Gebruik een internationaal telefoonnummer met landcode."
           onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
         />
-        {field.help_text ? <small>{field.help_text}</small> : null}
+        {field.help_text ? <small id={helpId}>{field.help_text}</small> : null}
+        {requiredMessage}
       </label>
     );
   }
@@ -1387,7 +1417,10 @@ function DeploymentRequestField(props: {
         value={value}
         disabled={disabled}
         required={field.required}
+        invalid={requiredMissing}
+        describedBy={describedBy}
         helpText={field.help_text}
+        requiredMessage={requiredMessage}
         onChange={onChange}
       />
     );
@@ -1402,7 +1435,17 @@ function DeploymentRequestField(props: {
         value={value}
         disabled={disabled}
         required={field.required}
-        helpText={field.help_text ?? 'Kies een score van 1 (niet goed) tot 5 (zeer goed).'}
+        invalid={requiredMissing}
+        helpText={(
+          <>
+            {field.help_text ?? 'Kies een score van 1 (niet goed) tot 5 (zeer goed).'}
+            {requiredMissing ? (
+              <span className="deployment-request-field__required-message">
+                Verplicht veld — nog niet ingevuld.
+              </span>
+            ) : null}
+          </>
+        )}
         onChange={onChange}
       />
     );
@@ -1417,19 +1460,27 @@ function DeploymentRequestField(props: {
           value={asInputString(value)}
           disabled={disabled}
           required={field.required}
+          aria-invalid={requiredMissing || undefined}
+          aria-describedby={describedBy}
           onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
         >
           <option value="">Kies…</option>
           {(field.options ?? []).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
         </select>
-        {field.help_text ? <small>{field.help_text}</small> : null}
+        {field.help_text ? <small id={helpId}>{field.help_text}</small> : null}
+        {requiredMessage}
       </label>
     );
   }
 
   if (field.type === 'radio') {
     return (
-      <fieldset className={`${className} deployment-request-radio-field`} id={fieldId}>
+      <fieldset
+        className={`${className} deployment-request-radio-field`}
+        id={fieldId}
+        aria-invalid={requiredMissing || undefined}
+        aria-describedby={describedBy}
+      >
         <legend>{label}</legend>
         <div>
           {(field.options ?? []).map((option) => (
@@ -1438,12 +1489,14 @@ function DeploymentRequestField(props: {
               option={option}
               selected={value === option.value}
               disabled={disabled}
+              required={field.required}
               key={option.value}
               onSelect={() => onChange(option.value)}
             />
           ))}
         </div>
-        {field.help_text ? <small>{field.help_text}</small> : null}
+        {field.help_text ? <small id={helpId}>{field.help_text}</small> : null}
+        {requiredMessage}
       </fieldset>
     );
   }
@@ -1451,7 +1504,12 @@ function DeploymentRequestField(props: {
   if (field.type === 'checkbox') {
     const selected = deploymentRequestBooleanChoice(value);
     return (
-      <fieldset className={`${className} deployment-request-radio-field deployment-request-boolean-field`} id={fieldId}>
+      <fieldset
+        className={`${className} deployment-request-radio-field deployment-request-boolean-field`}
+        id={fieldId}
+        aria-invalid={requiredMissing || undefined}
+        aria-describedby={describedBy}
+      >
         <legend>{label}</legend>
         <div>
           {!field.required ? (
@@ -1460,6 +1518,7 @@ function DeploymentRequestField(props: {
               option={{ value: 'unanswered', label: 'Onbeantwoord' }}
               selected={selected === null}
               disabled={disabled}
+              required={false}
               onSelect={() => onChange(null)}
             />
           ) : null}
@@ -1468,6 +1527,7 @@ function DeploymentRequestField(props: {
             option={{ value: 'yes', label: 'Ja' }}
             selected={selected === true}
             disabled={disabled}
+            required={field.required}
             onSelect={() => onChange(true)}
           />
           <ChoiceOption
@@ -1475,10 +1535,12 @@ function DeploymentRequestField(props: {
             option={{ value: 'no', label: 'Nee' }}
             selected={selected === false}
             disabled={disabled}
+            required={field.required}
             onSelect={() => onChange(false)}
           />
         </div>
-        {field.help_text ? <small>{field.help_text}</small> : null}
+        {field.help_text ? <small id={helpId}>{field.help_text}</small> : null}
+        {requiredMessage}
       </fieldset>
     );
   }
@@ -1500,6 +1562,8 @@ function DeploymentRequestField(props: {
         value={field.type === 'datetime' ? dateTimeLocalInputValue(value) : asInputString(value)}
         disabled={disabled}
         required={field.required}
+        aria-invalid={requiredMissing || undefined}
+        aria-describedby={describedBy}
         onChange={(event) => {
           if (event.target.value === '') {
             onChange(null);
@@ -1512,7 +1576,8 @@ function DeploymentRequestField(props: {
           }
         }}
       />
-      {field.help_text ? <small>{field.help_text}</small> : null}
+      {field.help_text ? <small id={helpId}>{field.help_text}</small> : null}
+      {requiredMessage}
     </label>
   );
 }
@@ -1524,7 +1589,10 @@ function DeploymentRequestFlightTimeField(props: {
   value: unknown;
   disabled: boolean;
   required: boolean;
+  invalid: boolean;
+  describedBy?: string;
   helpText?: string | null;
+  requiredMessage: ReactNode;
   onChange: (value: unknown | null) => void;
 }) {
   const parsedValue = deploymentRequestFlightTimeValue(props.value);
@@ -1548,7 +1616,12 @@ function DeploymentRequestFlightTimeField(props: {
   }
 
   return (
-    <fieldset className={`${props.className} deployment-request-radio-field`} id={props.id}>
+    <fieldset
+      className={`${props.className} deployment-request-radio-field`}
+      id={props.id}
+      aria-invalid={props.invalid || undefined}
+      aria-describedby={props.describedBy}
+    >
       <legend>{props.label}</legend>
       <div className="deployment-request-flight-time">
         <label>
@@ -1572,7 +1645,8 @@ function DeploymentRequestFlightTimeField(props: {
           />
         </label>
       </div>
-      {props.helpText ? <small>{props.helpText}</small> : null}
+      {props.helpText ? <small id={`${props.id}-help`}>{props.helpText}</small> : null}
+      {props.requiredMessage}
     </fieldset>
   );
 }
@@ -1582,6 +1656,7 @@ function ChoiceOption(props: {
   option: DeploymentRequestFieldOption;
   selected: boolean;
   disabled: boolean;
+  required: boolean;
   onSelect: () => void;
 }) {
   return (
@@ -1591,6 +1666,7 @@ function ChoiceOption(props: {
         name={props.name}
         checked={props.selected}
         disabled={props.disabled}
+        required={props.required}
         onChange={props.onSelect}
       />
       <span>{props.option.label}</span>

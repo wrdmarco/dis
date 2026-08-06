@@ -27,6 +27,7 @@ export interface SatisfactionScoreFieldProps {
   onChange: (value: number | null) => void;
   required?: boolean;
   disabled?: boolean;
+  invalid?: boolean;
   helpText?: ReactNode;
   className?: string;
   compact?: boolean;
@@ -39,6 +40,7 @@ export function SatisfactionScoreField({
   onChange,
   required = false,
   disabled = false,
+  invalid = false,
   helpText,
   className,
   compact = false,
@@ -52,7 +54,12 @@ export function SatisfactionScoreField({
   ].filter(Boolean).join(' ');
 
   return (
-    <fieldset className={fieldClassName} aria-describedby={helpId}>
+    <fieldset
+      id={id}
+      className={fieldClassName}
+      aria-describedby={helpId}
+      aria-invalid={invalid || undefined}
+    >
       <legend>{label}</legend>
       <div className={styles.scale}>
         {satisfactionScoreOptions.map((option) => {

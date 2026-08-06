@@ -1,4 +1,5 @@
 import type { Deployment, FormFieldType } from '../../types/api';
+import { deploymentRequestFlightTimeValue } from './deploymentRequestFlightTime';
 
 export type DeploymentRequestSubjectType = 'person' | 'animal' | 'object';
 export type DeploymentRequestPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -292,8 +293,7 @@ export function deploymentRequestRequiredAnswersAreComplete(
   configuration: DeploymentRequestWorkflowConfiguration,
 ): boolean {
   return deploymentRequestApplicableFields(configuration, deploymentRequest.subject_type)
-    .filter((field) => field.required && field.type !== 'section')
-    .every((field) => deploymentRequestFieldIsAnswered(field, deploymentRequest.answers[field.key]));
+    .every((field) => !deploymentRequestRequiredFieldIsMissing(field, deploymentRequest.answers[field.key]));
 }
 
 export function deploymentRequestSaveLabel(state: DeploymentRequestSaveState): string {
@@ -315,9 +315,20 @@ export function deploymentRequestSaveLabel(state: DeploymentRequestSaveState): s
 
 export function deploymentRequestFieldIsAnswered(field: DeploymentRequestWorkflowField, value: unknown): boolean {
   if (field.type === 'checkbox') return typeof value === 'boolean';
+  if (field.type === 'flight_time') {
+    const flightTime = deploymentRequestFlightTimeValue(value);
+    return flightTime.start !== '' && flightTime.end !== '' && flightTime.duration_minutes !== null;
+  }
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === 'string') return value.trim() !== '';
   return value !== null && value !== undefined;
+}
+
+export function deploymentRequestRequiredFieldIsMissing(
+  field: DeploymentRequestWorkflowField,
+  value: unknown,
+): boolean {
+  return field.type !== 'section' && field.required && !deploymentRequestFieldIsAnswered(field, value);
 }
 
 export function deploymentRequestBooleanChoice(value: unknown): boolean | null {

@@ -23,6 +23,7 @@ interface AddressAutocompleteProps {
   value: string;
   disabled?: boolean;
   required?: boolean;
+  invalid?: boolean;
   describedBy?: string;
   placeholder?: string;
   onChange: (value: string) => void;
@@ -34,6 +35,7 @@ export function AddressAutocomplete(props: AddressAutocompleteProps) {
     value,
     disabled = false,
     required = false,
+    invalid = false,
     describedBy,
     placeholder = 'Zoek op adres, gebouw of locatie',
     onChange,
@@ -178,6 +180,7 @@ export function AddressAutocomplete(props: AddressAutocompleteProps) {
           autoComplete="off"
           disabled={disabled}
           required={required}
+          aria-invalid={invalid || undefined}
           aria-autocomplete="list"
           aria-controls={listboxId}
           aria-expanded={popupVisible}

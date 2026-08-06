@@ -17400,6 +17400,38 @@ body.mobile-navigation-open {
   color: var(--dis-text-strong);
 }
 
+/* Required deployment-request fields stay configuration-driven and visible in both themes. */
+:root .deployment-request-field--required-missing .deployment-request-field__label > span:first-child,
+:root .deployment-request-create-title.deployment-request-field--required-missing > span:first-child,
+:root fieldset.deployment-request-field--required-missing > legend {
+  color: var(--dis-critical) !important;
+}
+
+:root .deployment-request-field--required-missing > :is(input, select, textarea)[aria-invalid="true"],
+:root .deployment-request-field--required-missing .address-autocomplete__control > input {
+  border: 2px solid var(--dis-critical) !important;
+  background: color-mix(in srgb, var(--dis-critical) 8%, var(--dis-field)) !important;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dis-critical) 72%, transparent) !important;
+}
+
+:root fieldset.deployment-request-field--required-missing {
+  border-color: transparent !important;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-critical) 6%, var(--dis-surface)) !important;
+  outline: 2px solid var(--dis-critical);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--dis-critical) 10%, transparent);
+}
+
+:root .deployment-request-field--required-missing :is(small, span).deployment-request-field__required-message {
+  display: block;
+  margin: 0;
+  color: var(--dis-critical) !important;
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
 .deployment-request-checkbox-field {
   min-height: 50px;
   grid-template-columns: auto minmax(0, 1fr);

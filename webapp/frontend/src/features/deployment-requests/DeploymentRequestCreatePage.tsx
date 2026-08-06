@@ -31,6 +31,8 @@ export function DeploymentRequestCreatePage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const creatingRef = useRef(false);
+  const titleMissing = title.trim() === '';
+  const subjectMissing = subjectType === null;
 
   const createDeploymentRequest = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -101,13 +103,20 @@ export function DeploymentRequestCreatePage() {
                 <strong>Maak de aanvraag herkenbaar</strong>
                 <span>De aanvraag wordt pas aangemaakt nadat je het formulier zelf verstuurt.</span>
               </div>
-              <label className="deployment-request-create-title" htmlFor="deployment-request-create-title">
+              <label
+                className={`deployment-request-create-title${titleMissing ? ' deployment-request-field--required-missing' : ''}`}
+                htmlFor="deployment-request-create-title"
+              >
                 <span>Titel *</span>
                 <input
                   id="deployment-request-create-title"
                   type="text"
                   value={title}
                   required
+                  aria-invalid={titleMissing || undefined}
+                  aria-describedby={titleMissing
+                    ? 'deployment-request-create-title-help deployment-request-create-title-required'
+                    : 'deployment-request-create-title-help'}
                   maxLength={180}
                   autoComplete="off"
                   autoFocus
@@ -115,11 +124,24 @@ export function DeploymentRequestCreatePage() {
                   placeholder="Bijvoorbeeld Vermist persoon omgeving Stationsplein"
                   onChange={(event) => updateTitle(event.target.value)}
                 />
-                <small>Maximaal 180 tekens. Deze titel blijft zichtbaar in het aanvragenoverzicht en de gekoppelde inzet.</small>
+                <small id="deployment-request-create-title-help">
+                  Maximaal 180 tekens. Deze titel blijft zichtbaar in het aanvragenoverzicht en de gekoppelde inzet.
+                </small>
+                {titleMissing ? (
+                  <small className="deployment-request-field__required-message" id="deployment-request-create-title-required">
+                    Verplicht veld — nog niet ingevuld.
+                  </small>
+                ) : null}
               </label>
-              <fieldset className="deployment-request-create-subject-fieldset">
+              <fieldset
+                className={`deployment-request-create-subject-fieldset${subjectMissing ? ' deployment-request-field--required-missing' : ''}`}
+                aria-invalid={subjectMissing || undefined}
+                aria-describedby={subjectMissing
+                  ? 'deployment-request-create-subject-help deployment-request-create-subject-required'
+                  : 'deployment-request-create-subject-help'}
+              >
                 <legend>Wie of wat zoeken we? *</legend>
-                <span>Kies het onderwerp dat bij deze aanvraag hoort.</span>
+                <span id="deployment-request-create-subject-help">Kies het onderwerp dat bij deze aanvraag hoort.</span>
                 <div className="deployment-request-create-subjects">
                   {workflow.data.configuration.subject_types.map((subject) => (
                     <button
@@ -135,6 +157,11 @@ export function DeploymentRequestCreatePage() {
                     </button>
                   ))}
                 </div>
+                {subjectMissing ? (
+                  <small className="deployment-request-field__required-message" id="deployment-request-create-subject-required">
+                    Verplicht veld — maak nog een keuze.
+                  </small>
+                ) : null}
               </fieldset>
               {error ? <p className="form-error" role="alert">{error}</p> : null}
               <div className="actions-row deployment-request-create-actions">
