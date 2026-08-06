@@ -1,6 +1,6 @@
 'use client';
 
-import { Eye, MessageSquare, Pencil, Save, X } from 'lucide-react';
+import { AlertTriangle, ClipboardCheck, Eye, MessageSquare, Pencil, Save, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -163,7 +163,10 @@ export function DeploymentRequestPanel(props: DeploymentRequestPanelProps) {
         title="Belangrijke inzetinformatie"
         action={canManage && deploymentRequest.data?.status !== 'closed' ? (
           <button className="secondary-button" type="button" onClick={openEditModal}>
-            <Pencil size={16} /> Aanvullen
+            {deploymentRequest.data?.decided_priority === null
+              ? <ClipboardCheck size={16} />
+              : <Pencil size={16} />}
+            {deploymentRequest.data?.decided_priority === null ? 'Opnieuw beoordelen' : 'Aanvullen'}
           </button>
         ) : null}
       >
@@ -197,6 +200,12 @@ export function DeploymentRequestPanel(props: DeploymentRequestPanelProps) {
               ) : (
                 <div className="empty-panel">Nog geen belangrijke inzetinformatie vastgelegd.</div>
               )}
+              {deploymentRequest.data.status === 'prepared'
+                && deploymentRequest.data.decided_priority === null ? (
+                  <p className="form-error" role="alert">
+                    <AlertTriangle size={15} aria-hidden /> De uitvraag is gewijzigd. Controleer het actuele advies en leg de beoordeling opnieuw vast voordat je activeert of alarmeert.
+                  </p>
+                ) : null}
               {panelMessage ? <p className="form-note" role="status">{panelMessage}</p> : null}
             </div>
           ) : null}

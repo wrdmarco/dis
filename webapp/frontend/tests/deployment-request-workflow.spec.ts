@@ -512,6 +512,26 @@ test('persists modal edits before optionally sending the pilot-visible subset', 
   expect(panel).not.toContain('Antwoorden opslaan en sluiten');
 });
 
+test('lets the centralist reconfirm an unchanged visible recommendation after linked answers invalidate it', () => {
+  const workspace = source('../src/features/deployment-requests/DeploymentRequestWorkspace.tsx');
+  const panel = source('../src/features/deployment-requests/DeploymentRequestPanel.tsx');
+  const saveDecisionStart = workspace.indexOf('const saveDecision = async () => {');
+  const saveDecisionEnd = workspace.indexOf('\n  useEffect(() => {', saveDecisionStart);
+  const saveDecisionFlow = workspace.slice(saveDecisionStart, saveDecisionEnd);
+  const explicitReviewIndex = saveDecisionFlow.indexOf('decisionSelectionAdjustedRef.current = true;');
+  const persistIndex = saveDecisionFlow.indexOf('await persistAllChanges();');
+
+  expect(saveDecisionStart).toBeGreaterThan(-1);
+  expect(explicitReviewIndex).toBeGreaterThan(-1);
+  expect(persistIndex).toBeGreaterThan(-1);
+  expect(explicitReviewIndex).toBeLessThan(persistIndex);
+  expect(workspace).toContain("props.deploymentRequest.status === 'prepared'");
+  expect(workspace).toContain('Beoordeling opnieuw vastleggen');
+  expect(workspace).toContain('Controleer het actuele advies en inzetvoorstel');
+  expect(panel).toContain("deploymentRequest.data?.decided_priority === null ? 'Opnieuw beoordelen' : 'Aanvullen'");
+  expect(panel).toContain('De uitvraag is gewijzigd. Controleer het actuele advies');
+});
+
 test('prefills the current recommendation while preserving an explicit decision', () => {
   const deploymentRequest = dossierFixture();
   deploymentRequest.triage.recommended_priority = 'medium';

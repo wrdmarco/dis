@@ -814,6 +814,12 @@ export const DeploymentRequestWorkspace = forwardRef<
   };
 
   const saveDecision = async () => {
+    // Confirming the visible recommendation is still an explicit review. After
+    // linked answers change, the server clears decided_priority even though the
+    // same recommendation remains selected in the UI. Force the decision path
+    // so the review button can restore the server-side activation gate without
+    // making the user select a different priority first.
+    decisionSelectionAdjustedRef.current = true;
     await persistAllChanges();
   };
 
@@ -1754,6 +1760,8 @@ function DecisionCard(props: {
   onSave: () => void;
 }) {
   const advised = props.deploymentRequest.triage.recommended_priority;
+  const decisionWasInvalidated = props.deploymentRequest.status === 'prepared'
+    && props.deploymentRequest.decided_priority === null;
 
   return (
     <section className="deployment-request-assessment-card">
@@ -1796,6 +1804,11 @@ function DecisionCard(props: {
           <AlertTriangle size={15} /> De beoordeling wordt beschikbaar zodra de kerngegevens compleet zijn.
         </p>
       ) : null}
+      {!props.blocked && decisionWasInvalidated ? (
+        <p className="deployment-request-blocked-notice" role="status">
+          <AlertTriangle size={15} /> Controleer het actuele advies en inzetvoorstel en leg de beoordeling opnieuw vast.
+        </p>
+      ) : null}
       {props.overrideRequired ? (
         <label>
           Reden van afwijking *
@@ -1811,7 +1824,9 @@ function DecisionCard(props: {
       ) : null}
       <button className="secondary-button" type="button" disabled={props.saving || props.blocked} onClick={props.onSave}>
         {props.saving ? <Loader2 className="spin" size={16} /> : <ClipboardCheck size={16} />}
-        Beoordeling vastleggen
+        {decisionWasInvalidated
+          ? 'Beoordeling opnieuw vastleggen'
+          : 'Beoordeling vastleggen'}
       </button>
       {props.error ? <p className="form-error" role="alert">{props.error}</p> : null}
     </section>
