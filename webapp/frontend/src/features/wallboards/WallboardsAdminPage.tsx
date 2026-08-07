@@ -313,7 +313,7 @@ export function WallboardsAdminPage() {
                   />
                   <span>
                     <strong>Demomodus {newPlaylistDataMode === 'demo' ? 'aan' : 'uit'}</strong>
-                    <small>Aan maakt dynamische operationele gegevens fictief; ingestelde teksten, foto&apos;s en video&apos;s blijven ongewijzigd. Uit gebruikt actuele operationele gegevens.</small>
+                    <small>Aan maakt dynamische operationele gegevens fictief; live-uitzendingen worden niet verbonden. Ingestelde teksten, foto&apos;s en video&apos;s blijven ongewijzigd. Uit gebruikt actuele operationele gegevens.</small>
                   </span>
                   <WallboardPlaylistDataModePill mode={newPlaylistDataMode} />
                 </label>
@@ -1224,7 +1224,7 @@ function PlaylistEditor({
           />
           <span>
             <strong>Demomodus {draftDataMode === 'demo' ? 'aan' : 'uit'}</strong>
-            <small>Aan maakt dynamische operationele gegevens fictief; ingestelde teksten, foto&apos;s en video&apos;s blijven ongewijzigd. Alleen een alarmplaylist met LIVE DATA kan tijdens een actieve inzet worden geselecteerd.</small>
+            <small>Aan maakt dynamische operationele gegevens fictief; live-uitzendingen worden niet verbonden. Ingestelde teksten, foto&apos;s en video&apos;s blijven ongewijzigd. Alleen een alarmplaylist met LIVE DATA kan tijdens een actieve inzet worden geselecteerd.</small>
           </span>
           <WallboardPlaylistDataModePill mode={draftDataMode} />
         </label>

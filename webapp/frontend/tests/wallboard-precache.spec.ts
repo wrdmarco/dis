@@ -68,6 +68,8 @@ test('builds one stable manifest across all configured cacheable wallboard pages
     url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
     rel: 'preconnect',
   }]);
+  expect(manifest.onlineOnlyPageIds).toEqual(['live-stream']);
+  expect(manifest.assets.some((asset) => asset.pageIds.includes('live-stream'))).toBe(false);
   expect(manifest.assets.some((asset) => asset.url.includes('/wallboard/state'))).toBe(false);
   expect(manifest.assets.some((asset) => asset.url.includes(NEWS_HASH))).toBe(true);
 
@@ -580,6 +582,7 @@ function wallboardState(): WallboardState {
     }),
     page('youtube', 'video', { url: 'https://www.youtube.com/embed/dQw4w9WgXcQ' }),
     page('invalid-video', 'video', { url: '/api/wallboard/state' }),
+    page('live-stream', 'live_stream'),
   ];
 
   return {

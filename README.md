@@ -204,6 +204,8 @@ Naast Nginx, PHP-FPM, PostgreSQL en Redis installeert D.I.S. deze normale system
 | `dis-queue` | algemene asynchrone jobs |
 | `dis-push@1` t/m `dis-push@4` | geïsoleerde pushworkers |
 | `dis-media` | media-inspectie en transcodering |
+| `dis-wallboard-live-ingress` | geauthenticeerde OBS RTMPS-ingress met een afzonderlijke Stream Key |
+| `dis-wallboard-live` | lokale omzetting van de gevalideerde OBS-feed naar browsergeschikte HLS |
 | `dis-scheduler` | Laravel-scheduler |
 | `dis-deployment-enrichment` | locatieclassificatie van inzetten |
 | `dis-storage-metrics.timer` | ieder uur een gesaneerde, alleen-lezen opslagmeting publiceren |
@@ -221,8 +223,8 @@ Handige diagnosecommando's:
 
 ```bash
 sudo systemctl --failed
-sudo systemctl status dis-frontend dis-websocket dis-queue dis-scheduler
-sudo journalctl -u dis-frontend.service -u dis-queue.service -u dis-websocket.service
+sudo systemctl status dis-frontend dis-websocket dis-queue dis-scheduler dis-wallboard-live
+sudo journalctl -u dis-frontend.service -u dis-queue.service -u dis-websocket.service -u dis-wallboard-live.service
 ```
 
 De beheerinterface biedt daarnaast afgeschermde systeemstatus, queuebeheer en een geredigeerde logviewer. Neem nooit tokens, wachtwoorden, volledige pushpayloads of secrets over in een supportmelding.
@@ -356,6 +358,39 @@ Deploy en restore verwijderen de oude map `/opt/dis-data/webapp/backend/storage/
 Wallboards koppelen met een korte code en krijgen een afzonderlijke, scoped kiosk-sessie. Een tijdelijke contentfout verbreekt de pairing niet. Playlists, pagina's, overgangen, ticker, inzetfocus en displayprofiel worden per scherm of gedeelde playlist beheerd.
 
 Beheerde afbeeldingen worden gevalideerd, opnieuw als WebP opgeslagen en zonder upscaling binnen Full HD passend gemaakt. Video wordt gecontroleerd en zo nodig naar een browserveilig H.264/AAC-profiel tot 1080p getranscodeerd. Lokale video ondersteunt geauthenticeerde byte ranges. Media- en playlistrevisies zorgen dat gekoppelde schermen gewijzigde bestanden niet onbeperkt blijven cachen.
+
+### OBS Custom Service via RTMPS
+
+Dit gebruikt hetzelfde bedieningsmodel als YouTube: OBS krijgt een vast **Server**-adres en een afzonderlijke geheime **Stream Key**. `dis-wallboard-live-ingress` beëindigt RTMPS, valideert de Stream Key voordat media wordt toegelaten en weigert een tweede publisher. Alleen de lokale `dis-wallboard-live`-worker mag de gevalideerde feed via loopback lezen. Die worker publiceert korte tijdelijke HLS-segmenten onder `/run/dis-wallboard-live/hls`; Laravel autoriseert ieder manifest en segment per gekoppeld wallboard. De tijdelijke segmenten worden niet geback-upt.
+
+De ingest staat standaard uit. Genereer een unieke, willekeurige Stream Key van 32-79 URL-veilige tekens (`A-Z`, `a-z`, `0-9`, `.`, `_`, `~` en `-`); een code die uit steeds hetzelfde teken bestaat wordt geweigerd. Neem de echte key nooit op in documentatie, logs of supportberichten. Gebruik een eigen DNS-naam met een publiek vertrouwd certificaat. D.I.S. vraagt of vernieuwt dat certificaat niet zelf. Configureer in de beheerde serveromgeving bijvoorbeeld:
+
+```dotenv
+WALLBOARD_LIVE_STREAM_ENABLED=true
+WALLBOARD_LIVE_STREAM_PUBLIC_HOST=ingest.example.nl
+WALLBOARD_LIVE_STREAM_RTMPS_BIND_ADDRESS=0.0.0.0
+WALLBOARD_LIVE_STREAM_RTMPS_PORT=1936
+WALLBOARD_LIVE_STREAM_STREAM_KEY=
+WALLBOARD_LIVE_STREAM_TLS_CERTIFICATE_PATH=/etc/letsencrypt/live/ingest.example.nl/fullchain.pem
+WALLBOARD_LIVE_STREAM_TLS_PRIVATE_KEY_PATH=/etc/letsencrypt/live/ingest.example.nl/privkey.pem
+WALLBOARD_LIVE_STREAM_STALE_SECONDS=12
+```
+
+Vul `WALLBOARD_LIVE_STREAM_STREAM_KEY` voor de eerste installatie buiten versiebeheer met de gegenereerde key. Daarna kan een beheerder met `wallboards.manage` en voltooide 2FA de actuele Stream Key alleen via een expliciete actie in het wallboardportaal ophalen. De gewone statuscontrole bevat nooit de key. Wisselen vereist een afzonderlijke gevaarsbevestiging, trekt de oude key direct in, activeert de nieuwe credential atomisch en meldt duidelijk dat OBS opnieuw moet verbinden. Als activatie of de bevestiging aan het portaal niet aantoonbaar slaagt, wordt de vorige key en runtime teruggezet of stoppen de live-streamservices fail-closed.
+
+`PUBLIC_HOST` moet exact overeenkomen met de certificaathostnaam. De certificaat- en private-keypaden mogen naar door root beheerde certificaatbestanden verwijzen; de private-keybron moet uitsluitend voor root leesbaar zijn. Deployment volgt eventuele symlinks en controleert eigenaar, rechten, geldigheidsperiode, publieke vertrouwensketen, serverdoel, hostnaam en of certificaat en sleutel bij elkaar horen. Kies in OBS bij **Stream** de service **Custom...** (Custom Service) en gebruik:
+
+- Server: `rtmps://<PUBLIC_HOST>:1936/live`;
+- Stream Key: exact de apart beheerde code van 32-79 tekens;
+- video: H.264, maximaal 1920x1080, keyframe-interval 2 seconden;
+- videobitrate: maximaal 20 Mbit/s, bij voorkeur CBR;
+- audio: AAC wanneer audio nodig is.
+
+RTMPS versleutelt de verbinding; de Stream Key is een afzonderlijk, hoog-entropisch publish-token. Sta als defense-in-depth uitsluitend TCP-poort `1936` toe vanaf het vaste OBS-adres of het vertrouwde VPN. Plain RTMP luistert alleen op `127.0.0.1:19350` en mag nooit via firewall, NAT of proxy publiek worden gemaakt. Bij een andere `WALLBOARD_LIVE_STREAM_RTMPS_PORT` wordt alleen die ene TCP-poort voor dezelfde beperkte bron geopend.
+
+Deployment installeert checksum-vastgepinde MediaMTX 1.20.0 voor amd64 of arm64 en verifieert zowel release-archief als binary. De Stream Key wordt alleen als SHA-256-hash aan de loopback-authenticator gegeven; de raw key zit uitsluitend in de aparte FFmpeg-inputcredential. Certificaat, private key, configuratie, hash en input-URL worden als root-only systemd-credentials geladen. MediaMTX- en FFmpeg-uitvoer die een mediapad zou kunnen bevatten wordt niet gelogd; de authenticator schrijft alleen begrensde, gesaneerde publish-resultaten met een tijdelijke bronhash naar journald en begrenst pogingen per bron. Beide services draaien als afzonderlijke niet-inlogbare gebruikers zonder toegang tot Laravel of `.env`.
+
+Een Stream-Keywissel vanuit het portaal start de beveiligde refresh automatisch; daarvoor is geen handmatig rootcommando nodig. Voer na een certificaatvernieuwing of een handmatige wijziging van de beheerde live-streamconfiguratie als root `/usr/local/sbin/dis-wallboard-live-refresh` uit. De helper gebruikt dezelfde exclusieve onderhoudslock als deployment, bewaart de vorige credentialset, valideert en vernieuwt de nieuwe set en vereist daarna meerdere stabiele servicecontroles plus een echte lokale TLS-handshake. Bij mislukking wordt automatisch teruggerold. Koppel dit commando als deploy-hook aan de gebruikte certificaatbeheerder. De HLS-worker blijft stabiel wachten wanneer OBS offline is, weigert niet-H.264-video via de H.264-bitstreamcontrole, normaliseert eventuele audio naar AAC en houdt ieder segment onder 6 MiB. Een stille verbinding krijgt een begrensde read/write-time-out en de watchdog stopt een onafgerond segment na 12 seconden of bij overschrijding van de vaste bestands- en runtimegrenzen.
 
 De runtime geeft een echte inzet prioriteit boven een vooraankondiging of testmelding. Tijdens onderhoud toont het wallboard de serverstatus en herstelt het automatisch nadat de health-gated heropening is voltooid.
 

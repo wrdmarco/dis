@@ -194,8 +194,9 @@ acquire_dis_operation_lock uninstall
 log "Stopping and disabling DIS services"
 # Legacy backup entries remain here so uninstall also cleans hosts upgraded from
 # releases that installed the retired standalone backup helpers.
-for service in dis-media dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-scheduler dis-websocket dis-osrm dis-deployment-enrichment dis-incident-enrichment dis-knmi dis-knmi-realtime \
+for service in dis-media dis-wallboard-live dis-wallboard-live-ingress dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-scheduler dis-websocket dis-osrm dis-deployment-enrichment dis-incident-enrichment dis-knmi dis-knmi-realtime \
   dis-storage-metrics.timer dis-storage-metrics \
+  dis-wallboard-live-key-request.timer dis-wallboard-live-key-request.path dis-wallboard-live-key-request \
   dis-osrm-admin-request.timer dis-osrm-admin-request.path dis-osrm-admin-request \
   dis-backup-request.timer dis-backup-request.path dis-backup-request \
   dis-backup-mount dis-backup.timer dis-backup; do
@@ -209,6 +210,11 @@ for unit in \
   /etc/systemd/system/dis-queue.service \
   /etc/systemd/system/dis-push@.service \
   /etc/systemd/system/dis-media.service \
+  /etc/systemd/system/dis-wallboard-live.service \
+  /etc/systemd/system/dis-wallboard-live-ingress.service \
+  /etc/systemd/system/dis-wallboard-live-key-request.service \
+  /etc/systemd/system/dis-wallboard-live-key-request.path \
+  /etc/systemd/system/dis-wallboard-live-key-request.timer \
   /etc/systemd/system/dis-knmi.service \
   /etc/systemd/system/dis-knmi-realtime.service \
   /etc/systemd/system/dis-deployment-enrichment.service \
@@ -250,7 +256,28 @@ run_cmd rm -f -- \
   /usr/local/bin/dis-snapshot-backup-input \
   /usr/local/bin/dis-storage-usage-snapshot \
   /usr/local/bin/dis-osrm-admin-request-worker \
+  /usr/local/bin/dis-wallboard-live-runner \
+  /usr/local/bin/dis-wallboard-live-ingress-runner \
+  /usr/local/bin/dis-wallboard-live-key-request-worker \
+  /usr/local/bin/dis-mediamtx \
+  /usr/local/libexec/dis-wallboard-live-configure \
+  /usr/local/libexec/dis-wallboard-live-auth \
+  /usr/local/sbin/dis-wallboard-live-refresh \
   /usr/local/bin/dis-update-runner
+for key_request_path in \
+  "${DIS_DATA_PATH}/wallboard-live-key-requests" \
+  "${DIS_DATA_PATH}/wallboard-live-key-request-work"; do
+  if [ -d "${key_request_path}" ] && [ ! -L "${key_request_path}" ]; then
+    secure_path_operation remove-tree "${key_request_path}"
+  elif [ -e "${key_request_path}" ] || [ -L "${key_request_path}" ]; then
+    run_cmd rm -f -- "${key_request_path}"
+  fi
+done
+if [ -d "${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}" ] && [ ! -L "${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}" ]; then
+  secure_path_operation remove-tree "${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}"
+elif [ -e "${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}" ] || [ -L "${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}" ]; then
+  run_cmd rm -f -- "${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}"
+fi
 if [ -d "${OSRM_ADMIN_RUNTIME_DIR}" ] && [ ! -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; then
   secure_path_operation remove-tree "${OSRM_ADMIN_RUNTIME_DIR}"
 elif [ -e "${OSRM_ADMIN_RUNTIME_DIR}" ] || [ -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; then
@@ -317,6 +344,21 @@ fi
 
 if [ "${REMOVE_SYSTEM_USER}" = "1" ]; then
   log "Removing DIS system users and groups when present"
+  if id www-data >/dev/null 2>&1 && getent group "${WALLBOARD_LIVE_GROUP}" >/dev/null 2>&1; then
+    run_cmd gpasswd -d www-data "${WALLBOARD_LIVE_GROUP}" >/dev/null 2>&1 || true
+  fi
+  if id "${WALLBOARD_LIVE_USER}" >/dev/null 2>&1; then
+    run_cmd userdel "${WALLBOARD_LIVE_USER}" >/dev/null 2>&1 || true
+  fi
+  if getent group "${WALLBOARD_LIVE_GROUP}" >/dev/null 2>&1; then
+    run_cmd groupdel "${WALLBOARD_LIVE_GROUP}" >/dev/null 2>&1 || true
+  fi
+  if id "${WALLBOARD_LIVE_INGRESS_USER}" >/dev/null 2>&1; then
+    run_cmd userdel "${WALLBOARD_LIVE_INGRESS_USER}" >/dev/null 2>&1 || true
+  fi
+  if getent group "${WALLBOARD_LIVE_INGRESS_GROUP}" >/dev/null 2>&1; then
+    run_cmd groupdel "${WALLBOARD_LIVE_INGRESS_GROUP}" >/dev/null 2>&1 || true
+  fi
   if [ -e "${DIS_DATA_PATH}/osrm" ] || [ -L "${DIS_DATA_PATH}/osrm" ]; then
     log "Keeping OSRM service identities because generated data is retained at ${DIS_DATA_PATH}/osrm."
   else
@@ -341,7 +383,10 @@ if [ "${REMOVE_SYSTEM_USER}" = "1" ]; then
     run_cmd groupdel "${DIS_GROUP}" >/dev/null 2>&1 || true
   fi
 else
-  log "System users '${DIS_USER}', 'dis-osrm' and 'dis-osrm-build' kept. Re-run with --remove-system-user to remove them."
+  if id www-data >/dev/null 2>&1 && getent group "${WALLBOARD_LIVE_GROUP}" >/dev/null 2>&1; then
+    run_cmd gpasswd -d www-data "${WALLBOARD_LIVE_GROUP}" >/dev/null 2>&1 || true
+  fi
+  log "System users '${DIS_USER}', '${WALLBOARD_LIVE_USER}', '${WALLBOARD_LIVE_INGRESS_USER}', 'dis-osrm' and 'dis-osrm-build' kept. Re-run with --remove-system-user to remove them."
 fi
 
 if [ "${PURGE_PACKAGES}" = "1" ]; then

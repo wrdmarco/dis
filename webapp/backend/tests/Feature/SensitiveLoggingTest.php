@@ -27,6 +27,7 @@ final class SensitiveLoggingTest extends TestCase
             'password' => 'correct horse battery staple',
             'nested' => [
                 'two_factor_code' => '123456',
+                'wallboard_stream_key' => 'structured-stream-key-secret',
                 'knmi_api_key' => 'structured-knmi-secret',
                 'x_dis_developer_key' => 'structured-developer-secret',
                 'safe' => 'visible',
@@ -41,6 +42,7 @@ final class SensitiveLoggingTest extends TestCase
         $this->assertSensitiveValuesMissing($redacted, [
             'correct horse battery staple',
             '123456',
+            'structured-stream-key-secret',
             'structured-knmi-secret',
             'bearer-secret',
             'session-secret',

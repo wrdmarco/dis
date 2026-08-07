@@ -257,6 +257,8 @@ remove_legacy_weather_storage() (
   for writer_service in \
     "${PHP_FPM_SERVICE}" \
     dis-queue \
+    dis-wallboard-live \
+    dis-wallboard-live-ingress \
     dis-media \
     dis-scheduler \
     dis-deployment-enrichment \

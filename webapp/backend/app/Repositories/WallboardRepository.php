@@ -40,6 +40,16 @@ final class WallboardRepository extends BaseRepository
             ->findOrFail($id);
     }
 
+    public function findWithRuntimePlaylists(string $id): ?Wallboard
+    {
+        return Wallboard::query()
+            ->with([
+                'playlist:id,name,data_mode,purpose,configuration,version',
+                'activeDeploymentPlaylist:id,name,data_mode,purpose,configuration,version',
+            ])
+            ->find($id);
+    }
+
     public function lockWallboard(string $id): Wallboard
     {
         return Wallboard::query()->whereKey($id)->lockForUpdate()->firstOrFail();

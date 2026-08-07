@@ -181,6 +181,41 @@ final class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(3600)->by('wallboard-media-read:wallboard:'.hash('sha256', $wallboardId)),
             ];
         });
+        RateLimiter::for('wallboard-live-stream-read', function (Request $request): array {
+            $session = $request->attributes->get('wallboard.session');
+            $wallboard = $request->attributes->get('wallboard');
+            $sessionId = is_object($session) && isset($session->id) ? (string) $session->id : 'missing';
+            $wallboardId = is_object($wallboard) && isset($wallboard->id) ? (string) $wallboard->id : 'missing';
+
+            return [
+                Limit::perMinute(600)->by('wallboard-live-stream-read:session:'.hash('sha256', $sessionId)),
+                Limit::perMinute(3600)->by('wallboard-live-stream-read:wallboard:'.hash('sha256', $wallboardId)),
+            ];
+        });
+        RateLimiter::for('wallboard-live-stream-admin-read', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'wallboard-live-stream-admin-read',
+            perClient: 600,
+            perUser: 1200,
+        ));
+        RateLimiter::for('wallboard-live-stream-key-reveal', function (Request $request): array {
+            $actor = hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'));
+
+            return [
+                Limit::perMinute(4)->by('wallboard-live-stream-key-reveal:client:'.$this->rateLimitClientKey($request)),
+                Limit::perMinute(4)->by('wallboard-live-stream-key-reveal:user-minute:'.$actor),
+                Limit::perHour(20)->by('wallboard-live-stream-key-reveal:user-hour:'.$actor),
+            ];
+        });
+        RateLimiter::for('wallboard-live-stream-key-rotate', function (Request $request): array {
+            $actor = hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'));
+
+            return [
+                Limit::perMinute(1)->by('wallboard-live-stream-key-rotate:client:'.$this->rateLimitClientKey($request)),
+                Limit::perMinute(1)->by('wallboard-live-stream-key-rotate:user-minute:'.$actor),
+                Limit::perHour(4)->by('wallboard-live-stream-key-rotate:user-hour:'.$actor),
+            ];
+        });
         RateLimiter::for('wallboard-media-upload', fn (Request $request): array => $this->authenticatedClientLimits(
             request: $request,
             scope: 'wallboard-media-upload',

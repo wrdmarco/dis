@@ -1,0 +1,371 @@
+.editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 24%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-blue) 5%, rgba(15, 23, 42, 0.28));
+  padding: 13px;
+}
+
+.editor > legend {
+  color: var(--dis-text-strong);
+  padding: 0 5px;
+  font-size: 0.88rem;
+  font-weight: 820;
+}
+
+.heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.heading > span:nth-child(2),
+.heading strong,
+.heading small {
+  min-width: 0;
+  display: block;
+}
+
+.heading strong {
+  color: var(--dis-text-strong);
+  font-size: 0.82rem;
+}
+
+.heading small {
+  margin-top: 2px;
+  color: var(--dis-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.signal {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 30%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dis-blue) 11%, transparent);
+  color: var(--dis-blue);
+}
+
+.feedback,
+.message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--dis-muted-strong);
+  font-size: 0.78rem;
+}
+
+.keyManagement {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 22%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-field) 66%, transparent);
+  padding: 11px;
+}
+
+.keyHeading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.keyHeading > span:nth-child(2),
+.keyHeading strong,
+.keyHeading small {
+  min-width: 0;
+  display: block;
+}
+
+.keyHeading strong {
+  color: var(--dis-text-strong);
+  font-size: 0.8rem;
+}
+
+.keyHeading small {
+  margin-top: 2px;
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.keyIcon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 25%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--dis-blue) 9%, transparent);
+  color: var(--dis-blue);
+}
+
+.keyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.keyActions button,
+.keyValueRow button {
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.revealedKey {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--dis-blue) 16%, transparent);
+  padding-top: 10px;
+}
+
+.revealedKey label {
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.revealedKey > small {
+  color: var(--dis-muted);
+  font-size: 0.69rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.keyValueRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.keyValue {
+  min-width: 0;
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.015em;
+}
+
+.copyStatus,
+.actionError {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.copyStatus {
+  border: 1px solid color-mix(in srgb, var(--dis-positive) 30%, transparent);
+  background: var(--dis-positive-soft);
+  color: var(--dis-positive);
+}
+
+.actionError {
+  border: 1px solid color-mix(in srgb, var(--dis-critical) 32%, transparent);
+  background: var(--dis-critical-soft);
+  color: var(--dis-critical);
+}
+
+.rotationAlert {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  border: 1px solid color-mix(in srgb, var(--dis-warning) 46%, transparent);
+  border-left: 4px solid var(--dis-warning);
+  border-radius: 7px;
+  background: var(--dis-warning-soft);
+  padding: 10px 11px;
+  color: var(--dis-warning);
+}
+
+.rotationAlert span,
+.rotationAlert strong,
+.rotationAlert small {
+  min-width: 0;
+  display: block;
+}
+
+.rotationAlert strong {
+  color: var(--dis-text-strong);
+  font-size: 0.78rem;
+}
+
+.rotationAlert small {
+  margin-top: 3px;
+  color: var(--dis-muted-strong);
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--dis-critical) 32%, transparent);
+  border-radius: 7px;
+  background: var(--dis-critical-soft);
+  padding: 10px;
+  color: var(--dis-critical);
+}
+
+.error span,
+.error strong,
+.error small {
+  display: block;
+}
+
+.error strong {
+  color: var(--dis-text-strong);
+  font-size: 0.78rem;
+}
+
+.error small {
+  margin-top: 2px;
+  color: var(--dis-muted-strong);
+  font-size: 0.7rem;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) repeat(2, minmax(120px, 0.8fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.details > div {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 18%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--dis-field) 72%, transparent);
+  padding: 9px 10px;
+}
+
+.details dt,
+.details dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.details dt {
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.details dd {
+  overflow: hidden;
+  color: var(--dis-text-strong);
+  font-size: 0.78rem;
+  font-weight: 740;
+  text-overflow: ellipsis;
+}
+
+.details code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.74rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.instructions {
+  border-left: 3px solid var(--dis-blue);
+  background: color-mix(in srgb, var(--dis-blue) 7%, transparent);
+  padding: 10px 12px;
+}
+
+.instructions strong,
+.instructions p,
+.instructions small {
+  display: block;
+  margin: 0;
+}
+
+.instructions strong {
+  color: var(--dis-text-strong);
+  font-size: 0.8rem;
+}
+
+.instructions p {
+  margin-top: 4px;
+  color: var(--dis-muted-strong);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.instructions code {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--dis-field) 84%, transparent);
+  padding: 1px 4px;
+  color: var(--dis-text-strong);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.instructions small {
+  margin-top: 5px;
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+@media (max-width: 900px) {
+  .details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .address {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 680px) {
+  .heading,
+  .error,
+  .details,
+  .keyHeading,
+  .keyValueRow {
+    grid-template-columns: 1fr;
+  }
+
+  .signal,
+  .keyIcon {
+    display: none;
+  }
+
+  .address {
+    grid-column: auto;
+  }
+
+  .error button {
+    justify-content: center;
+  }
+
+  .keyActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

@@ -662,6 +662,8 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
         }
         : type === 'video'
           ? { url: '' }
+          : type === 'live_stream'
+            ? {}
           : type === 'photo_carousel'
             ? {
               media_playlist_id: '',
@@ -716,6 +718,7 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'weather_radar': return 'Weerradar';
     case 'news': return 'Dronenieuws';
     case 'video': return 'Video';
+    case 'live_stream': return 'Live-uitzending';
     case 'photo_carousel': return 'Fotocarrousel';
   }
 }
@@ -909,7 +912,7 @@ function normalizeWallboardPage(
   const legacyPageType = page.type as WallboardPageType | 'incident_list';
   const type: WallboardPageType = legacyPageType === 'incident_list'
     ? 'deployment_list'
-    : ['map', 'deployment_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'photo_carousel'].includes(legacyPageType)
+    : ['map', 'deployment_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'live_stream', 'photo_carousel'].includes(legacyPageType)
       ? legacyPageType
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
@@ -950,6 +953,8 @@ function normalizeWallboardPage(
         ? normalizeWallboardNewsPageOptions(page)
         : type === 'video'
           ? normalizeWallboardVideoPageOptions(page)
+          : type === 'live_stream'
+            ? {}
           : type === 'photo_carousel'
             ? normalizeWallboardPhotoPageOptions(page)
         : {},

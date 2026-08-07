@@ -130,7 +130,7 @@ export function WallboardCreatePage() {
               {playlistsResource.loading ? <small role="status">Playlists laden…</small> : null}
               {!playlistsResource.loading ? (
                 <small>{selectedPlaylist?.data_mode === 'demo'
-                  ? 'Dynamische operationele gegevens zijn fictief; ingestelde teksten en media blijven ongewijzigd.'
+                  ? 'Dynamische operationele gegevens zijn fictief; live-uitzendingen worden niet verbonden en ingestelde teksten en media blijven ongewijzigd.'
                   : 'Dit scherm gebruikt actuele operationele gegevens.'}</small>
               ) : null}
             </label>

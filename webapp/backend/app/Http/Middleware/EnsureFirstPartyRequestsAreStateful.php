@@ -54,9 +54,19 @@ final class EnsureFirstPartyRequestsAreStateful extends EnsureFrontendRequestsAr
         if ($request->is(
             'api/wallboard/media/*',
             'api/wallboard/news-images/*',
+            'api/wallboard/live-stream/manifest.m3u8',
+            'api/admin/wallboard-live-stream/manifest.m3u8',
             'api/admin/wallboard-media/assets/*/content',
             'api/admin/wallboard-media/assets/*/thumbnail',
         )) {
+            return true;
+        }
+
+        if (preg_match(
+            '#\Aapi/(?:wallboard/live-stream|admin/wallboard-live-stream)'
+                .'/segments/segment-[0-9]{20}\.ts\z#D',
+            $request->path(),
+        ) === 1) {
             return true;
         }
 

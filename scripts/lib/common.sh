@@ -5,6 +5,24 @@ DIS_INSTALL_PATH="${DIS_INSTALL_PATH:-/opt/dis}"
 DIS_DATA_PATH="${DIS_DATA_PATH:-/opt/dis-data}"
 DIS_USER="${DIS_USER:-dis}"
 DIS_GROUP="${DIS_GROUP:-dis}"
+WALLBOARD_LIVE_USER="dis-wallboard-live"
+WALLBOARD_LIVE_GROUP="dis-wallboard-live"
+WALLBOARD_LIVE_INGRESS_USER="dis-wallboard-live-ingress"
+WALLBOARD_LIVE_INGRESS_GROUP="dis-wallboard-live-ingress"
+WALLBOARD_LIVE_CREDENTIAL_DIRECTORY="/etc/dis-wallboard-live"
+WALLBOARD_LIVE_CONFIGURATION_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/mediamtx.yml"
+WALLBOARD_LIVE_STREAM_KEY_HASH_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/stream-key.sha256"
+WALLBOARD_LIVE_INPUT_URL_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/input.url"
+WALLBOARD_LIVE_TLS_CERTIFICATE_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/server.crt"
+WALLBOARD_LIVE_TLS_PRIVATE_KEY_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/server.key"
+WALLBOARD_LIVE_CONFIGURE_PATH="/usr/local/libexec/dis-wallboard-live-configure"
+WALLBOARD_LIVE_RUNNER_PATH="/usr/local/bin/dis-wallboard-live-runner"
+WALLBOARD_LIVE_INGRESS_RUNNER_PATH="/usr/local/bin/dis-wallboard-live-ingress-runner"
+WALLBOARD_LIVE_AUTH_PATH="/usr/local/libexec/dis-wallboard-live-auth"
+WALLBOARD_LIVE_REFRESH_PATH="/usr/local/sbin/dis-wallboard-live-refresh"
+WALLBOARD_LIVE_KEY_REQUEST_WORKER_PATH="/usr/local/bin/dis-wallboard-live-key-request-worker"
+WALLBOARD_LIVE_MEDIAMTX_PATH="/usr/local/bin/dis-mediamtx"
+WALLBOARD_LIVE_MEDIAMTX_VERSION="1.20.0"
 PHP_VERSION="${PHP_VERSION:-8.5}"
 PHP_FPM_SERVICE="${PHP_FPM_SERVICE:-php${PHP_VERSION}-fpm}"
 NGINX_SITE_NAME="${NGINX_SITE_NAME:-dis}"
@@ -278,6 +296,267 @@ ensure_wallboard_media_runtime_dependencies() {
   run_cmd env DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install -y --no-install-recommends "${reinstall[@]}" ffmpeg
   if [ "${DRY_RUN:-0}" != "1" ] && ! wallboard_media_runtime_dependencies_are_safe; then
     fail "The Ubuntu ffmpeg package did not provide safe root-controlled /usr/bin/ffmpeg and /usr/bin/ffprobe binaries."
+  fi
+}
+
+ensure_wallboard_live_runtime_identity() {
+  local account account_gid group_entry group_gid member memberships passwd_entry user_uid
+
+  require_root
+
+  if ! getent group "${WALLBOARD_LIVE_GROUP}" >/dev/null 2>&1; then
+    run_cmd groupadd --system "${WALLBOARD_LIVE_GROUP}"
+  else
+    group_entry="$(getent group "${WALLBOARD_LIVE_GROUP}")"
+    group_gid="$(printf '%s' "${group_entry}" | cut -d: -f3)"
+    [[ "${group_gid}" =~ ^[0-9]+$ ]] && (( group_gid < 1000 )) \
+      || fail "The wallboard live-stream group name is already used by a non-system group."
+  fi
+
+  if ! id "${WALLBOARD_LIVE_USER}" >/dev/null 2>&1; then
+    run_cmd useradd --system --gid "${WALLBOARD_LIVE_GROUP}" --no-create-home \
+      --home-dir /nonexistent --shell /usr/sbin/nologin "${WALLBOARD_LIVE_USER}"
+  else
+    user_uid="$(id -u "${WALLBOARD_LIVE_USER}")"
+    [[ "${user_uid}" =~ ^[0-9]+$ ]] && (( user_uid < 1000 )) \
+      || fail "The wallboard live-stream user name is already used by a non-system user."
+    [ "$(id -gn "${WALLBOARD_LIVE_USER}")" = "${WALLBOARD_LIVE_GROUP}" ] \
+      || fail "The wallboard live-stream user has an unexpected primary group."
+    passwd_entry="$(getent passwd "${WALLBOARD_LIVE_USER}")"
+    if [ "$(printf '%s' "${passwd_entry}" | cut -d: -f6)" != "/nonexistent" ] \
+      || [ "$(printf '%s' "${passwd_entry}" | cut -d: -f7)" != "/usr/sbin/nologin" ]; then
+      run_cmd usermod --home /nonexistent --shell /usr/sbin/nologin "${WALLBOARD_LIVE_USER}"
+    fi
+  fi
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would constrain ${WALLBOARD_LIVE_USER} to its dedicated group and grant www-data read-only runtime group access."
+    return 0
+  fi
+
+  group_entry="$(getent group "${WALLBOARD_LIVE_GROUP}")"
+  group_gid="$(printf '%s' "${group_entry}" | cut -d: -f3)"
+  while IFS=: read -r account _ _ account_gid _; do
+    if [ "${account_gid}" = "${group_gid}" ] && [ "${account}" != "${WALLBOARD_LIVE_USER}" ]; then
+      fail "Another account has the wallboard live-stream group as its primary group."
+    fi
+  done < <(getent passwd)
+
+  memberships="$(id -nG "${WALLBOARD_LIVE_USER}" | tr ' ' '\n' | grep -Fvx "${WALLBOARD_LIVE_GROUP}" || true)"
+  if [ -n "${memberships}" ]; then
+    run_cmd usermod --groups "" "${WALLBOARD_LIVE_USER}"
+  fi
+
+  IFS=',' read -r -a wallboard_live_members <<< "${group_entry##*:}"
+  for member in "${wallboard_live_members[@]}"; do
+    [ -n "${member}" ] || continue
+    [ "${member}" = "www-data" ] \
+      || run_cmd gpasswd -d "${member}" "${WALLBOARD_LIVE_GROUP}" >/dev/null 2>&1
+  done
+  unset wallboard_live_members
+
+  if id www-data >/dev/null 2>&1 \
+    && ! id -nG www-data | tr ' ' '\n' | grep -Fxq "${WALLBOARD_LIVE_GROUP}"; then
+    run_cmd gpasswd -a www-data "${WALLBOARD_LIVE_GROUP}" >/dev/null
+  fi
+
+  [ "$(id -gn "${WALLBOARD_LIVE_USER}")" = "${WALLBOARD_LIVE_GROUP}" ] \
+    && [ "$(id -nG "${WALLBOARD_LIVE_USER}")" = "${WALLBOARD_LIVE_GROUP}" ] \
+    || fail "The wallboard live-stream identity is not isolated to its dedicated group."
+}
+
+ensure_wallboard_live_ingress_identity() {
+  local account account_gid group_entry group_gid member memberships passwd_entry user_uid
+
+  require_root
+  if ! getent group "${WALLBOARD_LIVE_INGRESS_GROUP}" >/dev/null 2>&1; then
+    run_cmd groupadd --system "${WALLBOARD_LIVE_INGRESS_GROUP}"
+  else
+    group_entry="$(getent group "${WALLBOARD_LIVE_INGRESS_GROUP}")"
+    group_gid="$(printf '%s' "${group_entry}" | cut -d: -f3)"
+    [[ "${group_gid}" =~ ^[0-9]+$ ]] && (( group_gid < 1000 )) \
+      || fail "The wallboard live-ingress group name is already used by a non-system group."
+  fi
+
+  if ! id "${WALLBOARD_LIVE_INGRESS_USER}" >/dev/null 2>&1; then
+    run_cmd useradd --system --gid "${WALLBOARD_LIVE_INGRESS_GROUP}" --no-create-home \
+      --home-dir /nonexistent --shell /usr/sbin/nologin "${WALLBOARD_LIVE_INGRESS_USER}"
+  else
+    user_uid="$(id -u "${WALLBOARD_LIVE_INGRESS_USER}")"
+    [[ "${user_uid}" =~ ^[0-9]+$ ]] && (( user_uid < 1000 )) \
+      || fail "The wallboard live-ingress user name is already used by a non-system user."
+    [ "$(id -gn "${WALLBOARD_LIVE_INGRESS_USER}")" = "${WALLBOARD_LIVE_INGRESS_GROUP}" ] \
+      || fail "The wallboard live-ingress user has an unexpected primary group."
+    passwd_entry="$(getent passwd "${WALLBOARD_LIVE_INGRESS_USER}")"
+    if [ "$(printf '%s' "${passwd_entry}" | cut -d: -f6)" != "/nonexistent" ] \
+      || [ "$(printf '%s' "${passwd_entry}" | cut -d: -f7)" != "/usr/sbin/nologin" ]; then
+      run_cmd usermod --home /nonexistent --shell /usr/sbin/nologin "${WALLBOARD_LIVE_INGRESS_USER}"
+    fi
+  fi
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would constrain ${WALLBOARD_LIVE_INGRESS_USER} to its dedicated group."
+    return 0
+  fi
+
+  group_entry="$(getent group "${WALLBOARD_LIVE_INGRESS_GROUP}")"
+  group_gid="$(printf '%s' "${group_entry}" | cut -d: -f3)"
+  while IFS=: read -r account _ _ account_gid _; do
+    if [ "${account_gid}" = "${group_gid}" ] && [ "${account}" != "${WALLBOARD_LIVE_INGRESS_USER}" ]; then
+      fail "Another account has the wallboard live-ingress group as its primary group."
+    fi
+  done < <(getent passwd)
+
+  memberships="$(id -nG "${WALLBOARD_LIVE_INGRESS_USER}" | tr ' ' '\n' \
+    | grep -Fvx "${WALLBOARD_LIVE_INGRESS_GROUP}" || true)"
+  [ -z "${memberships}" ] || run_cmd usermod --groups "" "${WALLBOARD_LIVE_INGRESS_USER}"
+  IFS=',' read -r -a wallboard_ingress_members <<< "${group_entry##*:}"
+  for member in "${wallboard_ingress_members[@]}"; do
+    [ -n "${member}" ] || continue
+    run_cmd gpasswd -d "${member}" "${WALLBOARD_LIVE_INGRESS_GROUP}" >/dev/null 2>&1
+  done
+  unset wallboard_ingress_members
+
+  [ "$(id -gn "${WALLBOARD_LIVE_INGRESS_USER}")" = "${WALLBOARD_LIVE_INGRESS_GROUP}" ] \
+    && [ "$(id -nG "${WALLBOARD_LIVE_INGRESS_USER}")" = "${WALLBOARD_LIVE_INGRESS_GROUP}" ] \
+    || fail "The wallboard live-ingress identity is not isolated to its dedicated group."
+}
+
+ensure_wallboard_live_ingress_dependency() (
+  set -euo pipefail
+
+  local architecture archive_name archive_sha256 binary_sha256 download_url temporary archive extracted_entries actual_sha
+
+  require_root
+  case "$(uname -m)" in
+    x86_64)
+      architecture="amd64"
+      archive_sha256="952d5f7d31d1b448ab4da4509550594c511d42636db9d7bb175d377f4ede81df"
+      binary_sha256="25947caac403f37ec881c9be213af2cad67e344a6c7098905b0d31c17f40e336"
+      ;;
+    aarch64|arm64)
+      architecture="arm64"
+      archive_sha256="6aa3c03da7b6477f1e110c8e18e819cf9ef121e8981b52b8f8219982dae35f2f"
+      binary_sha256="2da379972ba86627632aa7e3f779c680ba04a5ee26ef2a20dc61cefcc24f73b8"
+      ;;
+    *)
+      fail "MediaMTX ${WALLBOARD_LIVE_MEDIAMTX_VERSION} is not pinned for this server architecture."
+      ;;
+  esac
+
+  if root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_MEDIAMTX_PATH}" 755; then
+    actual_sha="$(sha256sum -- "${WALLBOARD_LIVE_MEDIAMTX_PATH}" | cut -d' ' -f1)"
+    [ "${actual_sha}" = "${binary_sha256}" ] && return 0
+  elif [ -e "${WALLBOARD_LIVE_MEDIAMTX_PATH}" ] || [ -L "${WALLBOARD_LIVE_MEDIAMTX_PATH}" ]; then
+    fail "The existing wallboard RTMPS ingress binary is unsafe."
+  fi
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would install checksum-pinned MediaMTX ${WALLBOARD_LIVE_MEDIAMTX_VERSION} for ${architecture}."
+    return 0
+  fi
+
+  require_root_controlled_parent "${WALLBOARD_LIVE_MEDIAMTX_PATH}"
+  archive_name="mediamtx_v${WALLBOARD_LIVE_MEDIAMTX_VERSION}_linux_${architecture}.tar.gz"
+  download_url="https://github.com/bluenviron/mediamtx/releases/download/v${WALLBOARD_LIVE_MEDIAMTX_VERSION}/${archive_name}"
+  temporary="$(mktemp -d "${TMPDIR:-/var/tmp}/dis-mediamtx.XXXXXX")"
+  cleanup_mediamtx_download() {
+    rm -rf -- "${temporary}" 2>/dev/null || true
+  }
+  trap cleanup_mediamtx_download EXIT INT TERM
+  chmod 0700 "${temporary}"
+  archive="${temporary}/${archive_name}"
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+    --retry 3 --retry-all-errors --connect-timeout 15 --max-time 180 \
+    --output "${archive}" "${download_url}"
+  [ "$(sha256sum -- "${archive}" | cut -d' ' -f1)" = "${archive_sha256}" ] \
+    || fail "The pinned MediaMTX release archive failed SHA-256 verification."
+  extracted_entries="$(tar -tzf "${archive}" | LC_ALL=C sort)"
+  [ "${extracted_entries}" = $'LICENSE\nmediamtx\nmediamtx.yml' ] \
+    || fail "The pinned MediaMTX release archive has an unexpected layout."
+  tar -xzf "${archive}" --no-same-owner --no-same-permissions -C "${temporary}" mediamtx
+  [ -f "${temporary}/mediamtx" ] && [ ! -L "${temporary}/mediamtx" ] \
+    && [ "$(stat -c '%h' -- "${temporary}/mediamtx")" = "1" ] \
+    || fail "The pinned MediaMTX release did not contain a safe binary."
+  [ "$(sha256sum -- "${temporary}/mediamtx" | cut -d' ' -f1)" = "${binary_sha256}" ] \
+    || fail "The extracted MediaMTX binary failed SHA-256 verification."
+  install -m 0755 -o root -g root "${temporary}/mediamtx" "${WALLBOARD_LIVE_MEDIAMTX_PATH}"
+  sync -f "${WALLBOARD_LIVE_MEDIAMTX_PATH}"
+  root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_MEDIAMTX_PATH}" 755 \
+    && [ "$(sha256sum -- "${WALLBOARD_LIVE_MEDIAMTX_PATH}" | cut -d' ' -f1)" = "${binary_sha256}" ] \
+    || fail "The installed wallboard RTMPS ingress binary is unsafe."
+  cleanup_mediamtx_download
+  trap - EXIT INT TERM
+)
+
+install_wallboard_live_runtime_bundle() {
+  local app_root="$1" source_path
+
+  require_root
+  [ "${app_root}" = "${DIS_INSTALL_PATH}" ] \
+    || fail "The wallboard live-stream runtime can only be installed from ${DIS_INSTALL_PATH}."
+  ensure_wallboard_live_runtime_identity
+  ensure_wallboard_live_ingress_identity
+  ensure_wallboard_live_ingress_dependency
+
+  for source_path in \
+    "${app_root}/scripts/wallboard-live-configure.sh" \
+    "${app_root}/scripts/wallboard-live-runner.sh" \
+    "${app_root}/scripts/wallboard-live-ingress-runner.sh" \
+    "${app_root}/scripts/wallboard-live-auth.py" \
+    "${app_root}/scripts/wallboard-live-refresh.sh" \
+    "${app_root}/scripts/wallboard-live-key-request-worker.sh"; do
+    root_controlled_bundle_source_is_safe "${source_path}" \
+      || fail "Unsafe wallboard live-stream runtime source: ${source_path}"
+  done
+
+  ensure_managed_directory /usr/local/libexec root root 0755
+  ensure_managed_directory "${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}" root root 0700
+  require_root_controlled_parent "${WALLBOARD_LIVE_CONFIGURE_PATH}"
+  require_root_controlled_parent "${WALLBOARD_LIVE_RUNNER_PATH}"
+  require_root_controlled_parent "${WALLBOARD_LIVE_INGRESS_RUNNER_PATH}"
+  require_root_controlled_parent "${WALLBOARD_LIVE_AUTH_PATH}"
+  require_root_controlled_parent "${WALLBOARD_LIVE_REFRESH_PATH}"
+  require_root_controlled_parent "${WALLBOARD_LIVE_KEY_REQUEST_WORKER_PATH}"
+  run_cmd install -m 0700 -o root -g root \
+    "${app_root}/scripts/wallboard-live-configure.sh" "${WALLBOARD_LIVE_CONFIGURE_PATH}"
+  run_cmd install -m 0755 -o root -g root \
+    "${app_root}/scripts/wallboard-live-runner.sh" "${WALLBOARD_LIVE_RUNNER_PATH}"
+  run_cmd install -m 0755 -o root -g root \
+    "${app_root}/scripts/wallboard-live-ingress-runner.sh" "${WALLBOARD_LIVE_INGRESS_RUNNER_PATH}"
+  run_cmd install -m 0755 -o root -g root \
+    "${app_root}/scripts/wallboard-live-auth.py" "${WALLBOARD_LIVE_AUTH_PATH}"
+  run_cmd install -m 0700 -o root -g root \
+    "${app_root}/scripts/wallboard-live-refresh.sh" "${WALLBOARD_LIVE_REFRESH_PATH}"
+  run_cmd install -m 0700 -o root -g root \
+    "${app_root}/scripts/wallboard-live-key-request-worker.sh" "${WALLBOARD_LIVE_KEY_REQUEST_WORKER_PATH}"
+
+  if [ "${DRY_RUN:-0}" != "1" ]; then
+    root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_CONFIGURE_PATH}" 700 \
+      || fail "The installed wallboard live-stream credential helper is unsafe."
+    root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_RUNNER_PATH}" 755 \
+      || fail "The installed wallboard live-stream runner is unsafe."
+    root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_INGRESS_RUNNER_PATH}" 755 \
+      || fail "The installed wallboard live-ingress runner is unsafe."
+    root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_AUTH_PATH}" 755 \
+      || fail "The installed wallboard live-ingress auth helper is unsafe."
+    root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_REFRESH_PATH}" 700 \
+      || fail "The installed wallboard live-stream refresh helper is unsafe."
+    root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_KEY_REQUEST_WORKER_PATH}" 700 \
+      || fail "The installed wallboard live stream-key request worker is unsafe."
+  fi
+
+  run_cmd "${WALLBOARD_LIVE_CONFIGURE_PATH}"
+  if [ "${DRY_RUN:-0}" != "1" ]; then
+    for source_path in \
+      "${WALLBOARD_LIVE_CONFIGURATION_PATH}" \
+      "${WALLBOARD_LIVE_STREAM_KEY_HASH_PATH}" \
+      "${WALLBOARD_LIVE_INPUT_URL_PATH}" \
+      "${WALLBOARD_LIVE_TLS_CERTIFICATE_PATH}" \
+      "${WALLBOARD_LIVE_TLS_PRIVATE_KEY_PATH}"; do
+      root_owned_runtime_file_is_safe "${source_path}" 600 \
+        || fail "A wallboard live-stream systemd credential source is unsafe."
+    done
   fi
 }
 
@@ -830,6 +1109,36 @@ stop_dis_deployment_services() {
   local service worker_state worker_wait_deadline
 
   log "Stopping DIS workers, realtime and frontend services for deployment"
+  if systemd_unit_exists dis-wallboard-live-key-request.timer; then
+    run_cmd systemctl stop dis-wallboard-live-key-request.timer
+  fi
+  if systemd_unit_exists dis-wallboard-live-key-request.path; then
+    run_cmd systemctl stop dis-wallboard-live-key-request.path
+  fi
+  if systemd_service_exists dis-wallboard-live-key-request; then
+    worker_wait_deadline=$((SECONDS + 90))
+    while true; do
+      worker_state="$(systemctl show dis-wallboard-live-key-request --property=ActiveState --value 2>/dev/null || true)"
+      case "${worker_state}" in
+        active|activating|deactivating|reloading)
+          if [ "${SECONDS}" -ge "${worker_wait_deadline}" ]; then
+            fail "DIS wallboard live stream-key request worker did not become idle within 90 seconds; deployment was not allowed to interrupt it."
+          fi
+          sleep 1
+          ;;
+        failed)
+          run_cmd systemctl reset-failed dis-wallboard-live-key-request
+          break
+          ;;
+        inactive)
+          break
+          ;;
+        *)
+          fail "Could not determine a safe idle state for dis-wallboard-live-key-request.service (state: ${worker_state:-unknown})."
+          ;;
+      esac
+    done
+  fi
   if systemd_unit_exists dis-osrm-admin-request.timer; then
     run_cmd systemctl stop dis-osrm-admin-request.timer
   fi
@@ -897,9 +1206,10 @@ stop_dis_deployment_services() {
       esac
     done
   fi
-  # Stop the interruptible media worker next. Its SIGTERM contract republishes
-  # an in-flight transcode before the remaining deployment services go down.
-  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment dis-incident-enrichment "${PHP_FPM_SERVICE}"; do
+  # Stop live ingest before any web/runtime mutation, then stop the interruptible
+  # media worker. Its SIGTERM contract republishes an in-flight transcode before
+  # the remaining deployment services go down.
+  for service in dis-wallboard-live dis-wallboard-live-ingress dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment dis-incident-enrichment "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl stop "${service}"
     fi
@@ -1016,6 +1326,12 @@ start_dis_operational_services() {
   local service
 
   log "Starting DIS workers and realtime services"
+  if systemd_unit_exists dis-wallboard-live-key-request.path; then
+    run_cmd systemctl start dis-wallboard-live-key-request.path
+  fi
+  if systemd_unit_exists dis-wallboard-live-key-request.timer; then
+    run_cmd systemctl start dis-wallboard-live-key-request.timer
+  fi
   if systemd_unit_exists dis-osrm-admin-request.path; then
     run_cmd systemctl start dis-osrm-admin-request.path
   fi
@@ -1035,7 +1351,7 @@ start_dis_operational_services() {
     run_cmd runuser -u "${DIS_USER}" -- php "${DIS_INSTALL_PATH}/webapp/backend/artisan" \
       dis:check-backup-request-worker --timeout=30
   fi
-  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-deployment-enrichment; do
+  for service in dis-media dis-wallboard-live-ingress dis-wallboard-live dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-deployment-enrichment; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl start "${service}"
     fi
@@ -1059,9 +1375,9 @@ require_dis_web_services() {
 }
 
 require_dis_runtime_services() {
-  local service
+  local service unit
 
-  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-media dis-scheduler dis-websocket dis-deployment-enrichment; do
+  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-media dis-wallboard-live-ingress dis-wallboard-live dis-scheduler dis-websocket dis-deployment-enrichment; do
     if ! systemd_service_exists "${service}"; then
       fail "Required systemd service is not installed: ${service}.service"
     fi
@@ -1072,6 +1388,20 @@ require_dis_runtime_services() {
   if ! wait_for_dis_frontend_http_readiness; then
     fail "DIS frontend did not remain HTTP-ready on 127.0.0.1:3000."
   fi
+  if ! root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_KEY_REQUEST_WORKER_PATH}" 700; then
+    fail "Required wallboard live stream-key request worker is missing or unsafe."
+  fi
+  for unit in dis-wallboard-live-key-request.path dis-wallboard-live-key-request.timer; do
+    if ! systemd_unit_exists "${unit}"; then
+      fail "Required systemd unit is not installed: ${unit}"
+    fi
+    if ! systemctl is-enabled --quiet "${unit}"; then
+      fail "Required systemd unit is not enabled: ${unit}"
+    fi
+    if ! systemctl is-active --quiet "${unit}"; then
+      fail "Required systemd unit is not active: ${unit}"
+    fi
+  done
   if ! systemd_unit_exists dis-backup-request.path; then
     fail "Required systemd unit is not installed: dis-backup-request.path"
   fi
@@ -1151,6 +1481,37 @@ install_backup_request_systemd_units() {
   run_cmd install -m 0644 "${temporary_service}" /etc/systemd/system/dis-backup-request.service
   run_cmd install -m 0644 "${temporary_path}" /etc/systemd/system/dis-backup-request.path
   run_cmd install -m 0644 "${app_root}/infrastructure/systemd/dis-backup-request.timer" /etc/systemd/system/dis-backup-request.timer
+  run_cmd rm -f -- "${temporary_service}" "${temporary_path}"
+}
+
+install_wallboard_live_key_request_layout() {
+  ensure_managed_directory "${DIS_DATA_PATH}/wallboard-live-key-requests" root root 1730
+  ensure_managed_directory "${DIS_DATA_PATH}/wallboard-live-key-request-work" root root 0700
+  if id www-data >/dev/null 2>&1; then
+    run_cmd setfacl -b "${DIS_DATA_PATH}/wallboard-live-key-requests"
+    run_cmd chmod 1730 "${DIS_DATA_PATH}/wallboard-live-key-requests"
+    run_cmd setfacl -m "u:www-data:-wx" "${DIS_DATA_PATH}/wallboard-live-key-requests"
+    run_cmd setfacl -k "${DIS_DATA_PATH}/wallboard-live-key-requests" 2>/dev/null || true
+  fi
+}
+
+install_wallboard_live_key_request_systemd_units() {
+  local app_root="$1" escaped_app_root escaped_data_path temporary_service temporary_path
+
+  escaped_app_root="$(printf '%s' "${app_root}" | sed 's/[&|\\]/\\&/g')"
+  escaped_data_path="$(printf '%s' "${DIS_DATA_PATH}" | sed 's/[&|\\]/\\&/g')"
+  temporary_service="$(mktemp /run/dis-wallboard-live-key-request.service.XXXXXX)"
+  temporary_path="$(mktemp /run/dis-wallboard-live-key-request.path.XXXXXX)"
+  sed -e "s|@APP_ROOT@|${escaped_app_root}|g" \
+    -e "s|@DIS_DATA_PATH@|${escaped_data_path}|g" \
+    "${app_root}/infrastructure/systemd/dis-wallboard-live-key-request.service" > "${temporary_service}"
+  sed "s|@DIS_DATA_PATH@|${escaped_data_path}|g" \
+    "${app_root}/infrastructure/systemd/dis-wallboard-live-key-request.path" > "${temporary_path}"
+  run_cmd install -m 0644 "${temporary_service}" /etc/systemd/system/dis-wallboard-live-key-request.service
+  run_cmd install -m 0644 "${temporary_path}" /etc/systemd/system/dis-wallboard-live-key-request.path
+  run_cmd install -m 0644 \
+    "${app_root}/infrastructure/systemd/dis-wallboard-live-key-request.timer" \
+    /etc/systemd/system/dis-wallboard-live-key-request.timer
   run_cmd rm -f -- "${temporary_service}" "${temporary_path}"
 }
 
@@ -1585,6 +1946,8 @@ ensure_data_layout() {
   ensure_managed_directory "${DIS_DATA_PATH}/backup-imports" root root 1730
   ensure_managed_directory "${DIS_DATA_PATH}/backup-requests" root root 1730
   ensure_managed_directory "${DIS_DATA_PATH}/backup-request-work" root root 0700
+  ensure_managed_directory "${DIS_DATA_PATH}/wallboard-live-key-requests" root root 1730
+  ensure_managed_directory "${DIS_DATA_PATH}/wallboard-live-key-request-work" root root 0700
   ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin" root root 0750
   ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/requests" root root 1730
   ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/work" root root 0700

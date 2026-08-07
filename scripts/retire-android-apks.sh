@@ -81,6 +81,8 @@ require_retirement_window() {
     || fail "Android APK storage can only be retired while frontend maintenance is enabled."
   for writer_service in \
     "${PHP_FPM_SERVICE}" \
+    dis-wallboard-live \
+    dis-wallboard-live-ingress \
     dis-media \
     dis-queue \
     dis-push@1 \

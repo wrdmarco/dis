@@ -274,6 +274,7 @@ EOF
     run_cmd setfacl -m "u:www-data:rx" /var/log/dis
     run_cmd setfacl -m "u:www-data:r--" /var/log/dis/system-update-runner.log
   fi
+  install_wallboard_live_runtime_bundle "${DIS_INSTALL_PATH}"
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
   if [ "${install_osrm_runtime}" = "1" ]; then
@@ -282,11 +283,14 @@ EOF
   remove_legacy_backup_entrypoints
   install_php_fpm_privileged_helpers_override
   install_backup_request_systemd_units "${DIS_INSTALL_PATH}"
+  install_wallboard_live_key_request_layout
+  install_wallboard_live_key_request_systemd_units "${DIS_INSTALL_PATH}"
   install_osrm_admin_layout
   install_osrm_admin_request_systemd_units "${DIS_INSTALL_PATH}"
   run_cmd systemctl daemon-reload
   run_cmd systemctl enable \
     dis-backup-request.path dis-backup-request.timer \
+    dis-wallboard-live-key-request.path dis-wallboard-live-key-request.timer \
     dis-osrm-admin-request.path dis-osrm-admin-request.timer >/dev/null
 }
 

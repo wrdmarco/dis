@@ -76,6 +76,8 @@ else
   log "Preserving the parent operation's compatible maintenance page during release cutover"
 fi
 stop_dis_deployment_services
+ensure_wallboard_live_runtime_identity
+ensure_wallboard_live_ingress_identity
 DIS_RETIRE_ANDROID_APKS_PARENT_OWNS_LOCK=1 \
   bash "${SCRIPT_DIR}/retire-android-apks.sh"
 if [ "${DIS_DEPLOYMENT_OWNER}" = "update" ] \
@@ -407,6 +409,7 @@ fi
 log "Installing Nginx and systemd configuration"
 run_cmd chmod 0755 "${APP_ROOT}/setup.sh" "${APP_ROOT}/update.sh" "${APP_ROOT}/uninstall.sh"
 run_cmd find "${APP_ROOT}/scripts" -type f -name "*.sh" -exec chmod 0755 {} +
+install_wallboard_live_runtime_bundle "${APP_ROOT}"
 if [ -e /usr/local/bin/update ] && ! grep -q "${APP_ROOT}/update.sh" /usr/local/bin/update 2>/dev/null; then
   fail "/usr/local/bin/update already exists and is not managed by DIS."
 fi
@@ -439,6 +442,8 @@ run_cmd visudo -cf /etc/sudoers.d/dis-update
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-push@.service" /etc/systemd/system/dis-push@.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-media.service" /etc/systemd/system/dis-media.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-wallboard-live.service" /etc/systemd/system/dis-wallboard-live.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-wallboard-live-ingress.service" /etc/systemd/system/dis-wallboard-live-ingress.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-deployment-enrichment.service" /etc/systemd/system/dis-deployment-enrichment.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
@@ -446,6 +451,8 @@ run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-storage-metrics.service" /etc/systemd/system/dis-storage-metrics.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-storage-metrics.timer" /etc/systemd/system/dis-storage-metrics.timer
 install_backup_request_systemd_units "${APP_ROOT}"
+install_wallboard_live_key_request_layout
+install_wallboard_live_key_request_systemd_units "${APP_ROOT}"
 install_osrm_admin_layout
 install_osrm_admin_request_systemd_units "${APP_ROOT}"
 # Retire the pre-rename unit name after the canonical worker is installed.
@@ -466,9 +473,10 @@ esac
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable \
   dis-push@1 dis-push@2 dis-push@3 dis-push@4 \
-  dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment \
+  dis-queue dis-media dis-wallboard-live-ingress dis-wallboard-live dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment \
   dis-storage-metrics.timer \
   dis-backup-request.path dis-backup-request.timer \
+  dis-wallboard-live-key-request.path dis-wallboard-live-key-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer
 run_cmd systemctl start dis-storage-metrics.timer
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile

@@ -257,7 +257,7 @@ export function WallboardPlaylistPreview({
           <span className="eyebrow"><i className="wallboard-playlist-preview__live-dot" aria-hidden /> {previewDataMode === 'demo' ? 'Demo-conceptpreview' : 'Live conceptpreview'}</span>
           <h2 id="wallboard-playlist-preview-title">{playlistName || 'Naamloze playlist'}</h2>
           <p>{previewDataMode === 'demo'
-            ? 'Dynamische operationele gegevens zijn fictief; ingestelde teksten en media blijven ongewijzigd. De paginatijden worden afgespeeld zonder iets te publiceren.'
+            ? 'Dynamische operationele gegevens zijn fictief; live-uitzendingen worden niet verbonden. Ingestelde teksten en media blijven ongewijzigd. De paginatijden worden afgespeeld zonder iets te publiceren.'
             : 'Actuele inhoud, paginatijden en media zoals ze op het wallboard worden afgespeeld. Er wordt niets gepubliceerd.'}</p>
         </div>
         <button className="icon-button" type="button" onClick={() => dialogRef.current?.close()} aria-label="Voorbeeld sluiten">
@@ -304,7 +304,7 @@ export function WallboardPlaylistPreview({
               <Loader2 className="spin" size={28} aria-hidden />
               <strong>{previewDataMode === 'demo' ? 'Demogegevens laden' : 'Live inhoud laden'}</strong>
               <span>{previewDataMode === 'demo'
-                ? 'De server bouwt fictieve dynamische gegevens op; ingestelde teksten en media blijven ongewijzigd.'
+                ? 'De server bouwt fictieve dynamische gegevens op; live-uitzendingen worden niet verbonden en ingestelde teksten en media blijven ongewijzigd.'
                 : 'Nieuws, vliegweer, agenda en operationele gegevens worden opgehaald.'}</span>
             </div>
           ) : state === null ? (

@@ -53,6 +53,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserNotificationController;
 use App\Http\Controllers\VacationController;
 use App\Http\Controllers\WallboardController;
+use App\Http\Controllers\WallboardLiveStreamController;
 use App\Http\Controllers\WallboardMediaController;
 use App\Http\Controllers\WallboardPairingController;
 use App\Http\Controllers\WebLoginApprovalController;
@@ -78,6 +79,13 @@ Route::get('/wallboard/ticker', [WallboardController::class, 'ticker'])
     ->middleware(['wallboard.auth', 'throttle:wallboard-read'])
     ->name('wallboard.ticker');
 Route::get('/wallboard/control', [WallboardController::class, 'control'])->middleware(['wallboard.auth', 'throttle:wallboard-control']);
+Route::get('/wallboard/live-stream/status', [WallboardLiveStreamController::class, 'status'])
+    ->middleware(['wallboard.auth', 'throttle:wallboard-live-stream-read']);
+Route::get('/wallboard/live-stream/manifest.m3u8', [WallboardLiveStreamController::class, 'manifest'])
+    ->middleware(['wallboard.auth', 'throttle:wallboard-live-stream-read']);
+Route::get('/wallboard/live-stream/segments/{segment}', [WallboardLiveStreamController::class, 'segment'])
+    ->where('segment', 'segment-[0-9]{20}\.ts')
+    ->middleware(['wallboard.auth', 'throttle:wallboard-live-stream-read']);
 Route::get('/wallboard/cache', [WallboardController::class, 'clearCache'])
     ->middleware(['wallboard.auth', 'throttle:wallboard-read'])
     ->name('wallboard.cache');
@@ -689,6 +697,39 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware(['permission:system.queues.manage', 'throttle:queue-action']);
         Route::get('/admin/websocket-status', [HealthController::class, 'websocket'])->middleware('permission:system.health.view');
     });
+});
+
+Route::middleware([
+    'auth:sanctum',
+    'web.session:passive',
+    'operational',
+    'audit.privileged',
+    'store.review',
+    'two_factor.complete',
+    'permission:wallboards.manage',
+    'throttle:wallboard-live-stream-admin-read',
+])->group(function (): void {
+    Route::get('/admin/wallboard-live-stream/status', [WallboardLiveStreamController::class, 'adminStatus']);
+    Route::get('/admin/wallboard-live-stream/manifest.m3u8', [WallboardLiveStreamController::class, 'adminManifest']);
+    Route::get('/admin/wallboard-live-stream/segments/{segment}', [WallboardLiveStreamController::class, 'adminSegment'])
+        ->where('segment', 'segment-[0-9]{20}\.ts');
+});
+
+Route::middleware([
+    'auth:sanctum',
+    'web.session',
+    'operational',
+    'audit.privileged',
+    'store.review',
+    'throttle:authenticated',
+    'two_factor.complete',
+    'web.client',
+    'permission:wallboards.manage',
+])->group(function (): void {
+    Route::post('/admin/wallboard-live-stream/stream-key/reveal', [WallboardLiveStreamController::class, 'revealStreamKey'])
+        ->middleware('throttle:wallboard-live-stream-key-reveal');
+    Route::post('/admin/wallboard-live-stream/stream-key/rotate', [WallboardLiveStreamController::class, 'rotateStreamKey'])
+        ->middleware('throttle:wallboard-live-stream-key-rotate');
 });
 
 Route::fallback(fn () => ApiResponse::error('api_route_not_found', 'DIS API route was not found.', 404));

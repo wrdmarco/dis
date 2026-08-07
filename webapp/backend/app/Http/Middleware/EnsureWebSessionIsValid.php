@@ -13,8 +13,12 @@ final class EnsureWebSessionIsValid
 {
     public function __construct(private readonly WebSessionService $webSessionService) {}
 
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, string $activity = 'active'): Response
     {
+        if (! in_array($activity, ['active', 'passive'], true)) {
+            return ApiResponse::error('invalid_session_mode', 'The web session policy is invalid.', 500);
+        }
+
         $user = $request->user();
         if ($user === null) {
             return ApiResponse::error('unauthenticated', 'Authentication is required.', 401);
@@ -48,7 +52,9 @@ final class EnsureWebSessionIsValid
             return ApiResponse::error('session_expired', 'The web session has expired.', 401);
         }
 
-        $session->put(WebSessionService::KEY_LAST_ACTIVITY_AT, $now);
+        if ($activity === 'active') {
+            $session->put(WebSessionService::KEY_LAST_ACTIVITY_AT, $now);
+        }
 
         return $next($request);
     }

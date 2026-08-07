@@ -597,6 +597,18 @@ test('bounds page timing and builds typed pages without executable message marku
   expect(wallboardVideoDurationFromOptions(verifiedVideo.options)).toBe(62);
   expect(wallboardEffectivePageDuration(verifiedVideo)).toBe(67);
   expect(wallboardConfigurationHasUnverifiedVideos({ pages: [verifiedVideo] })).toBe(false);
+
+  const liveStream = createWallboardPage('live_stream', 6);
+  expect(liveStream).toMatchObject({
+    type: 'live_stream',
+    name: 'Live-uitzending',
+    duration_seconds: 30,
+    options: {},
+  });
+  expect(wallboardConfigurationCopy({
+    ...DEFAULT_WALLBOARD_CONFIGURATION,
+    pages: [liveStream],
+  }).pages[0]).toEqual(liveStream);
 });
 
 test('normalizes legacy and formatted wallboard messages without rendering management metadata', () => {

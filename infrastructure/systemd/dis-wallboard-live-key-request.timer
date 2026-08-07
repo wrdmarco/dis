@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically sweep DIS wallboard live stream-key requests
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+AccuracySec=1s
+Unit=dis-wallboard-live-key-request.service
+
+[Install]
+WantedBy=timers.target

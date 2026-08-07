@@ -42,12 +42,15 @@ final class OperationalErrorSanitizationTest extends TestCase
         $redacted = app(SensitiveDataRedactor::class)->redactString(implode("\n", [
             'DB_PASSWORD="database-secret" APP_KEY=base64:application-secret',
             'composer --token cli-secret --password=cli-password',
+            'WALLBOARD_LIVE_STREAM_STREAM_KEY=environment-stream-secret --stream-key cli-stream-secret',
+            '{"stream_key":"json-stream-secret"} https://example.test/live?stream_key=query-stream-secret',
+            'rtmp://127.0.0.1:19350/live/Abcdefghijklmnopqrstuvwxyz0123456789',
             'https://deploy-user:remote-secret@example.test/repository.git',
             "-----BEGIN PRIVATE KEY-----\nprivate-key-secret\n-----END PRIVATE KEY-----",
         ]));
 
         $this->assertStringContainsString('[REDACTED]', $redacted);
-        foreach (['database-secret', 'application-secret', 'cli-secret', 'cli-password', 'deploy-user', 'remote-secret', 'private-key-secret'] as $secret) {
+        foreach (['database-secret', 'application-secret', 'cli-secret', 'cli-password', 'environment-stream-secret', 'cli-stream-secret', 'json-stream-secret', 'query-stream-secret', 'Abcdefghijklmnopqrstuvwxyz0123456789', 'deploy-user', 'remote-secret', 'private-key-secret'] as $secret) {
             $this->assertStringNotContainsString($secret, $redacted);
         }
     }

@@ -1,0 +1,63 @@
+[Unit]
+Description=DIS Wallboard OBS RTMPS Ingress
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=dis-wallboard-live-ingress
+Group=dis-wallboard-live-ingress
+WorkingDirectory=/run/dis-wallboard-live-ingress
+LoadCredential=mediamtx.yml:/etc/dis-wallboard-live/mediamtx.yml
+LoadCredential=stream-key.sha256:/etc/dis-wallboard-live/stream-key.sha256
+LoadCredential=server.crt:/etc/dis-wallboard-live/server.crt
+LoadCredential=server.key:/etc/dis-wallboard-live/server.key
+ExecStartPre=/usr/bin/test -x /usr/local/bin/dis-mediamtx
+ExecStartPre=/usr/bin/test -x /usr/local/libexec/dis-wallboard-live-auth
+ExecStartPre=/usr/bin/test -x /usr/local/bin/dis-wallboard-live-ingress-runner
+ExecStart=/usr/local/bin/dis-wallboard-live-ingress-runner
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=30s
+UMask=0077
+RuntimeDirectory=dis-wallboard-live-ingress
+RuntimeDirectoryMode=0750
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dis-wallboard-live-ingress
+LimitCORE=0
+LimitNOFILE=4096
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectProc=invisible
+ProcSubset=pid
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET
+SystemCallArchitectures=native
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+MemoryHigh=512M
+MemoryMax=768M
+CPUQuota=100%
+TasksMax=96
+Nice=5
+OOMPolicy=stop
+InaccessiblePaths=-/etc/dis-wallboard-live -/opt/dis/.env -/opt/dis/webapp -/opt/dis-data -/tmp -/var/tmp
+ReadWritePaths=/run/dis-wallboard-live-ingress
+
+[Install]
+WantedBy=multi-user.target

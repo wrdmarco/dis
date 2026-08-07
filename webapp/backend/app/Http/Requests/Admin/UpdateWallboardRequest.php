@@ -166,6 +166,7 @@ final class UpdateWallboardRequest extends FormRequest
                 'calendar' => ['max_items'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds'],
+                'live_stream' => [],
                 'photo_carousel' => ['media_playlist_id', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'map' => [],
                 default => array_keys($options),

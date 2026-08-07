@@ -320,7 +320,7 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'deployment_list' | 'summary' | 'kpi' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'weather_radar' | 'news' | 'video' | 'photo_carousel';
+export type WallboardPageType = 'map' | 'deployment_list' | 'summary' | 'kpi' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'weather_radar' | 'news' | 'video' | 'live_stream' | 'photo_carousel';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'deployment_override';
 export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
 export type WallboardItemTransition = WallboardNewsItemTransition;
@@ -514,6 +514,28 @@ export interface WallboardPage {
   transition_duration_ms?: number;
   flip_direction?: WallboardFlipDirection;
   options: WallboardPageOptions;
+}
+
+export type WallboardLiveStreamStatusValue = 'live' | 'waiting' | 'offline' | 'error';
+
+export interface WallboardLiveStreamAdminStatus {
+  status: WallboardLiveStreamStatusValue;
+  server_url: string | null;
+  stream_key_configured: boolean;
+  stream_key_version: string | null;
+  last_packet_at: string | null;
+  message: string | null;
+}
+
+export interface WallboardLiveStreamStreamKey {
+  stream_key: string;
+  stream_key_version: string;
+}
+
+export interface WallboardLiveStreamStreamKeyRotation extends WallboardLiveStreamStreamKey {
+  rotated_at: string;
+  previous_key_revoked: boolean;
+  obs_reconnect_required: boolean;
 }
 
 export interface WallboardDeploymentOverride {

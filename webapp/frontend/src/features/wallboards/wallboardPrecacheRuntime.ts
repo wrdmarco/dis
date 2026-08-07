@@ -59,7 +59,10 @@ export function wallboardPreloadRuntimeState(
 ): WallboardPreloadRuntimeState {
   const completedUrls = new Set(progress.completedUrls);
   const configuredPages = pages;
-  const onlineOnlyPageIds = new Set(manifest.externalPreloadHints.map((hint) => hint.pageId));
+  const onlineOnlyPageIds = new Set([
+    ...manifest.onlineOnlyPageIds,
+    ...manifest.externalPreloadHints.map((hint) => hint.pageId),
+  ]);
   const locallyPreparedPages = configuredPages.filter((page) => !onlineOnlyPageIds.has(page.id));
   const currentAsset = progress.currentUrl === null
     ? null

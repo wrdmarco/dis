@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch DIS wallboard live stream-key requests
+
+[Path]
+PathExistsGlob=@DIS_DATA_PATH@/wallboard-live-key-requests/*.pending
+Unit=dis-wallboard-live-key-request.service
+
+[Install]
+WantedBy=multi-user.target

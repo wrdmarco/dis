@@ -17,6 +17,10 @@ final class FirstPartyMediaRequestTest extends TestCase
         return [
             'wallboard asset' => ['/api/wallboard/media/'.$ulid],
             'wallboard news image' => ['/api/wallboard/news-images/'.str_repeat('a', 64)],
+            'wallboard live manifest' => ['/api/wallboard/live-stream/manifest.m3u8'],
+            'wallboard live segment' => ['/api/wallboard/live-stream/segments/segment-00000000000000000001.ts'],
+            'admin live manifest' => ['/api/admin/wallboard-live-stream/manifest.m3u8'],
+            'admin live segment' => ['/api/admin/wallboard-live-stream/segments/segment-00000000000000000001.ts'],
             'admin asset' => ['/api/admin/wallboard-media/assets/'.$ulid.'/content'],
             'admin thumbnail' => ['/api/admin/wallboard-media/assets/'.$ulid.'/thumbnail'],
             'operational precipitation radar atlas' => [
@@ -63,6 +67,27 @@ final class FirstPartyMediaRequestTest extends TestCase
     public function test_non_media_element_read_is_not_promoted_without_ajax_header(): void
     {
         $request = Request::create('/api/wallboard/state', 'GET', server: [
+            'HTTP_SEC_FETCH_SITE' => 'same-origin',
+        ]);
+
+        self::assertFalse(EnsureFirstPartyRequestsAreStateful::fromFrontend($request));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function invalidLiveStreamMediaPaths(): array
+    {
+        return [
+            'wrong manifest name' => ['/api/wallboard/live-stream/index.m3u8'],
+            'short segment sequence' => ['/api/wallboard/live-stream/segments/segment-1.ts'],
+            'nested segment path' => ['/api/admin/wallboard-live-stream/segments/archive/segment-00000000000000000001.ts'],
+            'unrelated transport stream' => ['/api/wallboard/live-stream/segments/other-00000000000000000001.ts'],
+        ];
+    }
+
+    #[DataProvider('invalidLiveStreamMediaPaths')]
+    public function test_live_stream_media_exception_is_limited_to_exact_delivery_routes(string $uri): void
+    {
+        $request = Request::create($uri, 'GET', server: [
             'HTTP_SEC_FETCH_SITE' => 'same-origin',
         ]);
 

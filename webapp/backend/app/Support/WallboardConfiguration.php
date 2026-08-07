@@ -11,7 +11,7 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'deployment_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'photo_carousel'];
+    public const PAGE_TYPES = ['map', 'deployment_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'live_stream', 'photo_carousel'];
 
     /** @var list<string> */
     public const WEATHER_RADAR_KINDS = ['precipitation', 'lightning'];
@@ -396,6 +396,7 @@ final class WallboardConfiguration
                 'calendar' => ['max_items'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds', 'media_asset_id', 'media_asset_version'],
+                'live_stream' => [],
                 'photo_carousel' => ['media_playlist_id', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 default => [],
             };

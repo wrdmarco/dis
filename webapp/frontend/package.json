@@ -1,6 +1,6 @@
 {
   "name": "@nationaal-droneteam/dis-frontend",
-  "version": "0.1.90",
+  "version": "0.1.91",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "hls.js": "1.6.17",
     "laravel-echo": "^2.2.0",
     "lucide-react": "^0.468.0",
     "next": "^15.5.8",
@@ -34,7 +35,7 @@
     "typescript": "^5.7.0"
   },
   "overrides": {
-    "postcss": "8.5.10"
+    "postcss": "8.5.26"
   },
   "engines": {
     "node": ">=22.0.0"

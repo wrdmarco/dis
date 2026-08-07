@@ -57,13 +57,19 @@ fi
 # of being followed by install/chown/chmod.
 ensure_data_links "${APP_ROOT}"
 
-for runtime_service in "${PHP_FPM_SERVICE}" dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment dis-incident-enrichment dis-knmi dis-knmi-realtime dis-backup-request dis-osrm-admin-request; do
+for runtime_service in "${PHP_FPM_SERVICE}" dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-media dis-wallboard-live dis-wallboard-live-ingress dis-wallboard-live-key-request dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment dis-incident-enrichment dis-knmi dis-knmi-realtime dis-backup-request dis-osrm-admin-request; do
   if systemd_service_exists "${runtime_service}" && systemctl is-active --quiet "${runtime_service}"; then
     fail "Permission repair requires ${runtime_service} to be stopped under deployment maintenance."
   fi
 done
 if systemd_unit_exists dis-backup-request.path && systemctl is-active --quiet dis-backup-request.path; then
   fail "Permission repair requires dis-backup-request.path to be stopped under deployment maintenance."
+fi
+if systemd_unit_exists dis-wallboard-live-key-request.path && systemctl is-active --quiet dis-wallboard-live-key-request.path; then
+  fail "Permission repair requires dis-wallboard-live-key-request.path to be stopped under deployment maintenance."
+fi
+if systemd_unit_exists dis-wallboard-live-key-request.timer && systemctl is-active --quiet dis-wallboard-live-key-request.timer; then
+  fail "Permission repair requires dis-wallboard-live-key-request.timer to be stopped under deployment maintenance."
 fi
 if systemd_unit_exists dis-osrm-admin-request.path && systemctl is-active --quiet dis-osrm-admin-request.path; then
   fail "Permission repair requires dis-osrm-admin-request.path to be stopped under deployment maintenance."
@@ -72,6 +78,8 @@ if systemd_unit_exists dis-osrm-admin-request.timer && systemctl is-active --qui
   fail "Permission repair requires dis-osrm-admin-request.timer to be stopped under deployment maintenance."
 fi
 
+ensure_wallboard_live_runtime_identity
+ensure_wallboard_live_ingress_identity
 install_osrm_admin_runtime_bundle "${APP_ROOT}"
 
 ensure_managed_directory /mnt/dis-backup root root 0750
@@ -135,6 +143,11 @@ fi
 run_cmd chown -h root:root "${DIS_DATA_PATH}/backup-imports" "${DIS_DATA_PATH}/backup-requests" "${DIS_DATA_PATH}/backup-request-work"
 run_cmd chmod 1730 "${DIS_DATA_PATH}/backup-imports" "${DIS_DATA_PATH}/backup-requests"
 run_cmd chmod 0700 "${DIS_DATA_PATH}/backup-request-work"
+run_cmd chown -h root:root \
+  "${DIS_DATA_PATH}/wallboard-live-key-requests" \
+  "${DIS_DATA_PATH}/wallboard-live-key-request-work"
+run_cmd chmod 1730 "${DIS_DATA_PATH}/wallboard-live-key-requests"
+run_cmd chmod 0700 "${DIS_DATA_PATH}/wallboard-live-key-request-work"
 
 install_osrm_admin_layout
 run_cmd chown -h root:root \
@@ -178,6 +191,10 @@ if id www-data >/dev/null 2>&1; then
   run_cmd setfacl -m "u:www-data:r-x" /var/log/dis
   run_cmd setfacl -m "u:www-data:-wx" "${DIS_DATA_PATH}/backup-imports" "${DIS_DATA_PATH}/backup-requests"
   run_cmd setfacl -x "d:u:www-data" "${DIS_DATA_PATH}/backup-imports" "${DIS_DATA_PATH}/backup-requests" 2>/dev/null || true
+  run_cmd setfacl -b "${DIS_DATA_PATH}/wallboard-live-key-requests"
+  run_cmd chmod 1730 "${DIS_DATA_PATH}/wallboard-live-key-requests"
+  run_cmd setfacl -m "u:www-data:-wx" "${DIS_DATA_PATH}/wallboard-live-key-requests"
+  run_cmd setfacl -k "${DIS_DATA_PATH}/wallboard-live-key-requests" 2>/dev/null || true
   run_cmd setfacl -m "u:www-data:--x" "${DIS_DATA_PATH}/osrm-admin"
   run_cmd setfacl -m "u:www-data:-wx" "${DIS_DATA_PATH}/osrm-admin/requests"
   secure_path_operation acl-tree "${DIS_DATA_PATH}/osrm-admin/results" www-data r-x r--

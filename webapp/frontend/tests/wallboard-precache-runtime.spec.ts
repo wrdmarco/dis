@@ -25,6 +25,7 @@ const manifest: WallboardPrecacheManifest = {
     { url: 'https://dis.test/shared.webp', kind: 'image', pageIds: ['news', 'photos'] },
   ],
   externalPreloadHints: [],
+  onlineOnlyPageIds: [],
 };
 
 test('counts pages only after all of their local assets are cached', () => {
@@ -62,6 +63,26 @@ test('reports external video pages separately instead of claiming they are cache
   };
 
   const state = wallboardPreloadRuntimeState(progress({ total: 0 }), externalManifest, [externalPage]);
+
+  expect(state).toMatchObject({
+    pagesReady: 0,
+    pagesTotal: 0,
+    onlineOnlyPages: 1,
+  });
+});
+
+test('reports live streams as online-only without treating their manifest as cacheable', () => {
+  const livePage = {
+    ...page('live', 'Live-uitzending'),
+    type: 'live_stream' as const,
+  } as WallboardPage;
+  const liveManifest: WallboardPrecacheManifest = {
+    ...manifest,
+    assets: [],
+    onlineOnlyPageIds: ['live'],
+  };
+
+  const state = wallboardPreloadRuntimeState(progress({ total: 0 }), liveManifest, [livePage]);
 
   expect(state).toMatchObject({
     pagesReady: 0,

@@ -33,6 +33,7 @@ export interface WallboardPrecacheManifest {
   blockingContentVersion: string;
   assets: WallboardPrecacheAsset[];
   externalPreloadHints: WallboardExternalPreloadHint[];
+  onlineOnlyPageIds: string[];
 }
 
 export interface WallboardPrecacheFailure {
@@ -90,6 +91,7 @@ export function wallboardPrecacheManifest(
   const origin = normalizedOrigin(baseUrl);
   const assets = new Map<string, WallboardPrecacheAsset>();
   const externalHints = new Map<string, WallboardExternalPreloadHint>();
+  const onlineOnlyPageIds = new Set<string>();
   const configuredPages = state.wallboard.configuration.pages;
   const runtimePlaylistId = typeof state.wallboard.runtime_playlist_id === 'string'
     ? state.wallboard.runtime_playlist_id.trim()
@@ -105,6 +107,12 @@ export function wallboardPrecacheManifest(
 
   for (const page of configuredPages) {
     contentParts.push(`page:${page.id}:${page.type}`);
+
+    if (page.type === 'live_stream') {
+      onlineOnlyPageIds.add(page.id);
+      contentParts.push(`live-stream:${page.id}:online-only`);
+      continue;
+    }
 
     if (page.type === 'news') {
       const items = state.news.pages[page.id]?.items ?? [];
@@ -196,6 +204,7 @@ export function wallboardPrecacheManifest(
     blockingContentVersion,
     assets: sortedAssets,
     externalPreloadHints: sortedHints,
+    onlineOnlyPageIds: [...onlineOnlyPageIds].sort(),
   };
 }
 

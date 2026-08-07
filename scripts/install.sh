@@ -43,7 +43,11 @@ run_cmd apt-get install -y \
   "php${PHP_VERSION}-bcmath" "php${PHP_VERSION}-intl" "php${PHP_VERSION}-gd" \
   nodejs npm
 
+ensure_wallboard_live_runtime_identity
+ensure_wallboard_live_ingress_identity
+
 ensure_data_links "${DIS_INSTALL_PATH}"
+install_wallboard_live_key_request_layout
 detach_unsafe_cifs_backup_mount /mnt/dis-backup
 
 log "Installing Composer"

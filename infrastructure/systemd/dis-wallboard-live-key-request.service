@@ -1,0 +1,40 @@
+[Unit]
+Description=DIS Wallboard Live Stream Key Request Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=APP_ROOT=@APP_ROOT@
+Environment=DIS_DATA_PATH=@DIS_DATA_PATH@
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/local/bin/dis-wallboard-live-key-request-worker
+UMask=0077
+RuntimeDirectory=dis-wallboard-live-key-request
+RuntimeDirectoryMode=0700
+TimeoutStartSec=240s
+TimeoutStopSec=15s
+KillMode=control-group
+LimitCORE=0
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER
+ReadWritePaths=@DIS_DATA_PATH@ /etc/dis-wallboard-live /run/dis-wallboard-live-key-request /run/lock

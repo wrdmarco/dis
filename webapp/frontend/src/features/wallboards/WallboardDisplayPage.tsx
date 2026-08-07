@@ -166,6 +166,10 @@ const WallboardPhotoCarousel = dynamic(
   () => import('./WallboardPhotoCarousel').then((module) => module.WallboardPhotoCarousel),
   { ssr: false },
 );
+const WallboardLiveStreamPage = dynamic(
+  () => import('./WallboardLiveStreamPage').then((module) => module.WallboardLiveStreamPage),
+  { ssr: false },
+);
 const WeatherRadarSection = dynamic(
   () => import('../weather/WeatherRadarSection').then((module) => module.WeatherRadarSection),
   { ssr: false },
@@ -1519,6 +1523,17 @@ function WallboardPageContent({
 
   if (page.type === 'video') {
     return <WallboardVideoPage page={page} running={running} adminPreview={adminPreview} />;
+  }
+
+  if (page.type === 'live_stream') {
+    return (
+      <WallboardLiveStreamPage
+        name={page.name}
+        running={running}
+        adminPreview={adminPreview}
+        demoMode={normalizeWallboardPlaylistDataMode(state.wallboard.data_mode) === 'demo'}
+      />
+    );
   }
 
   if (page.type === 'photo_carousel') {

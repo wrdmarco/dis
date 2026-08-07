@@ -17,6 +17,7 @@ import {
   Newspaper,
   Plus,
   Radio,
+  RadioTower,
   Rss,
   Quote as QuoteIcon,
   ShieldAlert,
@@ -121,6 +122,7 @@ import {
 } from './WallboardPhotoPageEditor';
 import { SecondsStepper } from './SecondsStepper';
 import { WallboardVideoPageEditor } from './WallboardVideoPageEditor';
+import { WallboardLiveStreamPageEditor } from './WallboardLiveStreamPageEditor';
 import { formatWallboardVideoDuration } from './wallboardVideoInspection';
 
 const MIN_WALLBOARD_TRANSITION_DURATION_SECONDS = MIN_WALLBOARD_TRANSITION_DURATION_MS / 1000;
@@ -199,6 +201,7 @@ const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'weather_radar', label: 'Weerradar' },
   { value: 'news', label: 'Nieuws' },
   { value: 'video', label: 'Video' },
+  { value: 'live_stream', label: 'Live-uitzending' },
   { value: 'photo_carousel', label: 'Fotocarrousel' },
 ];
 
@@ -897,6 +900,8 @@ function WallboardPageEditor({
               url: page.options.url ?? '',
               ...(videoDurationSeconds === null ? {} : { video_duration_seconds: videoDurationSeconds }),
             }
+            : type === 'live_stream'
+              ? {}
             : type === 'photo_carousel'
               ? {
                 media_playlist_id: '',
@@ -1561,6 +1566,8 @@ function WallboardPageEditor({
         </fieldset>
       ) : page.type === 'video' ? (
         <WallboardVideoPageEditor page={page} onChange={onChange} />
+      ) : page.type === 'live_stream' ? (
+        <WallboardLiveStreamPageEditor />
       ) : page.type === 'photo_carousel' ? (
         <WallboardPhotoPageEditor
           idPrefix={`wallboard-photo-${page.id}`}
@@ -1776,6 +1783,7 @@ export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
     case 'weather_radar': return <CloudLightning size={18} aria-hidden />;
     case 'news': return <Newspaper size={18} aria-hidden />;
     case 'video': return <Clapperboard size={18} aria-hidden />;
+    case 'live_stream': return <RadioTower size={18} aria-hidden />;
     case 'photo_carousel': return <Images size={18} aria-hidden />;
   }
 }

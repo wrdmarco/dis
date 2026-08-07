@@ -30,6 +30,7 @@ final class SensitiveDataRedactor
         'secret',
         'session_id',
         'sessionid',
+        'stream_key',
         'token',
         'totp',
         'two_factor_code',
@@ -56,10 +57,11 @@ final class SensitiveDataRedactor
             '/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=:-]+/i' => '$1 '.self::REDACTED,
             '/((?:authorization|cookie|set-cookie|x-xsrf-token|x-csrf-token|x-dis-developer-key)\s*[:=]\s*)[^\r\n]+/i' => '$1'.self::REDACTED,
             '/\b([a-z][a-z0-9+.-]*:\/\/)[^\/@\s]+:[^@\s]+@/i' => '$1'.self::REDACTED.'@',
-            '/\b((?=[A-Z0-9_.-]*(?:APP[_.-]?KEY|API[_.-]?KEY|ACCESS[_.-]?KEY|DEVELOPER[_.-]?KEY|PASSWORD|PASSWD|PASSPHRASE|PRIVATE[_.-]?KEY|SECRET|TOKEN|CREDENTIAL|DATABASE[_.-]?URL|REDIS[_.-]?URL|MAIL[_.-]?URL|DSN)[A-Z0-9_.-]*\s*[:=])[A-Z][A-Z0-9_.-]*\s*[:=]\s*)(?:"[^"\r\n]*"|\'[^\'\r\n]*\'|[^\s\r\n]+)/i' => '$1'.self::REDACTED,
-            '/(?<![A-Za-z0-9_-])(--?(?:password|passwd|passphrase|secret|token|api[-_]?key|access[-_]?key|developer[-_]?key|private[-_]?key))(?:=|\s+)(?:"[^"\r\n]*"|\'[^\'\r\n]*\'|[^\s\r\n]+)/i' => '$1 '.self::REDACTED,
-            '/([?&](?:access_token|refresh_token|token|password|secret|api[-_]?key|developer_key|csrf_token|xsrf_token|code)=)[^&\s]+/i' => '$1'.self::REDACTED,
-            '/("(?:access_token|refresh_token|token|password|secret|api[-_]?key|csrf_token|xsrf_token|two_factor_code|totp|otp)"\s*:\s*")[^"]*(")/i' => '$1'.self::REDACTED.'$2',
+            '/\b((?=[A-Z0-9_.-]*(?:APP[_.-]?KEY|API[_.-]?KEY|ACCESS[_.-]?KEY|DEVELOPER[_.-]?KEY|STREAM[_.-]?KEY|PASSWORD|PASSWD|PASSPHRASE|PRIVATE[_.-]?KEY|SECRET|TOKEN|CREDENTIAL|DATABASE[_.-]?URL|REDIS[_.-]?URL|MAIL[_.-]?URL|DSN)[A-Z0-9_.-]*\s*[:=])[A-Z][A-Z0-9_.-]*\s*[:=]\s*)(?:"[^"\r\n]*"|\'[^\'\r\n]*\'|[^\s\r\n]+)/i' => '$1'.self::REDACTED,
+            '/(?<![A-Za-z0-9_-])(--?(?:password|passwd|passphrase|secret|token|stream[-_]?key|api[-_]?key|access[-_]?key|developer[-_]?key|private[-_]?key))(?:=|\s+)(?:"[^"\r\n]*"|\'[^\'\r\n]*\'|[^\s\r\n]+)/i' => '$1 '.self::REDACTED,
+            '/([?&](?:access_token|refresh_token|token|password|secret|stream[-_]?key|api[-_]?key|developer_key|csrf_token|xsrf_token|code)=)[^&\s]+/i' => '$1'.self::REDACTED,
+            '/("(?:access_token|refresh_token|token|password|secret|stream[-_]?key|api[-_]?key|csrf_token|xsrf_token|two_factor_code|totp|otp)"\s*:\s*")[^"]*(")/i' => '$1'.self::REDACTED.'$2',
+            '/\b(rtmps?:\/\/[^\s\/]+\/live\/)[A-Za-z0-9._~-]{32,79}/i' => '$1'.self::REDACTED,
             '/\b((?:__Host-)?dis_session|XSRF-TOKEN)=([^;\s]+)/i' => '$1='.self::REDACTED,
         ];
 
