@@ -191,6 +191,7 @@ final class WallboardLiveStreamInfrastructureContractTest extends TestCase
         }
 
         foreach ([
+            'MAX_REQUEST_BYTES=16384',
             'MAX_REQUEST_LIFETIME_SECONDS=120',
             'MAX_RESULT_BYTES=65536',
             'MINIMUM_REMAINING_SECONDS=35',

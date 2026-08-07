@@ -16,6 +16,7 @@ WALLBOARD_LIVE_INPUT_URL_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/input.url"
 WALLBOARD_LIVE_TLS_CERTIFICATE_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/server.crt"
 WALLBOARD_LIVE_TLS_PRIVATE_KEY_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/server.key"
 WALLBOARD_LIVE_CONFIGURE_PATH="/usr/local/libexec/dis-wallboard-live-configure"
+WALLBOARD_LIVE_CONFIGURATION_REQUEST_HELPER_PATH="/usr/local/libexec/dis-wallboard-live-configuration-request"
 WALLBOARD_LIVE_RUNNER_PATH="/usr/local/bin/dis-wallboard-live-runner"
 WALLBOARD_LIVE_INGRESS_RUNNER_PATH="/usr/local/bin/dis-wallboard-live-ingress-runner"
 WALLBOARD_LIVE_AUTH_PATH="/usr/local/libexec/dis-wallboard-live-auth"
@@ -501,6 +502,7 @@ install_wallboard_live_runtime_bundle() {
 
   for source_path in \
     "${app_root}/scripts/wallboard-live-configure.sh" \
+    "${app_root}/scripts/wallboard-live-configuration-request.sh" \
     "${app_root}/scripts/wallboard-live-runner.sh" \
     "${app_root}/scripts/wallboard-live-ingress-runner.sh" \
     "${app_root}/scripts/wallboard-live-auth.py" \
@@ -513,6 +515,7 @@ install_wallboard_live_runtime_bundle() {
   ensure_managed_directory /usr/local/libexec root root 0755
   ensure_managed_directory "${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}" root root 0700
   require_root_controlled_parent "${WALLBOARD_LIVE_CONFIGURE_PATH}"
+  require_root_controlled_parent "${WALLBOARD_LIVE_CONFIGURATION_REQUEST_HELPER_PATH}"
   require_root_controlled_parent "${WALLBOARD_LIVE_RUNNER_PATH}"
   require_root_controlled_parent "${WALLBOARD_LIVE_INGRESS_RUNNER_PATH}"
   require_root_controlled_parent "${WALLBOARD_LIVE_AUTH_PATH}"
@@ -520,6 +523,9 @@ install_wallboard_live_runtime_bundle() {
   require_root_controlled_parent "${WALLBOARD_LIVE_KEY_REQUEST_WORKER_PATH}"
   run_cmd install -m 0700 -o root -g root \
     "${app_root}/scripts/wallboard-live-configure.sh" "${WALLBOARD_LIVE_CONFIGURE_PATH}"
+  run_cmd install -m 0700 -o root -g root \
+    "${app_root}/scripts/wallboard-live-configuration-request.sh" \
+    "${WALLBOARD_LIVE_CONFIGURATION_REQUEST_HELPER_PATH}"
   run_cmd install -m 0755 -o root -g root \
     "${app_root}/scripts/wallboard-live-runner.sh" "${WALLBOARD_LIVE_RUNNER_PATH}"
   run_cmd install -m 0755 -o root -g root \
@@ -534,6 +540,8 @@ install_wallboard_live_runtime_bundle() {
   if [ "${DRY_RUN:-0}" != "1" ]; then
     root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_CONFIGURE_PATH}" 700 \
       || fail "The installed wallboard live-stream credential helper is unsafe."
+    root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_CONFIGURATION_REQUEST_HELPER_PATH}" 700 \
+      || fail "The installed wallboard live-stream configuration request helper is unsafe."
     root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_RUNNER_PATH}" 755 \
       || fail "The installed wallboard live-stream runner is unsafe."
     root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_INGRESS_RUNNER_PATH}" 755 \

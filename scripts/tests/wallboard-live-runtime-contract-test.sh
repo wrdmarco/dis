@@ -239,7 +239,8 @@ for contract in 'OnBootSec=1min' 'OnUnitInactiveSec=1min' 'AccuracySec=1s'; do
 done
 
 for contract in \
-  'MAX_REQUEST_BYTES=4096' \
+  'CONFIGURATION_HELPER_PATH="/usr/local/libexec/dis-wallboard-live-configuration-request"' \
+  'MAX_REQUEST_BYTES=16384' \
   'MAX_RESULT_BYTES=65536' \
   'MAX_REQUEST_LIFETIME_SECONDS=120' \
   'MINIMUM_REMAINING_SECONDS=35' \
@@ -247,6 +248,8 @@ for contract in \
   'SUCCESS_RESULT_DEADLINE_SECONDS=70' \
   'ROLLBACK_REFRESH_TIMEOUT_SECONDS=75' \
   "'user:www-data:-wx'" \
+  "request_device=\"\$(/usr/bin/stat -c '%d' -- \"\${REQUEST_DIR}\"" \
+  '[ -n "${request_device}" ] && [ "${request_device}" = "${work_device}" ]' \
   '^www-data:600:1:' \
   'keys_unsorted - ["operation", "stream_key", "expected_key_sha256", "actor_id", "created_at", "expires_at"]' \
   'test("^[A-Za-z0-9_-]{64}$")' \
@@ -288,6 +291,29 @@ for contract in \
   '[ "${matches}" -eq 1 ] && valid_stream_key "${value}" || return 1'; do
   require_text "${KEY_WORKER}" "${contract}"
 done
+for dispatch_contract in \
+  'dispatch_claimed_request()' \
+  'CONFIGURATION_TERMINAL_OFFSET_SECONDS=100' \
+  'CONFIGURATION_RECOVERY_TIMEOUT_SECONDS=15' \
+  'configuration_request_timeout_seconds()' \
+  'budget="$((created_epoch + CONFIGURATION_TERMINAL_OFFSET_SECONDS - now))"' \
+  '/usr/bin/timeout --signal=TERM --kill-after=1s "${timeout_seconds}s" /usr/bin/env' \
+  'for artifact in previous-env configuration-commit recovery-required; do' \
+  'budget="${CONFIGURATION_RECOVERY_TIMEOUT_SECONDS}"' \
+  'if [ "${operation}" != configure ]; then' \
+  'process_claimed_request "${running_file}"' \
+  'root_owned_runtime_file_is_safe "${CONFIGURATION_HELPER_PATH}" 700' \
+  'APP_ROOT="${APP_ROOT}"' \
+  'DIS_DATA_PATH="${DIS_DATA_PATH}"' \
+  'PHP_FPM_SERVICE="${PHP_FPM_SERVICE}"' \
+  '"${CONFIGURATION_HELPER_PATH}" "${running_file}"' \
+  'dispatch_claimed_request "${running}"'; do
+  require_text "${KEY_WORKER}" "${dispatch_contract}"
+done
+[ "$(grep -Fc -- 'dispatch_claimed_request "${running}"' "${KEY_WORKER}")" -eq 2 ] || {
+  printf 'Wallboard live-stream worker must dispatch both newly claimed and recovered requests.\n' >&2
+  exit 1
+}
 reject_text "${KEY_WORKER}" 'stream_key=${stream_key}'
 reject_text "${KEY_WORKER}" 'expected_key_sha256=${expected_key_sha256}'
 require_order "${KEY_WORKER}" \
@@ -361,6 +387,10 @@ for contract in \
   "--proto '=https'" \
   'ensure_wallboard_live_ingress_identity' \
   'ensure_wallboard_live_ingress_dependency' \
+  'WALLBOARD_LIVE_CONFIGURATION_REQUEST_HELPER_PATH="/usr/local/libexec/dis-wallboard-live-configuration-request"' \
+  '"${app_root}/scripts/wallboard-live-configuration-request.sh"' \
+  '"${WALLBOARD_LIVE_CONFIGURATION_REQUEST_HELPER_PATH}"' \
+  'root_owned_runtime_file_is_safe "${WALLBOARD_LIVE_CONFIGURATION_REQUEST_HELPER_PATH}" 700' \
   'WALLBOARD_LIVE_STREAM_KEY_HASH_PATH="${WALLBOARD_LIVE_CREDENTIAL_DIRECTORY}/stream-key.sha256"'; do
   require_text "${COMMON}" "${contract}"
 done

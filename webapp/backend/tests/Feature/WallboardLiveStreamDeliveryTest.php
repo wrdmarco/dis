@@ -89,8 +89,17 @@ final class WallboardLiveStreamDeliveryTest extends TestCase
                 'server_url' => 'rtmps://stream.example.test:1936/live',
                 'stream_key_configured' => true,
                 'stream_key_version' => null,
+                'configuration_revision' => '654269efb59cccce8cb398392404b389fa8a36fc2c4a8c0f0bd9cd7c24d9ade8',
                 'last_packet_at' => null,
                 'message' => 'Wachten op een geldig OBS-signaal.',
+                'configuration' => [
+                    'enabled' => true,
+                    'public_host' => 'stream.example.test',
+                    'rtmps_bind_address' => '0.0.0.0',
+                    'rtmps_port' => 1936,
+                    'tls_certificate_path' => '/etc/letsencrypt/live/stream.example.test/fullchain.pem',
+                    'tls_private_key_path' => '/etc/letsencrypt/live/stream.example.test/privkey.pem',
+                ],
             ]]);
 
         $encoded = (string) $response->getContent();

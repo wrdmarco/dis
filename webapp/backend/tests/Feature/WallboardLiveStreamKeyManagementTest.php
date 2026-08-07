@@ -237,7 +237,7 @@ final class WallboardLiveStreamKeyManagementTest extends TestCase
     {
         $source = file_get_contents(app_path('Services/WallboardLiveStreamKeyRequestService.php'));
         $this->assertIsString($source);
-        $sharedLock = strpos($source, 'flock($handle, LOCK_SH)');
+        $sharedLock = strpos($source, 'flock($handle, LOCK_SH | LOCK_NB)');
         $pathRestat = strpos($source, '$pathMetadata = $this->pathMetadata($path);', $sharedLock ?: 0);
         $metadataRead = strpos($source, '$metadata = fstat($handle);', $sharedLock ?: 0);
 
@@ -251,30 +251,122 @@ final class WallboardLiveStreamKeyManagementTest extends TestCase
         $this->assertStringContainsString('flock($handle, LOCK_UN);', $source);
     }
 
-    public function test_result_reader_fails_closed_when_the_path_disappears_after_locking_the_open_inode(): void
+    public function test_result_lock_contention_remains_inside_the_bounded_wait(): void
+    {
+        $requestId = str_repeat('a', 32);
+        $pending = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending';
+        $resultPath = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.result';
+        $clockReads = 0;
+        $exclusiveHandle = null;
+        $broker = new WallboardLiveStreamKeyRequestService(
+            requestRootOverride: $this->requestRoot,
+            requestIdGenerator: static fn (): string => $requestId,
+            monotonicClock: static function () use (&$clockReads): float {
+                $timestamps = [0.0, 0.0, 1.0];
+
+                return $timestamps[$clockReads++] ?? 1.0;
+            },
+            sleeper: function () use ($pending, $resultPath, &$exclusiveHandle): void {
+                $this->assertTrue(unlink($pending));
+                $this->assertNotFalse(file_put_contents($resultPath, json_encode([
+                    'state' => 'finalizing',
+                    'exit_code' => 0,
+                    'output' => 'Stream key rotation is being finalized.',
+                    'finished_at' => '2026-08-07T12:00:00Z',
+                ], JSON_THROW_ON_ERROR)));
+                $this->assertTrue(chmod($resultPath, 0600));
+                $exclusiveHandle = fopen($resultPath, 'rb');
+                $this->assertIsResource($exclusiveHandle);
+                $this->assertTrue(flock($exclusiveHandle, LOCK_EX | LOCK_NB));
+            },
+        );
+
+        try {
+            $result = $broker->rotate(
+                self::CURRENT_KEY,
+                hash('sha256', str_repeat('p', 64)),
+                '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+                1,
+            );
+        } finally {
+            if (is_resource($exclusiveHandle)) {
+                flock($exclusiveHandle, LOCK_UN);
+                fclose($exclusiveHandle);
+            }
+        }
+
+        $this->assertSame('timeout_claimed', $result['outcome']);
+        $this->assertSame(124, $result['exit_code']);
+        $this->assertFileExists($resultPath);
+    }
+
+    public function test_finalizing_result_is_retried_across_atomic_inode_replacement_without_unlinking_the_terminal_result(): void
     {
         $requestId = str_repeat('d', 32);
         $pending = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending';
         $resultPath = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.result';
+        $replacementPath = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.replacement';
         $metadataReads = 0;
+        $sleeps = 0;
+        $terminalResult = json_encode([
+            'state' => 'succeeded',
+            'exit_code' => 0,
+            'output' => 'Stream key rotation completed.',
+            'finished_at' => '2026-08-07T12:00:01Z',
+        ], JSON_THROW_ON_ERROR);
         $broker = new WallboardLiveStreamKeyRequestService(
             requestRootOverride: $this->requestRoot,
             requestIdGenerator: static fn (): string => $requestId,
             monotonicClock: static fn (): float => 0.0,
-            sleeper: function () use ($pending, $resultPath): void {
-                $this->assertTrue(unlink($pending));
-                $this->assertNotFalse(file_put_contents($resultPath, json_encode([
-                    'state' => 'succeeded',
-                    'exit_code' => 0,
-                    'output' => 'A late success result that must not be accepted.',
-                    'finished_at' => '2026-08-07T12:00:00Z',
-                ], JSON_THROW_ON_ERROR)));
-                $this->assertTrue(chmod($resultPath, 0600));
-            },
-            pathMetadataReader: function (string $path) use (&$metadataReads): array|false {
-                $metadataReads++;
+            sleeper: function () use ($pending, $resultPath, $terminalResult, &$sleeps): void {
+                $sleeps++;
+                if ($sleeps === 1) {
+                    $this->assertTrue(unlink($pending));
+                    $this->assertNotFalse(file_put_contents($resultPath, json_encode([
+                        'state' => 'finalizing',
+                        'exit_code' => 0,
+                        'output' => 'Stream key rotation is being finalized.',
+                        'finished_at' => '2026-08-07T12:00:00Z',
+                    ], JSON_THROW_ON_ERROR)));
+                    $this->assertTrue(chmod($resultPath, 0600));
 
-                return $metadataReads === 1 ? lstat($path) : false;
+                    return;
+                }
+
+                $this->assertFileExists($resultPath);
+                if (PHP_OS_FAMILY === 'Windows') {
+                    $this->assertNotFalse(file_put_contents($resultPath, $terminalResult));
+                    $this->assertTrue(chmod($resultPath, 0600));
+                }
+                $this->assertSame('succeeded', json_decode(
+                    (string) file_get_contents($resultPath),
+                    true,
+                    flags: JSON_THROW_ON_ERROR,
+                )['state']);
+            },
+            pathMetadataReader: function (string $path) use (
+                $replacementPath,
+                $terminalResult,
+                &$metadataReads,
+            ): array|false {
+                $metadataReads++;
+                $metadata = lstat($path);
+                if ($metadataReads !== 2 || $metadata === false) {
+                    return $metadata;
+                }
+                if (PHP_OS_FAMILY === 'Windows') {
+                    // Windows cannot replace a pathname while its inode is open;
+                    // report the equivalent post-replacement identity instead.
+                    $metadata['ino'] = ((int) ($metadata['ino'] ?? 0)) + 1;
+
+                    return $metadata;
+                }
+
+                $this->assertNotFalse(file_put_contents($replacementPath, $terminalResult));
+                $this->assertTrue(chmod($replacementPath, 0600));
+                $this->assertTrue(rename($replacementPath, $path));
+
+                return lstat($path);
             },
         );
 
@@ -285,10 +377,93 @@ final class WallboardLiveStreamKeyManagementTest extends TestCase
             1,
         );
 
-        $this->assertSame('invalid_result', $result['outcome']);
-        $this->assertNull($result['exit_code']);
-        $this->assertSame(2, $metadataReads);
+        $this->assertSame('succeeded', $result['outcome']);
+        $this->assertSame(0, $result['exit_code']);
+        $this->assertSame(2, $sleeps);
+        $this->assertGreaterThanOrEqual(5, $metadataReads);
         $this->assertFileDoesNotExist($resultPath);
+    }
+
+    public function test_finalizing_result_remains_available_after_the_bounded_wait_times_out(): void
+    {
+        $requestId = str_repeat('e', 32);
+        $pending = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending';
+        $resultPath = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.result';
+        $clockReads = 0;
+        $sleeps = 0;
+        $broker = new WallboardLiveStreamKeyRequestService(
+            requestRootOverride: $this->requestRoot,
+            requestIdGenerator: static fn (): string => $requestId,
+            monotonicClock: static function () use (&$clockReads): float {
+                $timestamps = [0.0, 0.0, 1.0];
+
+                return $timestamps[$clockReads++] ?? 1.0;
+            },
+            sleeper: function () use ($pending, $resultPath, &$sleeps): void {
+                $sleeps++;
+                $this->assertSame(1, $sleeps);
+                $this->assertTrue(unlink($pending));
+                $this->assertNotFalse(file_put_contents($resultPath, json_encode([
+                    'state' => 'finalizing',
+                    'exit_code' => 0,
+                    'output' => 'Stream key rotation is being finalized.',
+                    'finished_at' => '2026-08-07T12:00:00Z',
+                ], JSON_THROW_ON_ERROR)));
+                $this->assertTrue(chmod($resultPath, 0600));
+            },
+        );
+
+        $result = $broker->rotate(
+            self::CURRENT_KEY,
+            hash('sha256', str_repeat('p', 64)),
+            '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+            1,
+        );
+
+        $this->assertSame('timeout_claimed', $result['outcome']);
+        $this->assertSame(124, $result['exit_code']);
+        $this->assertSame(1, $sleeps);
+        $this->assertFileExists($resultPath);
+        $this->assertSame('finalizing', json_decode(
+            (string) file_get_contents($resultPath),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        )['state']);
+    }
+
+    public function test_configuration_request_rejects_an_encoded_payload_over_the_worker_limit_before_publication(): void
+    {
+        $requestId = str_repeat('f', 32);
+        $sleeperCalled = false;
+        $broker = new WallboardLiveStreamKeyRequestService(
+            requestRootOverride: $this->requestRoot,
+            requestIdGenerator: static fn (): string => $requestId,
+            monotonicClock: static fn (): float => 0.0,
+            sleeper: static function () use (&$sleeperCalled): void {
+                $sleeperCalled = true;
+            },
+        );
+        $oversizedField = str_repeat('x', 4096);
+
+        try {
+            $broker->configure([
+                'enabled' => true,
+                'public_host' => $oversizedField,
+                'bind_address' => $oversizedField,
+                'rtmps_port' => 1936,
+                'tls_certificate_path' => $oversizedField,
+                'tls_private_key_path' => $oversizedField,
+            ], str_repeat('a', 64), '01ARZ3NDEKTSV4RRFFQ69G5FAV', 1);
+            $this->fail('An encoded request larger than the worker contract was accepted.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame(
+                'The encoded wallboard live-stream request exceeds the worker limit.',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertFalse($sleeperCalled);
+        $this->assertSame([], glob($this->requestRoot.DIRECTORY_SEPARATOR.'*') ?: []);
     }
 
     public function test_rotation_confirmation_is_exact(): void

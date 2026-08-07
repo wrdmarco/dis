@@ -44,6 +44,58 @@ final class WallboardLiveStreamProcessService
         $streamKey = (string) config('wallboard_live_stream.stream_key', '');
         $tlsCertificatePath = trim((string) config('wallboard_live_stream.tls_certificate_path', ''));
         $tlsPrivateKeyPath = trim((string) config('wallboard_live_stream.tls_private_key_path', ''));
+        $delivery = $this->deliverySettings();
+
+        if ($enabled) {
+            if (! $this->isValidBindAddress($rtmpsBindAddress)) {
+                throw new RuntimeException('WALLBOARD_LIVE_STREAM_RTMPS_BIND_ADDRESS must be a valid local IPv4 address.');
+            }
+            if (! $this->isValidStreamKey($streamKey)) {
+                throw new RuntimeException('WALLBOARD_LIVE_STREAM_STREAM_KEY must contain 32 through 79 URL-safe characters and must not consist of one repeated character.');
+            }
+            if (! $this->isValidRtmpsPort($rtmpsPort)) {
+                throw new RuntimeException('WALLBOARD_LIVE_STREAM_RTMPS_PORT must be an available port from 1024 through 65535 and may not use an internal live-stream port.');
+            }
+            if ($publicHost === '' || ! $this->isValidPublicHost($publicHost)) {
+                throw new RuntimeException('WALLBOARD_LIVE_STREAM_PUBLIC_HOST must contain a hostname or IPv4 address without a scheme or port.');
+            }
+            if (! $this->validTlsSourcePath($tlsCertificatePath)) {
+                throw new RuntimeException('WALLBOARD_LIVE_STREAM_TLS_CERTIFICATE_PATH must be an absolute managed path.');
+            }
+            if (! $this->validTlsSourcePath($tlsPrivateKeyPath)) {
+                throw new RuntimeException('WALLBOARD_LIVE_STREAM_TLS_PRIVATE_KEY_PATH must be an absolute managed path.');
+            }
+        }
+
+        return [
+            'enabled' => $enabled,
+            'public_host' => $publicHost === '' ? null : strtolower($publicHost),
+            'rtmps_bind_address' => $rtmpsBindAddress,
+            'rtmps_port' => $rtmpsPort,
+            'stream_key_configured' => $this->isValidStreamKey($streamKey),
+            'tls_certificate_path' => $tlsCertificatePath,
+            'tls_private_key_path' => $tlsPrivateKeyPath,
+            ...$delivery,
+        ];
+    }
+
+    /**
+     * Return only the settings needed to inspect the local HLS output. This is
+     * also safe to use in the request that committed a managed configuration:
+     * that request can still hold the pre-reload Laravel ingest configuration.
+     *
+     * @return array{
+     *     runtime_directory: string,
+     *     output_directory: string,
+     *     segment_duration_seconds: int,
+     *     segment_list_size: int,
+     *     manifest_stale_seconds: int,
+     *     max_manifest_bytes: int,
+     *     max_segment_bytes: int
+     * }
+     */
+    public function deliverySettings(): array
+    {
         $runtimeDirectory = rtrim(
             trim((string) config('wallboard_live_stream.runtime_directory', '/run/dis-wallboard-live')),
             '/\\',
@@ -78,36 +130,7 @@ final class WallboardLiveStreamProcessService
             throw new RuntimeException('The wallboard live-stream delivery limits are invalid.');
         }
 
-        if ($enabled) {
-            if (! $this->validBindAddress($rtmpsBindAddress)) {
-                throw new RuntimeException('WALLBOARD_LIVE_STREAM_RTMPS_BIND_ADDRESS must be a valid local IPv4 address.');
-            }
-            if (! $this->isValidStreamKey($streamKey)) {
-                throw new RuntimeException('WALLBOARD_LIVE_STREAM_STREAM_KEY must contain 32 through 79 URL-safe characters and must not consist of one repeated character.');
-            }
-            if ($rtmpsPort < 1024 || $rtmpsPort > 65535
-                || in_array($rtmpsPort, self::RESERVED_INGRESS_PORTS, true)) {
-                throw new RuntimeException('WALLBOARD_LIVE_STREAM_RTMPS_PORT must be an available port from 1024 through 65535 and may not use an internal live-stream port.');
-            }
-            if ($publicHost === '' || ! $this->validPublicHost($publicHost)) {
-                throw new RuntimeException('WALLBOARD_LIVE_STREAM_PUBLIC_HOST must contain a hostname or IPv4 address without a scheme or port.');
-            }
-            if (! $this->validTlsSourcePath($tlsCertificatePath)) {
-                throw new RuntimeException('WALLBOARD_LIVE_STREAM_TLS_CERTIFICATE_PATH must be an absolute managed path.');
-            }
-            if (! $this->validTlsSourcePath($tlsPrivateKeyPath)) {
-                throw new RuntimeException('WALLBOARD_LIVE_STREAM_TLS_PRIVATE_KEY_PATH must be an absolute managed path.');
-            }
-        }
-
         return [
-            'enabled' => $enabled,
-            'public_host' => $publicHost === '' ? null : strtolower($publicHost),
-            'rtmps_bind_address' => $rtmpsBindAddress,
-            'rtmps_port' => $rtmpsPort,
-            'stream_key_configured' => $this->isValidStreamKey($streamKey),
-            'tls_certificate_path' => $tlsCertificatePath,
-            'tls_private_key_path' => $tlsPrivateKeyPath,
             'runtime_directory' => $runtimeDirectory,
             'output_directory' => $outputDirectory,
             'segment_duration_seconds' => $segmentDuration,
@@ -123,12 +146,19 @@ final class WallboardLiveStreamProcessService
         $settings = $this->settings();
         $host = $settings['public_host'];
 
-        return $host !== null && $this->validPublicHost($host) ? strtolower($host) : null;
+        return $host !== null && $this->isValidPublicHost($host) ? strtolower($host) : null;
     }
 
-    private function validBindAddress(string $address): bool
+    public function isValidBindAddress(string $address): bool
     {
         return $address === '0.0.0.0' || $this->validUnicastIpv4($address);
+    }
+
+    public function isValidRtmpsPort(int $port): bool
+    {
+        return $port >= 1024
+            && $port <= 65535
+            && ! in_array($port, self::RESERVED_INGRESS_PORTS, true);
     }
 
     private function validUnicastIpv4(string $address): bool
@@ -154,6 +184,28 @@ final class WallboardLiveStreamProcessService
             && $streamKey !== str_repeat($streamKey[0], $length);
     }
 
+    public function isValidPortalTlsPath(string $path): bool
+    {
+        return $this->validTlsSourcePath($path)
+            && preg_match('/[\x00-\x1F\x7F]/', $path) !== 1
+            && preg_match('#\A[A-Za-z0-9._/-]+\z#D', $path) === 1
+            && ! str_contains($path, '//')
+            && ! in_array('.', explode('/', $path), true)
+            && ! str_ends_with($path, '/')
+            && (
+                str_starts_with($path, '/etc/letsencrypt/live/')
+                || str_starts_with($path, '/etc/ssl/')
+            );
+    }
+
+    public function isValidManagedTlsPath(string $path): bool
+    {
+        return $path !== ''
+            && strlen($path) <= 4096
+            && str_starts_with($path, '/')
+            && preg_match('/\A[\x20-\x7E]+\z/D', $path) === 1;
+    }
+
     private function validTlsSourcePath(string $path): bool
     {
         return $path !== ''
@@ -165,10 +217,13 @@ final class WallboardLiveStreamProcessService
             && ! in_array('..', explode('/', $path), true);
     }
 
-    private function validPublicHost(string $host): bool
+    public function isValidPublicHost(string $host): bool
     {
         if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
             return $this->validUnicastIpv4($host);
+        }
+        if (preg_match('/\A(?:[0-9]{1,3}\.){3}[0-9]{1,3}\z/D', $host) === 1) {
+            return false;
         }
 
         return strlen($host) <= 253

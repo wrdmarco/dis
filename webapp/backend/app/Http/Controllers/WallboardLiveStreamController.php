@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Admin\RevealWallboardLiveStreamKeyRequest;
 use App\Http\Requests\Admin\RotateWallboardLiveStreamKeyRequest;
+use App\Http\Requests\Admin\UpdateWallboardLiveStreamConfigurationRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\Wallboard;
+use App\Services\WallboardLiveStreamConfigurationService;
 use App\Services\WallboardLiveStreamDeliveryService;
 use App\Services\WallboardLiveStreamKeyService;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +19,7 @@ final class WallboardLiveStreamController extends Controller
     public function __construct(
         private readonly WallboardLiveStreamDeliveryService $stream,
         private readonly WallboardLiveStreamKeyService $keys,
+        private readonly WallboardLiveStreamConfigurationService $configuration,
     ) {}
 
     public function status(Request $request): JsonResponse
@@ -110,6 +113,47 @@ final class WallboardLiveStreamController extends Controller
         return $this->sensitiveJson(ApiResponse::error(
             'wallboard_live_stream_key_rotation_failed',
             'De Stream Key is niet aantoonbaar gewijzigd. De huidige key blijft leidend; probeer het opnieuw.',
+            503,
+            $details,
+        ));
+    }
+
+    public function updateConfiguration(UpdateWallboardLiveStreamConfigurationRequest $request): JsonResponse
+    {
+        $actor = $request->user();
+        abort_if($actor === null, 401);
+        $validated = $request->validated();
+        $update = $this->configuration->update([
+            'enabled' => (bool) $validated['enabled'],
+            'public_host' => (string) $validated['public_host'],
+            'rtmps_bind_address' => (string) $validated['rtmps_bind_address'],
+            'rtmps_port' => (int) $validated['rtmps_port'],
+            'tls_certificate_path' => (string) $validated['tls_certificate_path'],
+            'tls_private_key_path' => (string) $validated['tls_private_key_path'],
+        ], (string) $validated['configuration_revision'], $actor, $request);
+
+        if ($update['outcome'] === 'succeeded') {
+            return $this->sensitiveJson(ApiResponse::success([
+                'status' => $this->stream->statusForAdmin(true),
+                'key_created' => $update['key_created'],
+                'configuration_changed' => $update['configuration_changed'],
+            ]));
+        }
+
+        $requestId = $update['request_id'];
+        $details = is_string($requestId) ? ['request_id' => $requestId] : [];
+        if ($update['outcome'] === 'configuration_changed') {
+            return $this->sensitiveJson(ApiResponse::error(
+                'wallboard_live_stream_configuration_changed',
+                'De live-streamconfiguratie is intussen door een andere beheerder gewijzigd. Vernieuw de status en probeer het opnieuw.',
+                409,
+                $details,
+            ));
+        }
+
+        return $this->sensitiveJson(ApiResponse::error(
+            'wallboard_live_stream_configuration_update_failed',
+            'De live-streamconfiguratie is niet aantoonbaar gewijzigd. De huidige serverconfiguratie blijft leidend; probeer het opnieuw.',
             503,
             $details,
         ));

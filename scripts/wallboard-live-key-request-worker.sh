@@ -15,7 +15,10 @@ WORK_DIR="${DIS_DATA_PATH}/wallboard-live-key-request-work"
 LOCK_DIR="/run/dis-wallboard-live-key-request"
 LOCK_FILE="${LOCK_DIR}/worker.lock"
 REFRESH_PATH="/usr/local/sbin/dis-wallboard-live-refresh"
-MAX_REQUEST_BYTES=4096
+CONFIGURATION_HELPER_PATH="/usr/local/libexec/dis-wallboard-live-configuration-request"
+CONFIGURATION_TERMINAL_OFFSET_SECONDS=100
+CONFIGURATION_RECOVERY_TIMEOUT_SECONDS=15
+MAX_REQUEST_BYTES=16384
 MAX_RESULT_BYTES=65536
 MAX_MANAGED_ENV_BYTES=2097152
 MAX_REQUEST_LIFETIME_SECONDS=120
@@ -30,11 +33,14 @@ security_log() {
 }
 
 request_layout_is_safe() {
-  local request_metadata work_metadata acl named_users named_groups
+  local request_metadata work_metadata request_device work_device acl named_users named_groups
 
   request_metadata="$(/usr/bin/stat -c '%u:%g:%a' -- "${REQUEST_DIR}" 2>/dev/null || true)"
   work_metadata="$(/usr/bin/stat -c '%u:%g:%a' -- "${WORK_DIR}" 2>/dev/null || true)"
   [ "${request_metadata}" = "0:0:1730" ] && [ "${work_metadata}" = "0:0:700" ] || return 1
+  request_device="$(/usr/bin/stat -c '%d' -- "${REQUEST_DIR}" 2>/dev/null || true)"
+  work_device="$(/usr/bin/stat -c '%d' -- "${WORK_DIR}" 2>/dev/null || true)"
+  [ -n "${request_device}" ] && [ "${request_device}" = "${work_device}" ] || return 1
   acl="$(/usr/bin/getfacl -cp -- "${REQUEST_DIR}" 2>/dev/null || true)"
   /usr/bin/grep -Fxq 'user:www-data:-wx' <<< "${acl}" || return 1
   /usr/bin/grep -Fxq 'user::rwx' <<< "${acl}" || return 1
@@ -704,6 +710,65 @@ process_claimed_request() {
   unset stream_key current_key previous_key
 }
 
+dispatch_claimed_request() {
+  local running_file="$1" operation timeout_seconds
+
+  operation="$(/usr/bin/jq -r '
+    if type == "object" and (.operation | type == "string") then .operation else "" end
+  ' "${running_file}" 2>/dev/null || true)"
+  if [ "${operation}" != configure ]; then
+    process_claimed_request "${running_file}"
+    return
+  fi
+
+  root_owned_runtime_file_is_safe "${CONFIGURATION_HELPER_PATH}" 700 || {
+    security_log err 'wallboard_live_configuration_request_rejected reason=unsafe_helper'
+    return 1
+  }
+  timeout_seconds="$(configuration_request_timeout_seconds "${running_file}")"
+  /usr/bin/timeout --signal=TERM --kill-after=1s "${timeout_seconds}s" /usr/bin/env \
+    APP_ROOT="${APP_ROOT}" \
+    DIS_DATA_PATH="${DIS_DATA_PATH}" \
+    PHP_FPM_SERVICE="${PHP_FPM_SERVICE}" \
+    DIS_OPERATION_LOCK_HELD=1 \
+    DIS_OPERATION_LOCK_FD="${DIS_OPERATION_LOCK_FD}" \
+    "${CONFIGURATION_HELPER_PATH}" "${running_file}"
+}
+
+configuration_request_timeout_seconds() {
+  local running_file="$1" created_at created_epoch normalized now budget request_id artifact
+
+  created_at="$(/usr/bin/jq -r '
+    if type == "object" and (.created_at | type == "string") then .created_at else "" end
+  ' "${running_file}" 2>/dev/null || true)"
+  created_epoch="$(/usr/bin/date -u -d "${created_at}" +%s 2>/dev/null || true)"
+  normalized=""
+  if [[ "${created_epoch}" =~ ^[0-9]+$ ]]; then
+    normalized="$(/usr/bin/date -u -d "@${created_epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+  fi
+  now="$(/usr/bin/date +%s)"
+  if [[ "${created_epoch}" =~ ^[0-9]+$ ]] && [ "${normalized}" = "${created_at}" ]; then
+    budget="$((created_epoch + CONFIGURATION_TERMINAL_OFFSET_SECONDS - now))"
+  else
+    budget=5
+  fi
+  [ "${budget}" -ge 1 ] || budget=1
+  [ "${budget}" -le "${CONFIGURATION_TERMINAL_OFFSET_SECONDS}" ] \
+    || budget="${CONFIGURATION_TERMINAL_OFFSET_SECONDS}"
+  request_id="$(/usr/bin/basename "${running_file}" .json)"
+  if [[ "${request_id}" =~ ^[a-f0-9]{32}$ ]]; then
+    for artifact in previous-env configuration-commit recovery-required; do
+      if [ -e "${WORK_DIR}/${request_id}.${artifact}" ] \
+        || [ -L "${WORK_DIR}/${request_id}.${artifact}" ]; then
+        [ "${budget}" -ge "${CONFIGURATION_RECOVERY_TIMEOUT_SECONDS}" ] \
+          || budget="${CONFIGURATION_RECOVERY_TIMEOUT_SECONDS}"
+        break
+      fi
+    done
+  fi
+  printf '%s\n' "${budget}"
+}
+
 claim_pending_request() {
   local pending="$1" request_id running metadata
 
@@ -726,7 +791,7 @@ claim_pending_request() {
   fi
   /usr/bin/chown root:root "${running}"
   /usr/bin/chmod 0600 "${running}"
-  process_claimed_request "${running}"
+  dispatch_claimed_request "${running}"
 }
 
 main() {
@@ -759,7 +824,7 @@ main() {
 
   shopt -s nullglob
   for running in "${WORK_DIR}"/*.json; do
-    process_claimed_request "${running}"
+    dispatch_claimed_request "${running}"
     return
   done
   for pending in "${REQUEST_DIR}"/*.pending; do

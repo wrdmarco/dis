@@ -17,6 +17,7 @@ final class WallboardLiveStreamDeliveryService
     public function __construct(
         private readonly WallboardLiveStreamProcessService $process,
         private readonly WallboardLiveStreamKeyService $keys,
+        private readonly WallboardLiveStreamConfigurationService $configuration,
         private readonly WallboardRepository $wallboards,
         private readonly WallboardPlaylistResolver $playlists,
     ) {}
@@ -39,35 +40,55 @@ final class WallboardLiveStreamDeliveryService
         ];
     }
 
-    /** @return array{status: string, server_url: string|null, stream_key_configured: bool, stream_key_version: string|null, last_packet_at: string|null, message: string|null} */
-    public function statusForAdmin(): array
+    /**
+     * @return array{
+     *     status: string,
+     *     server_url: string|null,
+     *     stream_key_configured: bool,
+     *     stream_key_version: string|null,
+     *     configuration_revision: string,
+     *     last_packet_at: string|null,
+     *     message: string|null,
+     *     configuration: array{
+     *         enabled: bool,
+     *         public_host: string,
+     *         rtmps_bind_address: string,
+     *         rtmps_port: int,
+     *         tls_certificate_path: string,
+     *         tls_private_key_path: string
+     *     }
+     * }
+     */
+    public function statusForAdmin(bool $managedConfigurationJustCommitted = false): array
     {
-        $status = $this->streamStatus();
+        $configurationState = $this->configuration->statusState();
+        $configuration = $configurationState['configuration'];
+        $status = $this->streamStatus(
+            $configuration['enabled'],
+            $managedConfigurationJustCommitted,
+        );
         $serverUrl = null;
-        $streamKeyConfigured = false;
-        if ($this->process->enabled()) {
-            try {
-                $settings = $this->process->settings();
-                $streamKeyConfigured = $settings['stream_key_configured'];
-                $host = $this->process->rtmpsHost();
-                $serverUrl = $host === null ? null : sprintf(
-                    'rtmps://%s:%d/live',
-                    $host,
-                    $settings['rtmps_port'],
-                );
-            } catch (Throwable) {
-                $serverUrl = null;
-                $streamKeyConfigured = false;
-            }
+        if ($configuration['enabled']
+            && $configuration['public_host'] !== ''
+            && $this->process->isValidPublicHost($configuration['public_host'])
+            && $this->process->isValidRtmpsPort($configuration['rtmps_port'])) {
+            $serverUrl = sprintf(
+                'rtmps://%s:%d/live',
+                $configuration['public_host'],
+                $configuration['rtmps_port'],
+            );
         }
+        $streamKeyVersion = $this->keys->streamKeyVersion();
 
         return [
             'status' => $status['status'],
             'server_url' => $serverUrl,
-            'stream_key_configured' => $streamKeyConfigured,
-            'stream_key_version' => $this->keys->streamKeyVersion(),
+            'stream_key_configured' => $configurationState['stream_key_configured'],
+            'stream_key_version' => $streamKeyVersion,
+            'configuration_revision' => $configurationState['configuration_revision'],
             'last_packet_at' => $status['last_packet_at'],
             'message' => $status['message'],
+            'configuration' => $configuration,
         ];
     }
 
@@ -94,9 +115,11 @@ final class WallboardLiveStreamDeliveryService
     }
 
     /** @return array{status: string, last_packet_at: string|null, message: string|null} */
-    private function streamStatus(): array
-    {
-        if (! $this->process->enabled()) {
+    private function streamStatus(
+        ?bool $enabled = null,
+        bool $useDeliveryOnlySettings = false,
+    ): array {
+        if (! ($enabled ?? $this->process->enabled())) {
             return [
                 'status' => 'offline',
                 'last_packet_at' => null,
@@ -105,7 +128,9 @@ final class WallboardLiveStreamDeliveryService
         }
 
         try {
-            $settings = $this->process->settings();
+            $settings = $useDeliveryOnlySettings
+                ? $this->process->deliverySettings()
+                : $this->process->settings();
             $inspection = $this->inspectManifest($settings);
         } catch (Throwable) {
             return [

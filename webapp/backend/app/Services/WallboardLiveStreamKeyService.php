@@ -141,6 +141,12 @@ final class WallboardLiveStreamKeyService
     private function currentStreamKey(): ?string
     {
         $path = trim((string) config('wallboard_live_stream.managed_env_path', ''));
+        if ($path !== '') {
+            // Rotation replaces the managed environment atomically from a
+            // separate root process, so discard metadata cached earlier in
+            // this request before checking and reading it again.
+            clearstatcache(true, $path);
+        }
         if ($path === '' || is_link($path) || ! is_file($path) || ! is_readable($path)) {
             return null;
         }

@@ -518,6 +518,15 @@ export interface WallboardPage {
 
 export type WallboardLiveStreamStatusValue = 'live' | 'waiting' | 'offline' | 'error';
 
+export interface WallboardLiveStreamConfiguration {
+  enabled: boolean;
+  public_host: string;
+  rtmps_bind_address: string;
+  rtmps_port: number;
+  tls_certificate_path: string;
+  tls_private_key_path: string;
+}
+
 export interface WallboardLiveStreamAdminStatus {
   status: WallboardLiveStreamStatusValue;
   server_url: string | null;
@@ -525,6 +534,18 @@ export interface WallboardLiveStreamAdminStatus {
   stream_key_version: string | null;
   last_packet_at: string | null;
   message: string | null;
+  configuration: WallboardLiveStreamConfiguration;
+  configuration_revision: string;
+}
+
+export interface WallboardLiveStreamConfigurationRequest extends WallboardLiveStreamConfiguration {
+  configuration_revision: string;
+}
+
+export interface WallboardLiveStreamConfigurationUpdate {
+  status: WallboardLiveStreamAdminStatus;
+  key_created: boolean;
+  configuration_changed: boolean;
 }
 
 export interface WallboardLiveStreamStreamKey {

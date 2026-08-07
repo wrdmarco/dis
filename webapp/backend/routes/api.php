@@ -730,6 +730,8 @@ Route::middleware([
         ->middleware('throttle:wallboard-live-stream-key-reveal');
     Route::post('/admin/wallboard-live-stream/stream-key/rotate', [WallboardLiveStreamController::class, 'rotateStreamKey'])
         ->middleware('throttle:wallboard-live-stream-key-rotate');
+    Route::post('/admin/wallboard-live-stream/configuration', [WallboardLiveStreamController::class, 'updateConfiguration'])
+        ->middleware('throttle:wallboard-live-stream-configuration');
 });
 
 Route::fallback(fn () => ApiResponse::error('api_route_not_found', 'DIS API route was not found.', 404));

@@ -216,6 +216,15 @@ final class AppServiceProvider extends ServiceProvider
                 Limit::perHour(4)->by('wallboard-live-stream-key-rotate:user-hour:'.$actor),
             ];
         });
+        RateLimiter::for('wallboard-live-stream-configuration', function (Request $request): array {
+            $actor = hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'));
+
+            return [
+                Limit::perMinute(2)->by('wallboard-live-stream-configuration:client:'.$this->rateLimitClientKey($request)),
+                Limit::perMinute(2)->by('wallboard-live-stream-configuration:user-minute:'.$actor),
+                Limit::perHour(12)->by('wallboard-live-stream-configuration:user-hour:'.$actor),
+            ];
+        });
         RateLimiter::for('wallboard-media-upload', fn (Request $request): array => $this->authenticatedClientLimits(
             request: $request,
             scope: 'wallboard-media-upload',
