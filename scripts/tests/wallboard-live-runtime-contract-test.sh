@@ -390,5 +390,7 @@ for contract in \
   require_text "${UNINSTALL}" "${contract}"
 done
 require_text "${NGINX}" 'alias /run/dis-wallboard-live/hls/$1;'
+require_text "${NGINX}" 'location ~ "^/__dis_wallboard_live/(segment-[0-9]{20}\.ts)$" {'
+reject_text "${NGINX}" 'location ~ ^/__dis_wallboard_live/(segment-[0-9]{20}\.ts)$ {'
 
 printf 'Wallboard RTMPS ingress and HLS runtime contract passed.\n'

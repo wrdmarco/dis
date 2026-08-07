@@ -432,6 +432,14 @@ final class WallboardLiveStreamInfrastructureContractTest extends TestCase
     public function test_nginx_exposes_only_server_generated_transport_stream_segments_internally(): void
     {
         $nginx = $this->read('infrastructure/nginx/dis.conf');
+        self::assertStringContainsString(
+            'location ~ "^/__dis_wallboard_live/(segment-[0-9]{20}\\.ts)$" {',
+            $nginx,
+        );
+        self::assertStringNotContainsString(
+            'location ~ ^/__dis_wallboard_live/(segment-[0-9]{20}\\.ts)$ {',
+            $nginx,
+        );
         self::assertStringContainsString('internal;', $nginx);
         self::assertStringContainsString('alias /run/dis-wallboard-live/hls/$1;', $nginx);
         self::assertStringContainsString('disable_symlinks on;', $nginx);
